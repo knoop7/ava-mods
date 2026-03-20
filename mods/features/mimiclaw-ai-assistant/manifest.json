@@ -1,0 +1,173 @@
+{
+  "id": "mimiclaw-ai-assistant",
+  "name": "OpenClaw(Mini)",
+  "version": "1.2.38",
+  "author": "Ava",
+  "description": "A Java-built Android AI assistant for device control, screenshots, UI actions, automation, diagnostics, messaging, and future skills.",
+  "icon": "mdi:robot",
+  "libs": [
+    "libs/mimiclaw-manager.jar",
+    "libs/termux/jni/arm64-v8a/libtermux.so",
+    "libs/termux/jni/armeabi-v7a/libtermux.so",
+    "libs/termux/jni/x86_64/libtermux.so",
+    "libs/termux/jni/x86/libtermux.so"
+  ],
+  "manager": "com.ava.mods.mimiclaw.MimiClawManager",
+  "permissions": [
+    "android.permission.INTERNET",
+    "android.permission.ACCESS_NETWORK_STATE"
+  ],
+  "entities": [
+    {
+      "type": "text_sensor",
+      "id": "agent_status",
+      "name": "Agent Status",
+      "icon": "mdi:robot",
+      "category": "diagnostic",
+      "read": "getAgentStatus"
+    },
+    {
+      "type": "text_sensor",
+      "id": "last_response",
+      "name": "Heartbeat Status",
+      "icon": "mdi:heart-pulse",
+      "category": "diagnostic",
+      "read": "getLastResponse"
+    },
+    {
+      "type": "text_sensor",
+      "id": "total_tokens",
+      "name": "Total Tokens",
+      "icon": "mdi:counter",
+      "category": "diagnostic",
+      "read": "getTotalTokens"
+    },
+    {
+      "type": "button",
+      "id": "send_message",
+      "name": "Send Message",
+      "icon": "mdi:send",
+      "press": "sendMessage"
+    },
+    {
+      "type": "button",
+      "id": "clear_memory",
+      "name": "Clear Memory",
+      "icon": "mdi:delete",
+      "press": "clearMemory"
+    }
+  ],
+  "config": [
+    {
+      "type": "select",
+      "key": "provider",
+      "label": "API Protocol",
+      "description": "Select API protocol type",
+      "dialogHint": "OpenAI style",
+      "defaultValue": "openai",
+      "options": ["anthropic", "openai"]
+    },
+    {
+      "type": "text",
+      "key": "api_key",
+      "label": "API Key",
+      "description": "Enter model API key",
+      "dialogHint": "Paste API key",
+      "defaultValue": ""
+    },
+    {
+      "type": "text",
+      "key": "model",
+      "label": "Model Name",
+      "description": "Enter model ID name",
+      "dialogHint": "e.g. stepfun/step-3.5-flash",
+      "defaultValue": "stepfun/step-3.5-flash"
+    },
+    {
+      "type": "text",
+      "key": "custom_api_url",
+      "label": "Custom API URL",
+      "description": "Optional custom API URL",
+      "dialogHint": "Default OpenRouter",
+      "defaultValue": "https://openrouter.ai/api/v1"
+    },
+    {
+      "type": "number",
+      "key": "max_tokens",
+      "label": "Max Tokens",
+      "description": "Set max reply tokens",
+      "dialogHint": "Higher = longer",
+      "defaultValue": "4096",
+      "min": 512,
+      "max": 8192,
+      "step": 512
+    },
+    {
+      "type": "number",
+      "key": "max_tool_iterations",
+      "label": "Max Tool Iterations",
+      "description": "Set max tool rounds",
+      "dialogHint": "More = slower",
+      "defaultValue": "10",
+      "min": 1,
+      "max": 20,
+      "step": 1
+    },
+    {
+      "type": "text",
+      "key": "tavily_key",
+      "label": "Tavily API Key",
+      "description": "Optional web search key",
+      "dialogHint": "For web search",
+      "defaultValue": ""
+    },
+    {
+      "type": "text",
+      "key": "telegram_token",
+      "label": "Telegram Bot Token",
+      "description": "Optional Telegram token",
+      "dialogHint": "Bot token",
+      "defaultValue": ""
+    },
+    {
+      "type": "text",
+      "key": "qq_app_id",
+      "label": "QQ Bot App ID",
+      "description": "Optional QQ bot app ID",
+      "dialogHint": "QQ channel",
+      "defaultValue": ""
+    },
+    {
+      "type": "text",
+      "key": "qq_client_secret",
+      "label": "QQ Bot Client Secret",
+      "description": "Optional QQ bot secret",
+      "dialogHint": "QQ auth",
+      "defaultValue": ""
+    },
+    {
+      "type": "switch",
+      "key": "qq_sandbox",
+      "label": "QQ Sandbox Mode",
+      "description": "Enable QQ sandbox mode",
+      "dialogHint": "Test mode",
+      "defaultValue": "false"
+    },
+    {
+      "type": "switch",
+      "key": "web_console_enabled",
+      "label": "Web Console",
+      "description": "Enable local web console",
+      "dialogHint": "Default off",
+      "defaultValue": "false"
+    },
+    {
+      "type": "text",
+      "key": "web_console_password",
+      "label": "Web Password",
+      "description": "Password for local console",
+      "dialogHint": "Default: openclaw",
+      "defaultValue": "openclaw"
+    }
+  ]
+}

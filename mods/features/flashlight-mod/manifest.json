@@ -1,0 +1,25 @@
+{
+  "id": "flashlight-mod",
+  "name": "Flashlight",
+  "version": "1.0.0",
+  "author": "Ava",
+  "description": "Control device flashlight from Home Assistant",
+  "icon": "mdi:flashlight",
+  "libs": [
+    "libs/flashlight-manager.jar"
+  ],
+  "manager": "com.ava.mods.flashlight.FlashlightManager",
+  "permissions": [
+    "android.permission.CAMERA"
+  ],
+  "entities": [
+    {
+      "type": "button",
+      "id": "toggle",
+      "name": "Toggle Flashlight",
+      "icon": "mdi:flashlight",
+      "press": "toggle"
+    }
+  ],
+  "config": []
+}

@@ -1,0 +1,138 @@
+{
+  "id": "gps-mod",
+  "name": "GPS Location",
+  "version": "1.1.0",
+  "author": "Ava",
+  "description": "Expose device GPS location to Home Assistant with configurable sensors and update behavior",
+  "icon": "mdi:crosshairs-gps",
+  "libs": [
+    "libs/gps-manager.jar"
+  ],
+  "manager": "com.ava.mods.gps.GpsManager",
+  "permissions": [
+    "android.permission.ACCESS_FINE_LOCATION",
+    "android.permission.ACCESS_COARSE_LOCATION"
+  ],
+  "entities": [
+    {
+      "type": "sensor",
+      "id": "latitude",
+      "name": "Latitude",
+      "icon": "mdi:latitude",
+      "unit": "°",
+      "read": "getLatitude",
+      "enabledWhen": "enable_latitude"
+    },
+    {
+      "type": "sensor",
+      "id": "longitude",
+      "name": "Longitude",
+      "icon": "mdi:longitude",
+      "unit": "°",
+      "read": "getLongitude",
+      "enabledWhen": "enable_longitude"
+    },
+    {
+      "type": "sensor",
+      "id": "altitude",
+      "name": "Altitude",
+      "icon": "mdi:elevation-rise",
+      "unit": "m",
+      "read": "getAltitude",
+      "enabledWhen": "enable_altitude"
+    },
+    {
+      "type": "sensor",
+      "id": "speed",
+      "name": "Speed",
+      "icon": "mdi:speedometer",
+      "unit": "m/s",
+      "read": "getSpeed",
+      "enabledWhen": "enable_speed"
+    },
+    {
+      "type": "sensor",
+      "id": "accuracy",
+      "name": "Accuracy",
+      "icon": "mdi:target",
+      "unit": "m",
+      "read": "getAccuracy",
+      "enabledWhen": "enable_accuracy"
+    },
+    {
+      "type": "button",
+      "id": "refresh",
+      "name": "Refresh Location",
+      "icon": "mdi:refresh",
+      "press": "refreshLocation"
+    }
+  ],
+  "config": [
+    {
+      "type": "select",
+      "key": "provider",
+      "label": "Location Provider",
+      "description": "Choose which Android location provider the module should prefer",
+      "dialogHint": "Use GPS for precision, network for lower power, or passive to reuse other updates.",
+      "defaultValue": "gps",
+      "options": ["gps", "network", "passive"]
+    },
+    {
+      "type": "number",
+      "key": "update_interval_seconds",
+      "label": "Update Interval",
+      "description": "Seconds between requested location updates",
+      "dialogHint": "Lower values refresh faster but use more power.",
+      "defaultValue": "5",
+      "min": 1,
+      "max": 300,
+      "step": 1
+    },
+    {
+      "type": "number",
+      "key": "min_distance_meters",
+      "label": "Minimum Distance",
+      "description": "Meters the device should move before requesting another update",
+      "dialogHint": "Set 0 to refresh even when movement is very small.",
+      "defaultValue": "1",
+      "min": 0,
+      "max": 100,
+      "step": 1
+    },
+    {
+      "type": "switch",
+      "key": "enable_latitude",
+      "label": "Latitude Sensor",
+      "description": "Show the latitude sensor in Home Assistant",
+      "defaultValue": "true"
+    },
+    {
+      "type": "switch",
+      "key": "enable_longitude",
+      "label": "Longitude Sensor",
+      "description": "Show the longitude sensor in Home Assistant",
+      "defaultValue": "true"
+    },
+    {
+      "type": "switch",
+      "key": "enable_altitude",
+      "label": "Altitude Sensor",
+      "description": "Show the altitude sensor in Home Assistant",
+      "defaultValue": "true"
+    },
+    {
+      "type": "switch",
+      "key": "enable_speed",
+      "label": "Speed Sensor",
+      "description": "Show the speed sensor in Home Assistant",
+      "defaultValue": "true"
+    },
+    {
+      "type": "switch",
+      "key": "enable_accuracy",
+      "label": "Accuracy Sensor",
+      "description": "Show the accuracy sensor in Home Assistant",
+      "defaultValue": "true"
+    }
+  ]
+}

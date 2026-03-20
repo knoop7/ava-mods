@@ -1,0 +1,17 @@
+{
+  "id": "simple-switch",
+  "name": "Simple Switch Example",
+  "version": "1.0.0",
+  "author": "Ava Team",
+  "description": "Basic switch example for learning",
+  "icon": "mdi:toggle-switch",
+
+  "entities": [
+    {
+      "type": "switch",
+      "id": "my_switch",
+      "name": "My Switch",
+      "icon": "mdi:power"
+    }
+  ]
+}

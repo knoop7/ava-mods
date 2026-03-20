@@ -1,0 +1,46 @@
+{
+  "id": "yx-led-controller",
+  "name": "YX LED Controller",
+  "version": "1.0.0",
+  "author": "slovebj",
+  "description": "LED and motion sensor for YX M5612",
+  "icon": "mdi:led-on",
+
+  "libs": ["libs/yxapi.jar"],
+  "manager": "android.os.yx.YxDeviceManager",
+
+  "entities": [
+    {
+      "type": "switch",
+      "id": "blue_led",
+      "name": "Blue LED",
+      "icon": "mdi:led-on",
+      "on": "setOemFunc:io21",
+      "off": "setOemFunc:io20"
+    },
+    {
+      "type": "switch",
+      "id": "red_led",
+      "name": "Red LED",
+      "icon": "mdi:led-on",
+      "on": "setOemFunc:io31",
+      "off": "setOemFunc:io30"
+    },
+    {
+      "type": "switch",
+      "id": "green_led",
+      "name": "Green LED",
+      "icon": "mdi:led-on",
+      "on": "setOemFunc:io41",
+      "off": "setOemFunc:io40"
+    },
+    {
+      "type": "binary_sensor",
+      "id": "motion",
+      "name": "Motion Sensor",
+      "icon": "mdi:motion-sensor",
+      "class": "motion",
+      "gpio": 4
+    }
+  ]
+}

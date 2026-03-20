@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "baseUrl": "https://raw.githubusercontent.com/knoop7/ava-mods/main/",
+  "mods": [
+    {
+      "id": "yx-led-controller",
+      "name": "YX LED Controller",
+      "version": "1.0.0",
+      "author": "slovebj",
+      "description": "LED and motion sensor for YX M5612",
+      "path": "mods/devices/yx-led-controller/"
+    },
+    {
+      "id": "gps-mod",
+      "name": "GPS Location",
+      "version": "1.3.0",
+      "author": "Ava",
+      "description": "Expose device GPS location to Home Assistant",
+      "path": "mods/features/gps-mod/"
+    },
+    {
+      "id": "echo-show-support",
+      "name": "Echo Show Support",
+      "version": "1.0.0",
+      "author": "Ava",
+      "description": "Device compatibility hooks for Amazon Echo Show models",
+      "path": "mods/devices/echo-show-support/"
+    },
+    {
+      "id": "flashlight-mod",
+      "name": "Flashlight",
+      "version": "1.0.0",
+      "author": "Ava",
+      "description": "Control device flashlight from Home Assistant",
+      "path": "mods/features/flashlight-mod/"
+    },
+    {
+      "id": "zigbee-gateway-mod",
+      "name": "Zigbee Gateway",
+      "version": "1.0.0",
+      "author": "Ava",
+      "description": "Serial to TCP bridge for Zigbee coordinators",
+      "path": "mods/features/zigbee-gateway-mod/"
+    },
+    {
+      "id": "mimiclaw-ai-assistant",
+      "name": "OpenClaw(Mini)",
+      "version": "1.2.38",
+      "author": "Ava",
+      "description": "Java-built Android AI assistant for control, automation, screenshots, diagnostics, and expandable skills.",
+      "path": "mods/features/mimiclaw-ai-assistant/"
+    }
+  ]
+}

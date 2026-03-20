@@ -1,0 +1,19 @@
+{
+  "id": "gpio-sensor",
+  "name": "GPIO Sensor Example",
+  "version": "1.0.0",
+  "author": "Ava Team",
+  "description": "GPIO binary sensor example",
+  "icon": "mdi:chip",
+
+  "entities": [
+    {
+      "type": "binary_sensor",
+      "id": "door_sensor",
+      "name": "Door Sensor",
+      "icon": "mdi:door",
+      "class": "door",
+      "gpio": 5
+    }
+  ]
+}
