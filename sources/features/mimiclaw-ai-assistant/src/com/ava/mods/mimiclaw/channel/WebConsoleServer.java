@@ -198,18 +198,88 @@ public class WebConsoleServer {
                 return;
             }
 
+            if ("POST".equals(method) && "/api/upload".equals(path)) {
+                try {
+                    String contentType = headers.get("content-type");
+                    if (contentType == null || !contentType.contains("multipart/form-data")) {
+                        writeJson(output, 400, errorJson("multipart_required"), null);
+                        return;
+                    }
+                    String boundary = extractBoundary(contentType);
+                    if (boundary == null) {
+                        writeJson(output, 400, errorJson("boundary_missing"), null);
+                        return;
+                    }
+                    Map<String, Object> parts = parseMultipart(body, boundary);
+                    byte[] fileData = (byte[]) parts.get("file_data");
+                    String fileName = (String) parts.get("file_name");
+                    String fileType = (String) parts.get("file_type");
+                    if (fileData == null || fileName == null) {
+                        writeJson(output, 400, errorJson("file_missing"), null);
+                        return;
+                    }
+                    String content = null;
+                    String base64Data = null;
+                    if (fileType != null && fileType.startsWith("image/")) {
+                        base64Data = android.util.Base64.encodeToString(fileData, android.util.Base64.NO_WRAP);
+                    } else if (fileType != null && (fileType.startsWith("text/") || fileType.contains("json") || fileType.contains("xml") || fileName.endsWith(".md") || fileName.endsWith(".txt") || fileName.endsWith(".csv"))) {
+                        content = new String(fileData, StandardCharsets.UTF_8);
+                        if (content.length() > 50000) {
+                            content = content.substring(0, 50000) + "\n... (truncated)";
+                        }
+                    } else {
+                        content = "[Binary file: " + fileName + ", " + fileData.length + " bytes]";
+                    }
+                    JSONObject result = okJson()
+                        .put("name", fileName)
+                        .put("type", fileType)
+                        .put("size", fileData.length)
+                        .put("content", content)
+                        .put("base64", base64Data);
+                    writeJson(output, 200, result, null);
+                    return;
+                } catch (Exception e) {
+                    Log.e(TAG, "Upload error", e);
+                    writeJson(output, 500, errorJson("upload_failed: " + e.getMessage()), null);
+                    return;
+                }
+            }
+
             if ("POST".equals(method) && "/api/chat".equals(path)) {
                 JSONObject json = parseJson(body);
                 String message = json.optString("message", "").trim();
-                if (message.isEmpty()) {
+                JSONArray attachments = json.optJSONArray("attachments");
+                StringBuilder fullMessage = new StringBuilder();
+                if (attachments != null && attachments.length() > 0) {
+                    for (int i = 0; i < attachments.length(); i++) {
+                        JSONObject att = attachments.getJSONObject(i);
+                        String attType = att.optString("type", "");
+                        String attName = att.optString("name", "file");
+                        String attContent = att.optString("content", null);
+                        String attBase64 = att.optString("base64", null);
+                        if (attBase64 != null && !attBase64.isEmpty() && attType.startsWith("image/")) {
+                            fullMessage.append("[IMAGE: ").append(attName).append("]\n");
+                            fullMessage.append("<image_data>").append(attType).append(";base64,").append(attBase64).append("</image_data>\n\n");
+                        } else if (attContent != null && !attContent.isEmpty()) {
+                            fullMessage.append("[FILE: ").append(attName).append("]\n");
+                            fullMessage.append("```\n").append(attContent).append("\n```\n\n");
+                        }
+                    }
+                }
+                if (!message.isEmpty()) {
+                    fullMessage.append(message);
+                }
+                String finalMessage = fullMessage.toString().trim();
+                if (finalMessage.isEmpty()) {
                     writeJson(output, 400, errorJson("message_required"), null);
                     return;
                 }
-                Log.d(TAG, "Chat request: " + message.substring(0, Math.min(30, message.length())));
+                Log.d(TAG, "Chat request: " + finalMessage.substring(0, Math.min(50, finalMessage.length())));
                 final String sid = sessionId;
+                final String msg = finalMessage;
                 clientPool.execute(() -> {
                     try {
-                        manager.handleWebConsoleMessage(sid, message);
+                        manager.handleWebConsoleMessage(sid, msg);
                     } catch (Exception e) {
                         Log.e(TAG, "Async chat error", e);
                     }
@@ -620,6 +690,85 @@ public class WebConsoleServer {
         return json;
     }
 
+    private String extractBoundary(String contentType) {
+        if (contentType == null) return null;
+        for (String part : contentType.split(";")) {
+            String trimmed = part.trim();
+            if (trimmed.startsWith("boundary=")) {
+                String boundary = trimmed.substring(9);
+                if (boundary.startsWith("\"") && boundary.endsWith("\"")) {
+                    boundary = boundary.substring(1, boundary.length() - 1);
+                }
+                return boundary;
+            }
+        }
+        return null;
+    }
+
+    private Map<String, Object> parseMultipart(String body, String boundary) {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            byte[] bodyBytes = body.getBytes(StandardCharsets.ISO_8859_1);
+            String delimiter = "--" + boundary;
+            String endDelimiter = "--" + boundary + "--";
+            int pos = 0;
+            while (pos < bodyBytes.length) {
+                int delimStart = indexOf(bodyBytes, delimiter.getBytes(StandardCharsets.ISO_8859_1), pos);
+                if (delimStart < 0) break;
+                int headerStart = delimStart + delimiter.length();
+                if (headerStart + 2 <= bodyBytes.length && bodyBytes[headerStart] == '\r' && bodyBytes[headerStart + 1] == '\n') {
+                    headerStart += 2;
+                }
+                int headerEnd = indexOf(bodyBytes, "\r\n\r\n".getBytes(StandardCharsets.ISO_8859_1), headerStart);
+                if (headerEnd < 0) break;
+                String headers = new String(bodyBytes, headerStart, headerEnd - headerStart, StandardCharsets.UTF_8);
+                int dataStart = headerEnd + 4;
+                int nextDelim = indexOf(bodyBytes, ("\r\n" + delimiter).getBytes(StandardCharsets.ISO_8859_1), dataStart);
+                if (nextDelim < 0) {
+                    nextDelim = indexOf(bodyBytes, delimiter.getBytes(StandardCharsets.ISO_8859_1), dataStart);
+                    if (nextDelim < 0) break;
+                }
+                byte[] data = new byte[nextDelim - dataStart];
+                System.arraycopy(bodyBytes, dataStart, data, 0, data.length);
+                String disposition = null;
+                String contentTypeHeader = null;
+                for (String line : headers.split("\r\n")) {
+                    if (line.toLowerCase().startsWith("content-disposition:")) {
+                        disposition = line.substring(20).trim();
+                    } else if (line.toLowerCase().startsWith("content-type:")) {
+                        contentTypeHeader = line.substring(13).trim();
+                    }
+                }
+                if (disposition != null && disposition.contains("name=\"file\"")) {
+                    result.put("file_data", data);
+                    result.put("file_type", contentTypeHeader);
+                    java.util.regex.Matcher m = java.util.regex.Pattern.compile("filename=\"([^\"]+)\"").matcher(disposition);
+                    if (m.find()) {
+                        result.put("file_name", m.group(1));
+                    }
+                }
+                pos = nextDelim;
+                if (new String(bodyBytes, nextDelim, Math.min(endDelimiter.length(), bodyBytes.length - nextDelim), StandardCharsets.ISO_8859_1).startsWith(endDelimiter)) {
+                    break;
+                }
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "parseMultipart error", e);
+        }
+        return result;
+    }
+
+    private int indexOf(byte[] data, byte[] pattern, int start) {
+        outer:
+        for (int i = start; i <= data.length - pattern.length; i++) {
+            for (int j = 0; j < pattern.length; j++) {
+                if (data[i + j] != pattern[j]) continue outer;
+            }
+            return i;
+        }
+        return -1;
+    }
+
     private String expiredCookieHeader() {
         return "Set-Cookie: " + COOKIE_NAME + "=; Path=/; Max-Age=0; SameSite=Lax";
     }
@@ -702,6 +851,7 @@ public class WebConsoleServer {
         String svgStop = "<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='currentColor'><rect x='6' y='6' width='12' height='12' rx='3'/></svg>";
         String svgEye = "<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z'/><circle cx='12' cy='12' r='3'/></svg>";
         String svgRobot = "<svg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='currentColor'><path d='M6,2V8H6V8L10,12L6,16V16H6V22H18V16H18V16L14,12L18,8V8H18V2H6M16,16.5V20H8V16.5L12,12.5L16,16.5M12,11.5L8,7.5V4H16V7.5L12,11.5Z'/></svg>";
+        String svgPaperclip = "<svg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48'/></svg>";
 
         if (!authed) {
             return "<!doctype html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover'>"
@@ -826,12 +976,22 @@ public class WebConsoleServer {
             + ".skillPanel{}"
             + ".composerWrap{padding:12px 16px;border-top:1px solid var(--line);background:var(--panel);}"
             + ".composer{position:relative;height:100px;padding:16px;background:var(--field);border-radius:24px;}"
-            + ".composer textarea{display:block;width:100%;height:100%;border:0;background:transparent;color:var(--text);padding:0 52px 0 8px;outline:none;font-size:16px;line-height:1.4;resize:none;overflow:auto;}"
+            + ".composer textarea{display:block;width:100%;height:100%;border:0;background:transparent;color:var(--text);padding:0 96px 0 8px;outline:none;font-size:16px;line-height:1.4;resize:none;overflow:auto;}"
             + ".composer textarea::placeholder{color:var(--muted);}"
-            + ".composer button{position:absolute;right:14px;bottom:14px;width:34px;height:34px;padding:0;display:flex;align-items:center;justify-content:center;background:var(--accent);color:var(--accentText);border:0;border-radius:50%;cursor:pointer;transition:opacity 0.15s,border-radius .15s,transform .15s;}"
-            + ".composer button.busy{border-radius:50%;transform:none;}"
-            + ".composer button:hover{opacity:0.85;}"
-            + ".composer button svg{width:18px;height:18px;}"
+            + ".composerBtns{position:absolute;right:14px;bottom:14px;display:flex;align-items:center;gap:8px;}"
+            + ".composer button.sendBtn{width:34px;height:34px;padding:0;display:flex;align-items:center;justify-content:center;background:var(--accent);color:var(--accentText);border:0;border-radius:50%;cursor:pointer;transition:opacity 0.15s,border-radius .15s,transform .15s;}"
+            + ".composer button.attachBtn{width:34px;height:34px;padding:0;display:flex;align-items:center;justify-content:center;background:transparent;color:var(--muted);border:0;border-radius:50%;cursor:pointer;transition:color 0.15s;}"
+            + ".composer button.attachBtn:hover{color:var(--accent);}"
+            + ".composer button.sendBtn.busy{border-radius:50%;transform:none;}"
+            + ".composer button.sendBtn:hover{opacity:0.85;}"
+            + ".composer button.sendBtn svg{width:18px;height:18px;}"
+            + ".composer button.attachBtn svg{width:18px;height:18px;}"
+            + ".attachPreview{position:absolute;left:14px;bottom:14px;display:flex;align-items:center;gap:6px;max-width:calc(100% - 120px);}"
+            + ".attachItem{display:flex;align-items:center;gap:4px;padding:4px 8px;background:var(--field);border:1px solid var(--line);border-radius:8px;font-size:11px;color:var(--text);max-width:120px;}"
+            + ".attachItem span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}"
+            + ".attachItem button{width:16px;height:16px;padding:0;background:transparent;border:0;color:var(--muted);cursor:pointer;display:flex;align-items:center;justify-content:center;}"
+            + ".attachItem button:hover{color:var(--text);}"
+            + ".attachItem img{width:24px;height:24px;object-fit:cover;border-radius:4px;}"
             + ".meta{padding:5px 25px 0;color:var(--muted);font-size:12px;}"
             + ".footer{display:none;text-align:center;color:var(--muted);font-size:11px;padding:6px 0;flex-shrink:0;}"
             + ".menuBtn{display:none;}"
@@ -897,7 +1057,7 @@ public class WebConsoleServer {
             + "</div>"
             + "<div class='topActions'><span class='statusPill' id='chatStatus'>Connecting</span><button class='ghostBtn' onclick='reloadHistory()'>" + svgRefresh + " Refresh</button></div>"
             + "</div>"
-            + "<section class='chatShell'><div class='messages' id='messages'></div><div class='composerWrap'><div class='composer'><textarea id='message' placeholder='Type a message...' onkeydown='if(event.key===\"Enter\"&&!event.shiftKey){event.preventDefault();sendOrStop();}'></textarea><button id='sendBtn' onclick='sendOrStop()' title='Send'>" + svgSend + "</button></div><div class='meta' id='meta'></div></div></section>"
+            + "<section class='chatShell'><div class='messages' id='messages'></div><div class='composerWrap'><div class='composer'><textarea id='message' placeholder='Type a message...' onkeydown='if(event.key===\"Enter\"&&!event.shiftKey){event.preventDefault();sendOrStop();}'></textarea><div class='attachPreview' id='attachPreview'></div><input type='file' id='fileInput' style='display:none' accept='image/*,text/*,.pdf,.json,.xml,.csv,.md' multiple onchange='handleFiles(this.files)'><div class='composerBtns'><button class='attachBtn' onclick='document.getElementById(\"fileInput\").click()' title='Attach file'>" + svgPaperclip + "</button><button id='sendBtn' class='sendBtn' onclick='sendOrStop()' title='Send'>" + svgSend + "</button></div></div><div class='meta' id='meta'></div></div></section>"
             + "</main></div>"
             + "<script src='https://cdn.jsdelivr.net/npm/marked/marked.min.js'></script>"
             + "<script>marked.setOptions({breaks:true,gfm:true});</script>"
@@ -951,10 +1111,15 @@ public class WebConsoleServer {
             + "function setComposerBusy(busy){const btn=document.getElementById('sendBtn');const input=document.getElementById('message');window.__openclawBusy=!!busy;if(btn){btn.innerHTML=busy?svgStopIcon:svgSendIcon;btn.title=busy?'Stop':'Send';btn.classList.toggle('busy',!!busy);}if(input){input.placeholder=busy?'AI is processing...':'Type a message...';}}"
             + "function syncBusyFromStatus(status){setComposerBusy(status==='processing'||status==='llm_request'||status==='tool_use'||status==='responding');}"
             + "function sendOrStop(){if(window.__openclawBusy){stopChat();}else{sendChat();}}"
+            + "let pendingFiles=[];const svgX='<svg width=\"10\" height=\"10\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.5\"><path d=\"M18 6 6 18\"/><path d=\"m6 6 12 12\"/></svg>';"
+            + "function handleFiles(files){for(let i=0;i<files.length;i++){const f=files[i];if(f.size>10*1024*1024){alert('File too large (max 10MB)');continue;}pendingFiles.push(f);}renderAttachPreview();document.getElementById('fileInput').value='';}"
+            + "function removeAttach(idx){pendingFiles.splice(idx,1);renderAttachPreview();}"
+            + "function renderAttachPreview(){const box=document.getElementById('attachPreview');if(!box)return;if(pendingFiles.length===0){box.innerHTML='';return;}let h='';pendingFiles.forEach((f,i)=>{const isImg=f.type.startsWith('image/');if(isImg){const url=URL.createObjectURL(f);h+='<div class=\"attachItem\"><img src=\"'+url+'\"><span>'+escapeHtml(f.name)+'</span><button onclick=\"removeAttach('+i+')\">'+svgX+'</button></div>';}else{h+='<div class=\"attachItem\"><span>'+escapeHtml(f.name)+'</span><button onclick=\"removeAttach('+i+')\">'+svgX+'</button></div>';}});box.innerHTML=h;}"
+            + "async function uploadFiles(){if(pendingFiles.length===0)return[];const results=[];for(const f of pendingFiles){const fd=new FormData();fd.append('file',f);try{const r=await fetch(apiUrl('/api/upload'),{method:'POST',credentials:'include',headers:apiHeaders(),body:fd});const j=await r.json();if(j.ok){results.push({name:f.name,type:f.type,path:j.path,content:j.content||null});}}catch(e){console.error('upload error',e);}}pendingFiles=[];renderAttachPreview();return results;}"
             + "async function loadStatus(){try{const r=await fetch(apiUrl('/api/status'),{credentials:'include',headers:apiHeaders()});const j=await r.json();if(j.ok){document.getElementById('chatStatus').textContent=j.status||'Ready';syncBusyFromStatus(j.status||'');document.getElementById('meta').textContent=(j.chatId?('Session: '+j.chatId.substring(0,8)+'...'):'');renderStatusJson(j.detail||{});}else{renderStatusJson({error:'not ok',data:j});}}catch(e){console.error('loadStatus error',e);renderStatusJson({error:e.message});}}"
             + "async function reloadHistory(){if(loadingHistory)return;loadingHistory=true;try{const r=await fetch(apiUrl('/api/history'),{credentials:'include',headers:apiHeaders()});const j=await r.json();if(j.ok){renderHistory(j.messages||[]);}}catch(e){}finally{loadingHistory=false;loadStatus();}}"
-            + "let sending=false,lastSend=0;async function sendChat(){if(sending||Date.now()-lastSend<1000)return;const input=document.getElementById('message');const value=input.value.trim();if(!value)return;sending=true;lastSend=Date.now();setComposerBusy(true);input.value='';if(value==='/new'){document.getElementById('messages').innerHTML='';shownMsgs.clear();}else{addBubble(value,'user');}document.getElementById('chatStatus').textContent='Thinking...';"
-            + "try{const r=await fetch(apiUrl('/api/chat'),{method:'POST',credentials:'include',headers:apiHeaders({'Content-Type':'application/json'}),body:JSON.stringify({message:value})});if(!r.ok){addBubble('HTTP '+r.status+': '+r.statusText,'bot');document.getElementById('chatStatus').textContent='HTTP Error';setComposerBusy(false);return;}const j=await r.json();"
+            + "let sending=false,lastSend=0;async function sendChat(){if(sending||Date.now()-lastSend<1000)return;const input=document.getElementById('message');const value=input.value.trim();const hasFiles=pendingFiles.length>0;if(!value&&!hasFiles)return;sending=true;lastSend=Date.now();setComposerBusy(true);input.value='';if(value==='/new'){document.getElementById('messages').innerHTML='';shownMsgs.clear();pendingFiles=[];renderAttachPreview();}else{const displayMsg=value||(hasFiles?'[Attached '+pendingFiles.length+' file(s)]':'');addBubble(displayMsg,'user');}document.getElementById('chatStatus').textContent=hasFiles?'Uploading...':'Thinking...';"
+            + "try{const attachments=await uploadFiles();const r=await fetch(apiUrl('/api/chat'),{method:'POST',credentials:'include',headers:apiHeaders({'Content-Type':'application/json'}),body:JSON.stringify({message:value,attachments:attachments})});if(!r.ok){addBubble('HTTP '+r.status+': '+r.statusText,'bot');document.getElementById('chatStatus').textContent='HTTP Error';setComposerBusy(false);return;}const j=await r.json();"
             + "if(j.ok){document.getElementById('chatStatus').textContent=j.status||'Done';syncBusyFromStatus(j.status||'');if(j.response){if(j.response==='Conversation cleared.'){document.getElementById('messages').innerHTML='';shownMsgs.clear();}else{addBubble(j.response,'bot');}}}else{document.getElementById('chatStatus').textContent='Error';setComposerBusy(false);addBubble('Error: '+(j.error||'request_failed'),'bot');}}catch(e){document.getElementById('chatStatus').textContent='Error';setComposerBusy(false);addBubble('Error: '+e.message,'bot');console.error('sendChat error',e);}finally{sending=false;}}"
             + "async function stopChat(){if(!window.__openclawBusy)return;try{document.getElementById('chatStatus').textContent='Stopping...';const r=await fetch(apiUrl('/api/stop'),{method:'POST',credentials:'include',headers:apiHeaders({'Content-Type':'application/json'})});const j=await r.json();if(j&&j.ok){setComposerBusy(false);document.getElementById('chatStatus').textContent=j.status||'idle';addBubble('Generation stopped.','bot');}else{document.getElementById('chatStatus').textContent='Stop failed';}}catch(e){document.getElementById('chatStatus').textContent='Stop failed';console.error('stopChat error',e);}}"
             + "async function updatePassword(){try{const r=await fetch(apiUrl('/api/password'),{method:'POST',headers:apiHeaders({'Content-Type':'application/json'}),body:JSON.stringify({currentPassword:document.getElementById('currentPassword').value,newPassword:document.getElementById('newPassword').value})});const j=await r.json();document.getElementById('settingsStatus').textContent=j.ok?'Updated':(j.error||'Failed');if(j.ok){document.getElementById('currentPassword').value='';document.getElementById('newPassword').value='';}}catch(e){document.getElementById('settingsStatus').textContent='Error';}}"
