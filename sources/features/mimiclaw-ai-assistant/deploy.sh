@@ -28,7 +28,7 @@ sed -i '' "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" "$ROOT_DIR/sour
 sed -i '' "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" "$ROOT_DIR/mods/features/mimiclaw-ai-assistant/manifest.json"
 sed -i '' "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" "$ROOT_DIR/sources/mods/features/mimiclaw-ai-assistant/manifest.json"
 
-# Update store.json (only mimiclaw-ai-assistant entry)
+# Update store.json (only mimiclaw-ai-assistant entry) - version will be updated, jar_hash later
 python3 -c "
 import json
 with open('$ROOT_DIR/store.json', 'r') as f:
@@ -47,11 +47,12 @@ echo "Version updated to $VERSION"
 echo "Copying JAR..."
 cp "$ROOT_DIR/sources/features/mimiclaw-ai-assistant/libs/mimiclaw-manager.jar" "$ROOT_DIR/mods/features/mimiclaw-ai-assistant/libs/"
 
-# Calculate JAR hash and update manifest
+# Calculate JAR hash and update manifest + store.json
 JAR_HASH=$(md5 -q "$ROOT_DIR/mods/features/mimiclaw-ai-assistant/libs/mimiclaw-manager.jar")
 echo "JAR hash: $JAR_HASH"
 python3 -c "
 import json
+# Update manifest files
 for path in ['$ROOT_DIR/mods/features/mimiclaw-ai-assistant/manifest.json', '$ROOT_DIR/sources/features/mimiclaw-ai-assistant/manifest.json', '$ROOT_DIR/sources/mods/features/mimiclaw-ai-assistant/manifest.json']:
     try:
         with open(path, 'r') as f:
@@ -61,6 +62,17 @@ for path in ['$ROOT_DIR/mods/features/mimiclaw-ai-assistant/manifest.json', '$RO
             json.dump(data, f, indent=2)
             f.write('\n')
     except: pass
+# Update store.json
+try:
+    with open('$ROOT_DIR/store.json', 'r') as f:
+        data = json.load(f)
+    for mod in data.get('mods', []):
+        if mod.get('id') == 'mimiclaw-ai-assistant':
+            mod['jar_hash'] = '$JAR_HASH'
+    with open('$ROOT_DIR/store.json', 'w') as f:
+        json.dump(data, f, indent=2)
+        f.write('\n')
+except: pass
 "
 
 # Copy native libraries
