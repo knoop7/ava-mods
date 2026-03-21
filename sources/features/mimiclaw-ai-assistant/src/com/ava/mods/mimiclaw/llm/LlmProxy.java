@@ -585,10 +585,12 @@ public class LlmProxy {
             if (!dataUrl.startsWith("data:")) {
                 dataUrl = "data:" + dataUrl;
             }
+            Log.d(TAG, "Image data URL prefix: " + dataUrl.substring(0, Math.min(80, dataUrl.length())));
             JSONObject imageBlock = new JSONObject();
             imageBlock.put("type", "image_url");
             JSONObject imageUrl = new JSONObject();
             imageUrl.put("url", dataUrl);
+            imageUrl.put("detail", "auto");
             imageBlock.put("image_url", imageUrl);
             content.put(imageBlock);
             lastEnd = matcher.end();
