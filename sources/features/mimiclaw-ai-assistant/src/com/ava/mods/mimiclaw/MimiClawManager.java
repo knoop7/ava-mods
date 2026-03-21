@@ -21,6 +21,8 @@ import org.json.JSONObject;
 
 public class MimiClawManager {
     private static final String TAG = "MimiClawManager";
+    private static final String AI_BROWSER_STATE_PATH = "browser/ai_browser_state.json";
+    private static final String AI_BROWSER_EVENT_PREFIX = "[BROWSER_UI_EVENT]";
     private static final long BUILTIN_HEARTBEAT_INTERVAL_S = 30 * 60L;
     private static volatile MimiClawManager instance;
     
@@ -487,6 +489,34 @@ public class MimiClawManager {
         return (chatId == null || chatId.trim().isEmpty())
             ? "__web_console__"
             : "__web_console__:" + chatId.trim();
+    }
+
+    public void reportAiBrowserUiAction(String chatId, String payloadJson) {
+        try {
+            String resolvedChatId = resolveWebConsoleChatId(chatId);
+            JSONObject payload = new JSONObject(payloadJson == null ? "{}" : payloadJson);
+            payload.put("resolved_chat_id", resolvedChatId);
+            payload.put("channel", "webconsole");
+            payload.put("source", "ai_browser_ui");
+            payload.put("received_at", System.currentTimeMillis());
+            memoryStore.writeFileByPath(AI_BROWSER_STATE_PATH, payload.toString(2));
+
+            String action = payload.optString("action", "unknown");
+            String url = payload.optString("url", "");
+            memoryStore.appendToday("- [AI Browser UI] action=" + action
+                + (url.isEmpty() ? "" : " url=" + url)
+                + " chat=" + resolvedChatId);
+
+            MessageBus.Message eventMsg = new MessageBus.Message(
+                "webconsole",
+                resolvedChatId,
+                AI_BROWSER_EVENT_PREFIX + " " + payload.toString()
+            );
+            messageBus.pushInbound(eventMsg);
+            Log.d(TAG, "AI browser UI action queued: " + action + " -> " + resolvedChatId);
+        } catch (Exception e) {
+            Log.w(TAG, "Failed to report AI browser UI action", e);
+        }
     }
 
     public void clearWebConsoleSession(String chatId) {

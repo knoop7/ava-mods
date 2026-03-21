@@ -12,6 +12,7 @@ public class ContextBuilder {
     public static final String CHANNEL_QQBOT = "qqbot";
     public static final String CHANNEL_TELEGRAM = "telegram";
     public static final String CHANNEL_WEBCONSOLE = "webconsole";
+    private static final String AI_BROWSER_STATE_PATH = "browser/ai_browser_state.json";
     
     private final MemoryStore memoryStore;
     private final SkillLoader skillLoader;
@@ -72,6 +73,7 @@ public class ContextBuilder {
         
         appendSkillsSection(sb, channel, chatId);
         appendContextSection(sb, channel, chatId);
+        appendAiBrowserStateSection(sb);
 
         return sb.toString();
     }
@@ -165,6 +167,17 @@ public class ContextBuilder {
         sb.append("- Channel: ").append(channel).append("\n");
         sb.append("- Chat ID: ").append(chatId).append("\n");
         sb.append("- Time: ").append(new Date()).append("\n");
+    }
+
+    private void appendAiBrowserStateSection(StringBuilder sb) {
+        String content = memoryStore.readFileByPath(AI_BROWSER_STATE_PATH);
+        if (content == null || content.trim().isEmpty()) {
+            return;
+        }
+        sb.append("\n## AI Browser UI State\n\n");
+        sb.append(content.trim()).append("\n");
+        sb.append("\nIf a hidden browser UI event arrives, treat it as an immediate user action callback. ");
+        sb.append("Do not chat back just to acknowledge it. Use it as side-channel context.\n");
     }
 
     private void appendHeartbeatMode(StringBuilder sb) {

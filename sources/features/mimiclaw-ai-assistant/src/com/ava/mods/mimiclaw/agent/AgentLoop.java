@@ -17,6 +17,7 @@ import java.util.Locale;
 public class AgentLoop implements Runnable {
     private static final String TAG = "AgentLoop";
     private static final int MAX_TOOL_ITERATIONS = 50;
+    private static final String HIDDEN_BROWSER_EVENT_PREFIX = "[BROWSER_UI_EVENT]";
 
     public interface StatusListener {
         void onStatusChanged(String status, String detail);
@@ -101,6 +102,7 @@ public class AgentLoop implements Runnable {
         try {
             activeChannel = msg.channel;
             activeChatId = msg.chatId;
+            boolean hiddenBrowserEvent = isHiddenBrowserEvent(msg);
             if (isCancelRequested(msg)) {
                 notifyStatus("idle", "Cancelled");
                 return;
@@ -116,15 +118,22 @@ public class AgentLoop implements Runnable {
             JSONArray messages = sessionManager.getHistory(sessionKey, 50);
             boolean isFirstMessage = messages.length() == 0;
             String systemPrompt = buildSystemPrompt(msg, isFirstMessage);
+            if (hiddenBrowserEvent) {
+                systemPrompt += "\n\n## Hidden Browser UI Event Mode\n"
+                    + "The current user message is a hidden browser UI callback.\n"
+                    + "Do not send a normal chat reply or acknowledgement.\n"
+                    + "Use it as immediate side-channel context. You may take tool actions if needed.\n"
+                    + "If no further action is needed, return exactly EVENT_ACK.\n";
+            }
             
             // Save user message first (before any tool calls)
-            if ("webconsole".equals(msg.channel)) {
+            if ("webconsole".equals(msg.channel) && !hiddenBrowserEvent) {
                 sessionManager.appendMessage(sessionKey, "user", msg.content);
             }
             
             JSONObject userMsg = new JSONObject();
             userMsg.put("role", "user");
-            userMsg.put("content", msg.content);
+            userMsg.put("content", hiddenBrowserEvent ? stripHiddenBrowserEventPrefix(msg.content) : msg.content);
             messages.put(userMsg);
             
             JSONArray tools = toolRegistry.getToolsJson();
@@ -160,7 +169,7 @@ public class AgentLoop implements Runnable {
                 messages.put(asstMsg);
                 
                 // Save tool_use to history for webconsole
-                if ("webconsole".equals(msg.channel)) {
+                if ("webconsole".equals(msg.channel) && !hiddenBrowserEvent) {
                     sessionManager.appendMessage(sessionKey, "assistant", assistantContent.toString());
                 }
                 
@@ -175,7 +184,7 @@ public class AgentLoop implements Runnable {
                 messages.put(resultMsg);
                 
                 // Save tool_result to history for webconsole
-                if ("webconsole".equals(msg.channel)) {
+                if ("webconsole".equals(msg.channel) && !hiddenBrowserEvent) {
                     sessionManager.appendMessage(sessionKey, "assistant", toolResults.toString());
                 }
                 
@@ -184,6 +193,10 @@ public class AgentLoop implements Runnable {
             
             if (finalText != null && !finalText.isEmpty()) {
                 finalText = normalizeFinalText(finalText);
+                if (hiddenBrowserEvent) {
+                    notifyStatus("idle", "");
+                    return;
+                }
                 // User message already saved at the beginning
                 sessionManager.appendMessage(sessionKey, "assistant", finalText);
 
@@ -205,6 +218,10 @@ public class AgentLoop implements Runnable {
                 String detail = iteration >= maxToolIterations
                     ? "Max tool iterations reached"
                     : "Model returned empty response";
+                if (hiddenBrowserEvent) {
+                    notifyStatus("idle", detail);
+                    return;
+                }
                 notifyStatus("error", detail);
                 MessageBus.Message errorMsg = new MessageBus.Message(
                     msg.channel, msg.chatId, "Error: " + detail
@@ -215,10 +232,14 @@ public class AgentLoop implements Runnable {
         } catch (Exception e) {
             Log.e(TAG, "Failed to process message", e);
             String detail = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+            if (isHiddenBrowserEvent(msg)) {
+                notifyStatus("idle", detail);
+                return;
+            }
             notifyStatus("error", detail);
             String errorText = "Error: " + detail;
             // Save error to history for webconsole
-            if ("webconsole".equals(msg.channel)) {
+            if ("webconsole".equals(msg.channel) && !isHiddenBrowserEvent(msg)) {
                 sessionManager.appendMessage(buildSessionKey(msg), "assistant", errorText);
             }
             MessageBus.Message errorMsg = new MessageBus.Message(
@@ -243,6 +264,23 @@ public class AgentLoop implements Runnable {
             && ContextBuilder.HEARTBEAT_CHAT_ID.equals(msg.chatId)
             && msg.content != null
             && msg.content.startsWith("HEARTBEAT_TICK");
+    }
+
+    private boolean isHiddenBrowserEvent(MessageBus.Message msg) {
+        return msg != null
+            && "webconsole".equals(msg.channel)
+            && msg.content != null
+            && msg.content.startsWith(HIDDEN_BROWSER_EVENT_PREFIX);
+    }
+
+    private String stripHiddenBrowserEventPrefix(String content) {
+        if (content == null) {
+            return "";
+        }
+        if (!content.startsWith(HIDDEN_BROWSER_EVENT_PREFIX)) {
+            return content;
+        }
+        return content.substring(HIDDEN_BROWSER_EVENT_PREFIX.length()).trim();
     }
 
     private boolean isHeartbeatChecklistEmpty() {

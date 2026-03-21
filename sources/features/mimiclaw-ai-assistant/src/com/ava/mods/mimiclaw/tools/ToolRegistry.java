@@ -410,6 +410,9 @@ public class ToolRegistry {
                 intent.setClassName(context, "com.example.ava.services.AiBrowserService");
                 intent.setAction("com.example.ava.services.AiBrowserService.SHOW");
                 intent.putExtra("url", url);
+                if ("webconsole".equals(currentChannel) && currentChatId != null && !currentChatId.trim().isEmpty()) {
+                    intent.putExtra("sid", currentChatId);
+                }
                 context.startService(intent);
                 return "Opened AI browser overlay: " + url;
             }
@@ -1043,6 +1046,9 @@ public class ToolRegistry {
                 intent.setClassName(context, "com.example.ava.services.AiBrowserService");
                 intent.setAction("com.example.ava.services.AiBrowserService.SHOW");
                 intent.putExtra("url", searchUrl);
+                if ("webconsole".equals(currentChannel) && currentChatId != null && !currentChatId.trim().isEmpty()) {
+                    intent.putExtra("sid", currentChatId);
+                }
                 context.startService(intent);
                 
                 Thread.sleep(5000);
@@ -1118,6 +1124,9 @@ public class ToolRegistry {
                 intent.setClassName(context, "com.example.ava.services.AiBrowserService");
                 intent.setAction("com.example.ava.services.AiBrowserService.SHOW");
                 intent.putExtra("url", url);
+                if ("webconsole".equals(currentChannel) && currentChatId != null && !currentChatId.trim().isEmpty()) {
+                    intent.putExtra("sid", currentChatId);
+                }
                 context.startService(intent);
                 
                 Thread.sleep(2500);
