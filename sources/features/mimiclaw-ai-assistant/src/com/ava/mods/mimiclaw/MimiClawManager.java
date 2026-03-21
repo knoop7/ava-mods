@@ -1,7 +1,11 @@
 package com.ava.mods.mimiclaw;
 
+import android.content.BroadcastReceiver;
 import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.SharedPreferences;
+import android.os.Build;
 import android.util.Log;
 import com.ava.mods.mimiclaw.agent.AgentLoop;
 import com.ava.mods.mimiclaw.bus.MessageBus;
@@ -23,6 +27,7 @@ public class MimiClawManager {
     private static final String TAG = "MimiClawManager";
     private static final String AI_BROWSER_STATE_PATH = "browser/ai_browser_state.json";
     private static final String AI_BROWSER_EVENT_PREFIX = "[BROWSER_UI_EVENT]";
+    private static final String ACTION_AI_BROWSER_UI_EVENT = "com.example.ava.AI_BROWSER_UI_EVENT";
     private static final long BUILTIN_HEARTBEAT_INTERVAL_S = 30 * 60L;
     private static volatile MimiClawManager instance;
     
@@ -40,6 +45,7 @@ public class MimiClawManager {
     private AgentLoop agentLoop;
     private Thread agentThread;
     private MessageBus messageBus;
+    private BroadcastReceiver aiBrowserUiReceiver;
     
     private String lastResponse = "";
     private String agentStatus = "idle";
@@ -95,6 +101,7 @@ public class MimiClawManager {
         cronService.start();
         loadWebConsolePrefs();
         refreshWebConsoleServer();
+        registerAiBrowserUiReceiver();
         
         Log.d(TAG, "OpenClaw(Mini) initialized");
     }
@@ -519,6 +526,46 @@ public class MimiClawManager {
         }
     }
 
+    private void registerAiBrowserUiReceiver() {
+        if (aiBrowserUiReceiver != null) {
+            return;
+        }
+        aiBrowserUiReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context ctx, Intent intent) {
+                if (intent == null || !ACTION_AI_BROWSER_UI_EVENT.equals(intent.getAction())) {
+                    return;
+                }
+                reportAiBrowserUiAction(
+                    intent.getStringExtra("sid"),
+                    intent.getStringExtra("payload")
+                );
+            }
+        };
+        IntentFilter filter = new IntentFilter(ACTION_AI_BROWSER_UI_EVENT);
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                context.registerReceiver(aiBrowserUiReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
+            } else {
+                context.registerReceiver(aiBrowserUiReceiver, filter);
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Failed to register AI browser UI receiver", e);
+        }
+    }
+
+    private void unregisterAiBrowserUiReceiver() {
+        if (aiBrowserUiReceiver == null) {
+            return;
+        }
+        try {
+            context.unregisterReceiver(aiBrowserUiReceiver);
+        } catch (Exception e) {
+            Log.w(TAG, "Failed to unregister AI browser UI receiver", e);
+        }
+        aiBrowserUiReceiver = null;
+    }
+
     public void clearWebConsoleSession(String chatId) {
         String resolvedChatId = resolveWebConsoleChatId(chatId);
         String sessionKey = "webconsole:" + resolvedChatId;
@@ -808,6 +855,7 @@ public class MimiClawManager {
     }
     
     public void onDestroy() {
+        unregisterAiBrowserUiReceiver();
         if (telegramChannel != null) {
             telegramChannel.stop();
         }
