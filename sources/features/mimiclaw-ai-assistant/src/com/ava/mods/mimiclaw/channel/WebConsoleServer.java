@@ -1130,7 +1130,7 @@ public class WebConsoleServer {
             + "function bubbleClass(role){return role==='user'?'user':'bot';}"
             + "function msgKey(role,text){return role+':'+text.substring(0,50);}"
             + "let viewer=null;function initViewer(){if(viewer)viewer.destroy();const box=document.getElementById('messages');if(typeof Viewer!=='undefined')viewer=new Viewer(box,{navbar:false,toolbar:{zoomIn:1,zoomOut:1,oneToOne:1,reset:1,rotateLeft:1,rotateRight:1}});}"
-            + "function parseStructuredContent(text){if(!text)return null;const trimmed=text.trim();if(!(trimmed.startsWith('[{')&&trimmed.includes('\"type\"')))return null;try{const j=JSON.parse(trimmed);return Array.isArray(j)?j:null;}catch(e){console.error('parseStructuredContent error',e);return null;}}"
+            + "function parseStructuredContent(text){if(!text)return null;const trimmed=text.trim();if(!(trimmed.startsWith('[')&&trimmed.includes('\"type\"')))return null;try{const j=JSON.parse(trimmed);return Array.isArray(j)?j:null;}catch(e){return null;}}"
             + "function isToolOnlyContent(text){const j=parseStructuredContent(text);return Array.isArray(j)&&j.length>0&&j.every(x=>x.type==='tool_use'||x.type==='tool_result')&&!j.some(x=>x.type==='text');}"
             + "function isToolResultOnly(text){const j=parseStructuredContent(text);return Array.isArray(j)&&j.length>0&&j.every(t=>t.type==='tool_result');}"
             + "function looksLikeToolResult(text){if(!text)return false;const t=text.trim();return t.includes('tool_result')||t.includes('tool_use_id')||/^\\[\\{.*\"type\"/.test(t);}"
