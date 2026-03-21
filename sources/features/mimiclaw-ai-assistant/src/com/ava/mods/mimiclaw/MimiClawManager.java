@@ -341,6 +341,9 @@ public class MimiClawManager {
                 String content = new String(java.nio.file.Files.readAllBytes(configFile.toPath()), "UTF-8");
                 config = new JSONObject(content);
             }
+            if (config.has(skillId) && config.optBoolean(skillId, enabled) == enabled) {
+                return;
+            }
             config.put(skillId, enabled);
             
             java.io.FileWriter writer = new java.io.FileWriter(configFile);
@@ -643,6 +646,9 @@ public class MimiClawManager {
         for (int i = 0; i < history.length(); i++) {
             try {
                 JSONObject item = history.getJSONObject(i);
+                if (isInternalWebConsoleMessage(item.optString("content", ""))) {
+                    continue;
+                }
                 String visibleContent = normalizeWebConsoleContent(item.optString("content", ""));
                 if (visibleContent == null || visibleContent.trim().isEmpty()) {
                     continue;
@@ -657,6 +663,14 @@ public class MimiClawManager {
             }
         }
         return result;
+    }
+
+    private boolean isInternalWebConsoleMessage(String content) {
+        if (content == null) {
+            return false;
+        }
+        String trimmed = content.trim();
+        return trimmed.startsWith("[SYSTEM] Skill '");
     }
 
     private JSONArray mergedWebConsoleHistory(String resolvedChatId, int maxMessages) {
