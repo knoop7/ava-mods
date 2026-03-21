@@ -16,7 +16,7 @@ import java.util.Locale;
 
 public class AgentLoop implements Runnable {
     private static final String TAG = "AgentLoop";
-    private static final int MAX_TOOL_ITERATIONS = 30;
+    private static final int MAX_TOOL_ITERATIONS = 50;
 
     public interface StatusListener {
         void onStatusChanged(String status, String detail);
@@ -116,6 +116,11 @@ public class AgentLoop implements Runnable {
             boolean isFirstMessage = messages.length() == 0;
             String systemPrompt = buildSystemPrompt(msg, isFirstMessage);
             
+            // Save user message first (before any tool calls)
+            if ("webconsole".equals(msg.channel)) {
+                sessionManager.appendMessage(sessionKey, "user", msg.content);
+            }
+            
             JSONObject userMsg = new JSONObject();
             userMsg.put("role", "user");
             userMsg.put("content", msg.content);
@@ -178,7 +183,7 @@ public class AgentLoop implements Runnable {
             
             if (finalText != null && !finalText.isEmpty()) {
                 finalText = normalizeFinalText(finalText);
-                sessionManager.appendMessage(sessionKey, "user", msg.content);
+                // User message already saved at the beginning
                 sessionManager.appendMessage(sessionKey, "assistant", finalText);
 
                 if (isHeartbeatMessage(msg) && "HEARTBEAT_OK".equals(finalText.trim())) {

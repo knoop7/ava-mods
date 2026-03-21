@@ -1,5 +1,7 @@
 package com.ava.mods.mimiclaw.llm;
 
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.util.Log;
 import android.util.Base64;
 import org.json.JSONArray;
@@ -532,6 +534,8 @@ public class LlmProxy {
         return content;
     }
 
+    private static final int MAX_IMAGE_SIZE = 800 * 1024; // 800KB max for AI
+    
     private String toImageDataUrl(String imagePath) {
         try {
             File file = new File(imagePath);
@@ -539,18 +543,28 @@ public class LlmProxy {
                 return null;
             }
 
-            ByteArrayOutputStream out = new ByteArrayOutputStream();
-            try (FileInputStream input = new FileInputStream(file)) {
-                byte[] buffer = new byte[8192];
-                int read;
-                while ((read = input.read(buffer)) != -1) {
-                    out.write(buffer, 0, read);
-                }
+            Bitmap bitmap = BitmapFactory.decodeFile(imagePath);
+            if (bitmap == null) {
+                return null;
             }
-
-            String mime = inferImageMimeType(file.getName());
+            
+            // Compress to JPEG, keep original size
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            int quality = 75;
+            bitmap.compress(Bitmap.CompressFormat.JPEG, quality, out);
+            
+            // Reduce quality if still too large
+            while (out.size() > MAX_IMAGE_SIZE && quality > 20) {
+                out.reset();
+                quality -= 10;
+                bitmap.compress(Bitmap.CompressFormat.JPEG, quality, out);
+            }
+            
+            bitmap.recycle();
+            
             String base64 = Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP);
-            return "data:" + mime + ";base64," + base64;
+            Log.d(TAG, "Image compressed: " + imagePath + " -> " + out.size() / 1024 + "KB, quality=" + quality);
+            return "data:image/jpeg;base64," + base64;
         } catch (Exception e) {
             Log.w(TAG, "Failed to convert image to data URL: " + imagePath, e);
             return null;

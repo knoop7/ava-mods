@@ -405,13 +405,29 @@ public class ToolRegistry {
                 if (url.isEmpty()) {
                     return "Error: url is required";
                 }
+                // Force desktop mode: update DataStore file directly
+                try {
+                    java.io.File dataStoreDir = new java.io.File(context.getFilesDir(), "datastore");
+                    java.io.File settingsFile = new java.io.File(dataStoreDir, "browser_settings.json");
+                    if (settingsFile.exists()) {
+                        String content = new String(java.nio.file.Files.readAllBytes(settingsFile.toPath()), java.nio.charset.StandardCharsets.UTF_8);
+                        JSONObject settings = new JSONObject(content);
+                        if (settings.optInt("userAgentMode", 0) != 1) {
+                            settings.put("userAgentMode", 1);
+                            java.nio.file.Files.write(settingsFile.toPath(), settings.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                            Log.d(TAG, "Set browser to desktop mode");
+                        }
+                    }
+                } catch (Exception e) {
+                    Log.w(TAG, "Failed to set desktop mode", e);
+                }
                 invokeStaticVoid("com.example.ava.services.WebViewService", "destroy", new Class[]{Context.class}, new Object[]{context});
                 android.content.Intent intent = new android.content.Intent();
                 intent.setClassName(context, "com.example.ava.services.WebViewService");
                 intent.setAction("ACTION_SHOW");
                 intent.putExtra("url", url);
                 context.startService(intent);
-                return "Opened Ava browser: " + url;
+                return "Opened Ava browser (desktop mode): " + url;
             }
         );
 

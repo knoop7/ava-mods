@@ -361,7 +361,7 @@ public class WebConsoleServer {
             if ("GET".equals(method) && "/api/history".equals(path)) {
                 JSONObject result = okJson()
                     .put("chatId", sessionId)
-                    .put("messages", manager.getWebConsoleHistory(sessionId, 80));
+                    .put("messages", manager.getWebConsoleHistory(sessionId, 200));
                 writeJson(output, 200, result, null);
                 return;
             }
@@ -509,7 +509,7 @@ public class WebConsoleServer {
         int lastMsgCount = 0;
         long lastPing = System.currentTimeMillis();
 
-        JSONArray initHistory = manager.getWebConsoleHistory(sessionId, 100);
+        JSONArray initHistory = manager.getWebConsoleHistory(sessionId, 200);
         lastMsgCount = initHistory.length();
 
         try {
@@ -523,7 +523,7 @@ public class WebConsoleServer {
                         lastPing = System.currentTimeMillis();
                     }
 
-                    JSONArray history = manager.getWebConsoleHistory(sessionId, 100);
+                    JSONArray history = manager.getWebConsoleHistory(sessionId, 200);
                     int currentCount = history.length();
                     if (currentCount > lastMsgCount) {
                         for (int i = lastMsgCount; i < currentCount; i++) {
@@ -857,7 +857,7 @@ public class WebConsoleServer {
         String svgSettings = "<svg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z'/><circle cx='12' cy='12' r='3'/></svg>";
         String svgPlus = "<svg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'><path d='M12 5v14'/><path d='M5 12h14'/></svg>";
         String svgBolt = "<svg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M13 2 3 14h9l-1 8 10-12h-9l1-8z'/></svg>";
-        String svgStop = "<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='currentColor'><rect x='6' y='6' width='12' height='12' rx='3'/></svg>";
+        String svgStop = "<svg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 24 24' fill='currentColor'><rect x='6' y='6' width='12' height='12' rx='3'/></svg>";
         String svgEye = "<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z'/><circle cx='12' cy='12' r='3'/></svg>";
         String svgRobot = "<svg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='currentColor'><path d='M6,2V8H6V8L10,12L6,16V16H6V22H18V16H18V16L14,12L18,8V8H18V2H6M16,16.5V20H8V16.5L12,12.5L16,16.5M12,11.5L8,7.5V4H16V7.5L12,11.5Z'/></svg>";
         String svgPaperclip = "<svg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48'/></svg>";
@@ -1142,7 +1142,7 @@ public class WebConsoleServer {
             + "if(j.ok){document.getElementById('chatStatus').textContent=j.status||'Done';syncBusyFromStatus(j.status||'');if(j.response){if(j.response==='Conversation cleared.'){document.getElementById('messages').innerHTML='';shownMsgs.clear();}else{addBubble(j.response,'bot');}}}else{document.getElementById('chatStatus').textContent='Error';setComposerBusy(false);addBubble('Error: '+(j.error||'request_failed'),'bot');}}catch(e){document.getElementById('chatStatus').textContent='Error';setComposerBusy(false);addBubble('Error: '+e.message,'bot');console.error('sendChat error',e);}finally{sending=false;}}"
             + "async function stopChat(){if(!window.__openclawBusy)return;try{document.getElementById('chatStatus').textContent='Stopping...';const r=await fetch(apiUrl('/api/stop'),{method:'POST',credentials:'include',headers:apiHeaders({'Content-Type':'application/json'})});const j=await r.json();if(j&&j.ok){setComposerBusy(false);document.getElementById('chatStatus').textContent=j.status||'idle';addBubble('Generation stopped.','bot');}else{document.getElementById('chatStatus').textContent='Stop failed';}}catch(e){document.getElementById('chatStatus').textContent='Stop failed';console.error('stopChat error',e);}}"
             + "async function updatePassword(){try{const r=await fetch(apiUrl('/api/password'),{method:'POST',headers:apiHeaders({'Content-Type':'application/json'}),body:JSON.stringify({currentPassword:document.getElementById('currentPassword').value,newPassword:document.getElementById('newPassword').value})});const j=await r.json();document.getElementById('settingsStatus').textContent=j.ok?'Updated':(j.error||'Failed');if(j.ok){document.getElementById('currentPassword').value='';document.getElementById('newPassword').value='';}}catch(e){document.getElementById('settingsStatus').textContent='Error';}}"
-            + "function statusHtml(s){const m={idle:'<i class=\"dot\"></i>Ready',processing:'<i class=\"dot spin\"></i>Processing',llm_request:'<i class=\"dot spin\"></i>AI',tool_use:'<i class=\"dot spin\"></i>Tools',responding:'<i class=\"dot ok\"></i>Done',error:'<i class=\"dot err\"></i>Error'};return m[s]||s;}"
+            + "function statusHtml(s){if(!s)return'<i class=\"dot\"></i>Ready';const code=s.split(': ')[0];const m={idle:'<i class=\"dot\"></i>Ready',processing:'<i class=\"dot spin\"></i>Processing',llm_request:'<i class=\"dot spin\"></i>AI',tool_use:'<i class=\"dot spin\"></i>Tools',responding:'<i class=\"dot ok\"></i>Done',error:'<i class=\"dot err\"></i>Error'};return m[code]||'<i class=\"dot\"></i>'+code;}"
             + "let es=null,esRetry=0,lastPong=0;function connectSSE(){if(es){try{es.close();}catch(x){}}es=new EventSource(apiUrl('/api/events'),{withCredentials:true});lastPong=Date.now();es.addEventListener('status',e=>{document.getElementById('chatStatus').innerHTML=statusHtml(e.data);syncBusyFromStatus(e.data||'');esRetry=0;lastPong=Date.now();});es.addEventListener('message',e=>{lastPong=Date.now();try{const d=JSON.parse(e.data);if(d.content&&d.role!=='user'){addBubble(d.content,'bot');}}catch(x){}});es.addEventListener('skill_change',e=>{lastPong=Date.now();try{const d=JSON.parse(e.data);if(d.message){addBubble(d.message,'bot');}loadSkillControl();}catch(x){}});es.onerror=e=>{if(es){es.close();es=null;}esRetry++;setTimeout(connectSSE,Math.min(esRetry*500,5000));};es.onopen=()=>{esRetry=0;lastPong=Date.now();}}setInterval(()=>{if(es&&Date.now()-lastPong>15000){es.close();es=null;connectSSE();}},5000);"
             + "async function loadConfig(){try{const r=await fetch(apiUrl('/api/config'),{credentials:'include',headers:apiHeaders()});const j=await r.json();if(j.ok){document.getElementById('cfgProvider').value=j.provider||'openai';document.getElementById('cfgModel').value=j.model||'';document.getElementById('cfgApiUrl').value=j.custom_api_url||'';document.getElementById('cfgApiKey').value=j.api_key||'';}}catch(e){console.error('loadConfig error',e);}}"
             + "let saveTimer=null;async function saveConfig(){if(saveTimer)clearTimeout(saveTimer);saveTimer=setTimeout(async()=>{try{const r=await fetch(apiUrl('/api/config'),{method:'POST',credentials:'include',headers:apiHeaders({'Content-Type':'application/json'}),body:JSON.stringify({provider:document.getElementById('cfgProvider').value,model:document.getElementById('cfgModel').value,custom_api_url:document.getElementById('cfgApiUrl').value,api_key:document.getElementById('cfgApiKey').value})});const j=await r.json();document.getElementById('configStatus').textContent=j.ok?'Saved':'Failed';}catch(e){document.getElementById('configStatus').textContent='Error';}},500);}function toggleApiKey(){const input=document.getElementById('cfgApiKey');if(!input)return;input.type=input.type==='password'?'text':'password';}"
