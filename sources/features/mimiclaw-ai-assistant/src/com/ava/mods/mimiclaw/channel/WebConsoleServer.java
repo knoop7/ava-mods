@@ -465,9 +465,17 @@ public class WebConsoleServer {
                 }
                 read += n;
             }
-            request.body = new String(bodyBytes, 0, read, StandardCharsets.ISO_8859_1);
+            request.bodyBytes = new byte[read];
+            System.arraycopy(bodyBytes, 0, request.bodyBytes, 0, read);
+            String contentType = request.headers.get("content-type");
+            if (contentType != null && contentType.contains("multipart/form-data")) {
+                request.body = new String(request.bodyBytes, StandardCharsets.ISO_8859_1);
+            } else {
+                request.body = new String(request.bodyBytes, StandardCharsets.UTF_8);
+            }
         } else {
             request.body = "";
+            request.bodyBytes = new byte[0];
         }
         return request;
     }
@@ -475,6 +483,7 @@ public class WebConsoleServer {
     private static final class ParsedRequest {
         String requestLine;
         final Map<String, String> headers = new HashMap<>();
+        byte[] bodyBytes = new byte[0];
         String body = "";
     }
 

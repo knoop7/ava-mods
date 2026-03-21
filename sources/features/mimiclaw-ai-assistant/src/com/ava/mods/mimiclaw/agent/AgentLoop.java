@@ -112,7 +112,7 @@ public class AgentLoop implements Runnable {
 
             String sessionKey = buildSessionKey(msg);
             toolRegistry.setCurrentContext(msg.channel, msg.chatId);
-            JSONArray messages = sessionManager.getHistory(sessionKey, 20);
+            JSONArray messages = sessionManager.getHistory(sessionKey, 50);
             boolean isFirstMessage = messages.length() == 0;
             String systemPrompt = buildSystemPrompt(msg, isFirstMessage);
             
