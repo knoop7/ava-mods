@@ -1100,7 +1100,7 @@ public class WebConsoleServer {
             + "<div class='topbar'>"
             + "<div style='display:flex;align-items:center;gap:12px;'>"
             + "<button class='iconBtn menuBtn' onclick='openSidebar()' title='Menu'>" + svgMenu + "</button>"
-            + "<div class='titleBlock'><h2>AI assistant</h2><p>" + BuildInfo.VERSION + "</p></div>"
+            + "<div class='titleBlock'><h2>AI assistant</h2><p>AI assistant " + BuildInfo.VERSION + "</p></div>"
             + "</div>"
             + "<div class='topActions'><span class='statusPill' id='chatStatus'>Connecting</span><button class='ghostBtn' onclick='reloadHistory()'>" + svgRefresh + " Refresh</button></div>"
             + "</div>"
