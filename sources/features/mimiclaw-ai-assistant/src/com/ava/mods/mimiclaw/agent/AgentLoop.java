@@ -58,6 +58,7 @@ public class AgentLoop implements Runnable {
     
     public void setMaxToolIterations(int max) {
         this.maxToolIterations = max;
+        this.contextBuilder.setMaxToolIterations(max);
     }
     
     public void stop() {

@@ -1,7 +1,7 @@
 {
   "id": "mimiclaw-ai-assistant",
   "name": "OpenClaw(Mini)",
-  "version": "1.2.53",
+  "version": "1.2.54",
   "author": "Ava",
   "description": "A Java-built Android AI assistant for device control, screenshots, UI actions, automation, diagnostics, messaging, and future skills.",
   "icon": "mdi:robot",
@@ -111,10 +111,10 @@
       "label": "Max Tool Iterations",
       "description": "Set max tool rounds",
       "dialogHint": "More = slower",
-      "defaultValue": "10",
+      "defaultValue": "50",
       "min": 1,
-      "max": 20,
-      "step": 1
+      "max": 100,
+      "step": 5
     },
     {
       "type": "text",
@@ -173,5 +173,5 @@
       "defaultValue": "openclaw"
     }
   ],
-  "jar_hash": "cc52dea83ec45071a4d6538fa428a990"
+  "jar_hash": "b1571957acf05d89e2e2644da2086527"
 }

@@ -16,11 +16,16 @@ public class ContextBuilder {
     private final MemoryStore memoryStore;
     private final SkillLoader skillLoader;
     private Function<String, Boolean> skillEnabledChecker;
+    private int maxToolIterations = 50;
 
     public ContextBuilder(MemoryStore memoryStore, SkillLoader skillLoader) {
         this.memoryStore = memoryStore;
         this.skillLoader = skillLoader;
         this.skillEnabledChecker = skillId -> true; // Default: all enabled
+    }
+    
+    public void setMaxToolIterations(int max) {
+        this.maxToolIterations = max;
     }
     
     public void setSkillEnabledChecker(Function<String, Boolean> checker) {
@@ -82,6 +87,12 @@ public class ContextBuilder {
             sb.append("Reply exactly once per user message unless a tool call loop is required.\n");
             sb.append("Keep answers short unless the user asks for depth.\n\n");
         }
+        // Always append tool iteration limit
+        sb.append("## Tool Usage (IMPORTANT)\n");
+        sb.append("You have **").append(maxToolIterations).append(" tool calls** available. ");
+        sb.append("**DO NOT STOP EARLY!** Keep calling tools until the task is FULLY complete. ");
+        sb.append("If a tool fails, try alternatives. If stuck, try different approaches. ");
+        sb.append("Never give up before exhausting all options. Be persistent!\n\n");
     }
 
     private void appendChannelPrompt(StringBuilder sb, String channel) {

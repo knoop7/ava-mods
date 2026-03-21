@@ -715,7 +715,7 @@ public class WebConsoleServer {
             int quality = 75;
             bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, quality, out);
             
-            while (out.size() > MAX_IMAGE_SIZE && quality > 20) {
+            while (out.size() > MAX_IMAGE_SIZE && quality > 10) {
                 out.reset();
                 quality -= 10;
                 bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, quality, out);
@@ -1103,7 +1103,7 @@ public class WebConsoleServer {
             + "</div>"
             + "<div class='topActions'><span class='statusPill' id='chatStatus'>Connecting</span><button class='ghostBtn' onclick='reloadHistory()'>" + svgRefresh + " Refresh</button></div>"
             + "</div>"
-            + "<section class='chatShell'><div class='messages' id='messages'></div><div class='composerWrap'><div class='composer'><textarea id='message' placeholder='Type a message...' onkeydown='if(event.key===\"Enter\"&&!event.shiftKey){event.preventDefault();sendOrStop();}'></textarea><div class='attachPreview' id='attachPreview'></div><input type='file' id='fileInput' style='display:none' accept='image/*,text/*,.pdf,.json,.xml,.csv,.md' multiple onchange='handleFiles(this.files)'><div class='composerBtns'><button class='attachBtn' onclick='document.getElementById(\"fileInput\").click()' title='Attach file'>" + svgPaperclip + "</button><button id='sendBtn' class='sendBtn' onclick='sendOrStop()' title='Send'>" + svgSend + "</button></div></div><div class='meta' id='meta'></div></div></section>"
+            + "<section class='chatShell'><div class='messages' id='messages'></div><div class='composerWrap'><div class='composer'><textarea id='message' placeholder='Type a message...' onkeydown='if(event.key===\"Enter\"&&!event.shiftKey){event.preventDefault();sendChat();}'></textarea><div class='attachPreview' id='attachPreview'></div><input type='file' id='fileInput' style='display:none' accept='image/*,text/*,.pdf,.json,.xml,.csv,.md' multiple onchange='handleFiles(this.files)'><div class='composerBtns'><button class='attachBtn' onclick='document.getElementById(\"fileInput\").click()' title='Attach file'>" + svgPaperclip + "</button><button id='sendBtn' class='sendBtn' onclick='sendOrStop()' title='Send'>" + svgSend + "</button></div></div><div class='meta' id='meta'></div></div></section>"
             + "</main></div>"
             + "<script src='https://cdn.jsdelivr.net/npm/marked/marked.min.js'></script>"
             + "<script>marked.setOptions({breaks:true,gfm:true});</script>"
