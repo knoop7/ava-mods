@@ -498,9 +498,20 @@ public class MimiClawManager {
             : "__web_console__:" + chatId.trim();
     }
 
+    private String normalizeWebConsoleResolvedChatId(String chatId) {
+        String trimmed = chatId == null ? "" : chatId.trim();
+        if (trimmed.isEmpty()) {
+            return "__web_console__";
+        }
+        if ("__web_console__".equals(trimmed) || trimmed.startsWith("__web_console__:")) {
+            return trimmed;
+        }
+        return resolveWebConsoleChatId(trimmed);
+    }
+
     public void reportAiBrowserUiAction(String chatId, String payloadJson) {
         try {
-            String resolvedChatId = resolveWebConsoleChatId(chatId);
+            String resolvedChatId = normalizeWebConsoleResolvedChatId(chatId);
             String sessionKey = "webconsole:" + resolvedChatId;
             JSONObject payload = new JSONObject(payloadJson == null ? "{}" : payloadJson);
             payload.put("resolved_chat_id", resolvedChatId);
