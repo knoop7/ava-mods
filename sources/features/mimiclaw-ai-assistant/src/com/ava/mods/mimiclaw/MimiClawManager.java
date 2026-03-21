@@ -638,7 +638,7 @@ public class MimiClawManager {
     public JSONArray getWebConsoleHistory(String chatId, int maxMessages) {
         String resolvedChatId = resolveWebConsoleChatId(chatId);
         String sessionKey = "webconsole:" + resolvedChatId;
-        JSONArray history = sessionManager.getHistory(sessionKey, Math.max(1, maxMessages));
+        JSONArray history = mergedWebConsoleHistory(resolvedChatId, Math.max(1, maxMessages));
         JSONArray result = new JSONArray();
         for (int i = 0; i < history.length(); i++) {
             try {
@@ -657,6 +657,51 @@ public class MimiClawManager {
             }
         }
         return result;
+    }
+
+    private JSONArray mergedWebConsoleHistory(String resolvedChatId, int maxMessages) {
+        JSONArray merged = new JSONArray();
+        try {
+            String globalChatId = resolveWebConsoleChatId(null);
+            String globalSessionKey = "webconsole:" + globalChatId;
+            String currentSessionKey = "webconsole:" + resolvedChatId;
+            boolean sameSession = globalSessionKey.equals(currentSessionKey);
+            JSONArray globalHistory = sessionManager.getHistory(globalSessionKey, maxMessages);
+            JSONArray currentHistory = sameSession
+                ? new JSONArray()
+                : sessionManager.getHistory(currentSessionKey, maxMessages);
+            java.util.List<JSONObject> combined = new java.util.ArrayList<>();
+            java.util.Set<String> seen = new java.util.HashSet<>();
+            collectHistoryItems(globalHistory, combined, seen);
+            collectHistoryItems(currentHistory, combined, seen);
+            combined.sort((a, b) -> Long.compare(a.optLong("timestamp", 0L), b.optLong("timestamp", 0L)));
+            int start = Math.max(0, combined.size() - maxMessages);
+            for (int i = start; i < combined.size(); i++) {
+                merged.put(new JSONObject(combined.get(i).toString()));
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Failed to merge web console history", e);
+            return sessionManager.getHistory("webconsole:" + resolvedChatId, maxMessages);
+        }
+        return merged;
+    }
+
+    private void collectHistoryItems(JSONArray source, java.util.List<JSONObject> out, java.util.Set<String> seen) {
+        if (source == null) {
+            return;
+        }
+        for (int i = 0; i < source.length(); i++) {
+            try {
+                JSONObject item = source.getJSONObject(i);
+                String dedupeKey = item.optLong("timestamp", 0L) + "|" + item.optString("role", "") + "|" + item.optString("content", "");
+                if (!seen.add(dedupeKey)) {
+                    continue;
+                }
+                out.add(new JSONObject(item.toString()));
+            } catch (Exception e) {
+                Log.w(TAG, "Failed to collect web console history item", e);
+            }
+        }
     }
     
     private String normalizeWebConsoleContent(String content) {
