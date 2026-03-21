@@ -40,7 +40,7 @@ public class SessionManager {
         }
         
         try {
-            BufferedReader reader = new BufferedReader(new FileReader(sessionFile));
+            BufferedReader reader = new BufferedReader(new InputStreamReader(new FileInputStream(sessionFile), "UTF-8"));
             JSONArray history = new JSONArray();
             String line;
             
@@ -77,7 +77,7 @@ public class SessionManager {
             history.put(msg);
             
             File sessionFile = getSessionFile(chatId);
-            FileWriter writer = new FileWriter(sessionFile, true);
+            OutputStreamWriter writer = new OutputStreamWriter(new FileOutputStream(sessionFile, true), "UTF-8");
             writer.write(msg.toString() + "\n");
             writer.close();
             
