@@ -501,6 +501,7 @@ public class MimiClawManager {
     public void reportAiBrowserUiAction(String chatId, String payloadJson) {
         try {
             String resolvedChatId = resolveWebConsoleChatId(chatId);
+            String sessionKey = "webconsole:" + resolvedChatId;
             JSONObject payload = new JSONObject(payloadJson == null ? "{}" : payloadJson);
             payload.put("resolved_chat_id", resolvedChatId);
             payload.put("channel", "webconsole");
@@ -513,6 +514,15 @@ public class MimiClawManager {
             memoryStore.appendToday("- [AI Browser UI] action=" + action
                 + (url.isEmpty() ? "" : " url=" + url)
                 + " chat=" + resolvedChatId);
+
+            // Persist hidden event into the live session context so the next user turn
+            // always carries the exact UI action in conversation history, even though
+            // the frontend will filter it from visible chat bubbles.
+            sessionManager.appendMessage(
+                sessionKey,
+                "user",
+                AI_BROWSER_EVENT_PREFIX + " " + payload.toString()
+            );
 
             MessageBus.Message eventMsg = new MessageBus.Message(
                 "webconsole",
@@ -747,7 +757,8 @@ public class MimiClawManager {
             return false;
         }
         String trimmed = content.trim();
-        return trimmed.startsWith("[SYSTEM] Skill '");
+        return trimmed.startsWith("[SYSTEM] Skill '")
+            || trimmed.startsWith(AI_BROWSER_EVENT_PREFIX);
     }
 
     private JSONArray mergedWebConsoleHistory(String resolvedChatId, int maxMessages) {
