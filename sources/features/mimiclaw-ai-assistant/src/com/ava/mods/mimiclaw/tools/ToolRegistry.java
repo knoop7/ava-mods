@@ -405,29 +405,13 @@ public class ToolRegistry {
                 if (url.isEmpty()) {
                     return "Error: url is required";
                 }
-                // Force desktop mode: update DataStore file directly
-                try {
-                    java.io.File dataStoreDir = new java.io.File(context.getFilesDir(), "datastore");
-                    java.io.File settingsFile = new java.io.File(dataStoreDir, "browser_settings.json");
-                    if (settingsFile.exists()) {
-                        String content = new String(java.nio.file.Files.readAllBytes(settingsFile.toPath()), java.nio.charset.StandardCharsets.UTF_8);
-                        JSONObject settings = new JSONObject(content);
-                        if (settings.optInt("userAgentMode", 0) != 1) {
-                            settings.put("userAgentMode", 1);
-                            java.nio.file.Files.write(settingsFile.toPath(), settings.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
-                            Log.d(TAG, "Set browser to desktop mode");
-                        }
-                    }
-                } catch (Exception e) {
-                    Log.w(TAG, "Failed to set desktop mode", e);
-                }
-                invokeStaticVoid("com.example.ava.services.WebViewService", "destroy", new Class[]{Context.class}, new Object[]{context});
+                invokeStaticVoid("com.example.ava.services.AiBrowserService", "hide", new Class[]{Context.class}, new Object[]{context});
                 android.content.Intent intent = new android.content.Intent();
-                intent.setClassName(context, "com.example.ava.services.WebViewService");
-                intent.setAction("ACTION_SHOW");
+                intent.setClassName(context, "com.example.ava.services.AiBrowserService");
+                intent.setAction("com.example.ava.services.AiBrowserService.SHOW");
                 intent.putExtra("url", url);
                 context.startService(intent);
-                return "Opened Ava browser (desktop mode): " + url;
+                return "Opened AI browser overlay: " + url;
             }
         );
 
@@ -436,10 +420,10 @@ public class ToolRegistry {
             "{\"type\":\"object\",\"properties\":{},\"required\":[]}",
             inputJson -> {
                 android.content.Intent hideIntent = new android.content.Intent();
-                hideIntent.setClassName(context, "com.example.ava.services.WebViewService");
-                hideIntent.setAction("ACTION_HIDE");
+                hideIntent.setClassName(context, "com.example.ava.services.AiBrowserService");
+                hideIntent.setAction("com.example.ava.services.AiBrowserService.HIDE");
                 context.startService(hideIntent);
-                return "Browser hidden";
+                return "AI browser hidden";
             }
         );
 
@@ -448,10 +432,10 @@ public class ToolRegistry {
             "{\"type\":\"object\",\"properties\":{},\"required\":[]}",
             inputJson -> {
                 android.content.Intent refreshIntent = new android.content.Intent();
-                refreshIntent.setClassName(context, "com.example.ava.services.WebViewService");
-                refreshIntent.setAction("ACTION_FORCE_REFRESH");
+                refreshIntent.setClassName(context, "com.example.ava.services.AiBrowserService");
+                refreshIntent.setAction("com.example.ava.services.AiBrowserService.REFRESH");
                 context.startService(refreshIntent);
-                return "Browser refreshed";
+                return "AI browser refreshed";
             }
         );
 
@@ -460,14 +444,33 @@ public class ToolRegistry {
             "{\"type\":\"object\",\"properties\":{},\"required\":[]}",
             inputJson -> {
                 try {
-                    Class<?> serviceClass = loadHostClass("com.example.ava.services.WebViewService");
+                    Class<?> serviceClass = loadHostClass("com.example.ava.services.AiBrowserService");
                     Object result = serviceClass.getMethod("getCurrentPageText", Context.class).invoke(null, context);
                     String text = result != null ? String.valueOf(result) : "";
                     if (text.isEmpty()) {
                         return "No text available from browser";
                     }
-                    if (text.length() > 4000) {
-                        text = text.substring(0, 4000) + "...";
+                    try {
+                        JSONObject raw = new JSONObject(text);
+                        if (raw.optBoolean("ok", false)) {
+                            JSONObject slim = new JSONObject();
+                            slim.put("ok", true);
+                            slim.put("url", raw.optString("url", ""));
+                            slim.put("title", raw.optString("title", ""));
+                            slim.put("excerpt", raw.optString("excerpt", ""));
+                            String body = raw.optString("text", "");
+                            if (body.length() > 1200) {
+                                body = body.substring(0, 1200) + "...";
+                            }
+                            slim.put("text", body);
+                            slim.put("length", raw.optInt("length", body.length()));
+                            slim.put("truncated", raw.optBoolean("truncated", false) || raw.optInt("length", body.length()) > body.length());
+                            return slim.toString();
+                        }
+                    } catch (Exception ignored) {
+                    }
+                    if (text.length() > 1500) {
+                        text = text.substring(0, 1500) + "...";
                     }
                     return text;
                 } catch (Exception e) {
@@ -1030,15 +1033,15 @@ public class ToolRegistry {
                     // Fall through to browser
                 }
                 
-                // Fallback: Ava browser (only for major engines)
+                // Fallback: AI browser (kept separate from HA/HASS WebViewService)
                 if (!engine.equals("baidu") && !engine.equals("bing") && !engine.equals("google")) {
                     return "Error: curl failed and browser fallback disabled for " + engine;
                 }
                 
-                invokeStaticVoid("com.example.ava.services.WebViewService", "destroy", new Class[]{Context.class}, new Object[]{context});
+                invokeStaticVoid("com.example.ava.services.AiBrowserService", "hide", new Class[]{Context.class}, new Object[]{context});
                 android.content.Intent intent = new android.content.Intent();
-                intent.setClassName(context, "com.example.ava.services.WebViewService");
-                intent.setAction("ACTION_SHOW");
+                intent.setClassName(context, "com.example.ava.services.AiBrowserService");
+                intent.setAction("com.example.ava.services.AiBrowserService.SHOW");
                 intent.putExtra("url", searchUrl);
                 context.startService(intent);
                 
@@ -1046,7 +1049,7 @@ public class ToolRegistry {
                 
                 String pageText = "";
                 try {
-                    Class<?> serviceClass = loadHostClass("com.example.ava.services.WebViewService");
+                    Class<?> serviceClass = loadHostClass("com.example.ava.services.AiBrowserService");
                     Object result = serviceClass.getMethod("getCurrentPageText", Context.class).invoke(null, context);
                     pageText = result != null ? String.valueOf(result) : "";
                 } catch (Exception e) {
@@ -1054,8 +1057,8 @@ public class ToolRegistry {
                 }
                 
                 android.content.Intent hideIntent = new android.content.Intent();
-                hideIntent.setClassName(context, "com.example.ava.services.WebViewService");
-                hideIntent.setAction("ACTION_HIDE");
+                hideIntent.setClassName(context, "com.example.ava.services.AiBrowserService");
+                hideIntent.setAction("com.example.ava.services.AiBrowserService.HIDE");
                 context.startService(hideIntent);
                 
                 JSONObject result = new JSONObject();
@@ -1109,11 +1112,11 @@ public class ToolRegistry {
                     // Fall through
                 }
                 
-                // Fallback: Ava browser
-                invokeStaticVoid("com.example.ava.services.WebViewService", "destroy", new Class[]{Context.class}, new Object[]{context});
+                // Fallback: AI browser, isolated from HA/HASS browser state
+                invokeStaticVoid("com.example.ava.services.AiBrowserService", "hide", new Class[]{Context.class}, new Object[]{context});
                 android.content.Intent intent = new android.content.Intent();
-                intent.setClassName(context, "com.example.ava.services.WebViewService");
-                intent.setAction("ACTION_SHOW");
+                intent.setClassName(context, "com.example.ava.services.AiBrowserService");
+                intent.setAction("com.example.ava.services.AiBrowserService.SHOW");
                 intent.putExtra("url", url);
                 context.startService(intent);
                 
@@ -1121,7 +1124,7 @@ public class ToolRegistry {
                 
                 String pageText = "";
                 try {
-                    Class<?> serviceClass = loadHostClass("com.example.ava.services.WebViewService");
+                    Class<?> serviceClass = loadHostClass("com.example.ava.services.AiBrowserService");
                     Object result = serviceClass.getMethod("getCurrentPageText", Context.class).invoke(null, context);
                     pageText = result != null ? String.valueOf(result) : "";
                 } catch (Exception e) {
@@ -1129,8 +1132,8 @@ public class ToolRegistry {
                 }
                 
                 android.content.Intent hideIntent = new android.content.Intent();
-                hideIntent.setClassName(context, "com.example.ava.services.WebViewService");
-                hideIntent.setAction("ACTION_HIDE");
+                hideIntent.setClassName(context, "com.example.ava.services.AiBrowserService");
+                hideIntent.setAction("com.example.ava.services.AiBrowserService.HIDE");
                 context.startService(hideIntent);
                 
                 JSONObject result = new JSONObject();
@@ -1151,6 +1154,9 @@ public class ToolRegistry {
                     return confirmation;
                 }
                 int closed = 0;
+                if (invokeStaticVoid("com.example.ava.services.AiBrowserService", "hide", new Class[]{Context.class}, new Object[]{context})) {
+                    closed++;
+                }
                 if (invokeStaticVoid("com.example.ava.services.WebViewService", "hide", new Class[]{Context.class}, new Object[]{context})) {
                     closed++;
                 }
