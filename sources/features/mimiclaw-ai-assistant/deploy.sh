@@ -47,6 +47,22 @@ echo "Version updated to $VERSION"
 echo "Copying JAR..."
 cp "$ROOT_DIR/sources/features/mimiclaw-ai-assistant/libs/mimiclaw-manager.jar" "$ROOT_DIR/mods/features/mimiclaw-ai-assistant/libs/"
 
+# Calculate JAR hash and update manifest
+JAR_HASH=$(md5 -q "$ROOT_DIR/mods/features/mimiclaw-ai-assistant/libs/mimiclaw-manager.jar")
+echo "JAR hash: $JAR_HASH"
+python3 -c "
+import json
+for path in ['$ROOT_DIR/mods/features/mimiclaw-ai-assistant/manifest.json', '$ROOT_DIR/sources/features/mimiclaw-ai-assistant/manifest.json', '$ROOT_DIR/sources/mods/features/mimiclaw-ai-assistant/manifest.json']:
+    try:
+        with open(path, 'r') as f:
+            data = json.load(f)
+        data['jar_hash'] = '$JAR_HASH'
+        with open(path, 'w') as f:
+            json.dump(data, f, indent=2)
+            f.write('\n')
+    except: pass
+"
+
 # Copy native libraries
 echo "Copying native libraries..."
 mkdir -p "$ROOT_DIR/mods/features/mimiclaw-ai-assistant/libs/termux/jni/arm64-v8a"
