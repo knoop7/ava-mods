@@ -534,7 +534,8 @@ public class LlmProxy {
         return content;
     }
 
-    private static final int MAX_IMAGE_SIZE = 800 * 1024; // 800KB max for AI
+    private static final int MAX_IMAGE_SIZE = 200 * 1024; // 200KB max for AI
+    private static final int MAX_IMAGE_DIM = 1280; // Max dimension
     
     private String toImageDataUrl(String imagePath) {
         try {
@@ -543,18 +544,30 @@ public class LlmProxy {
                 return null;
             }
 
-            Bitmap bitmap = BitmapFactory.decodeFile(imagePath);
-            if (bitmap == null) {
+            Bitmap original = BitmapFactory.decodeFile(imagePath);
+            if (original == null) {
                 return null;
             }
             
-            // Compress to JPEG, keep original size
+            // Scale down if too large
+            Bitmap bitmap = original;
+            int w = original.getWidth();
+            int h = original.getHeight();
+            if (w > MAX_IMAGE_DIM || h > MAX_IMAGE_DIM) {
+                float scale = Math.min((float) MAX_IMAGE_DIM / w, (float) MAX_IMAGE_DIM / h);
+                int newW = (int) (w * scale);
+                int newH = (int) (h * scale);
+                bitmap = Bitmap.createScaledBitmap(original, newW, newH, true);
+                original.recycle();
+            }
+            
+            // Compress to JPEG
             ByteArrayOutputStream out = new ByteArrayOutputStream();
-            int quality = 75;
+            int quality = 60;
             bitmap.compress(Bitmap.CompressFormat.JPEG, quality, out);
             
             // Reduce quality if still too large
-            while (out.size() > MAX_IMAGE_SIZE && quality > 20) {
+            while (out.size() > MAX_IMAGE_SIZE && quality > 10) {
                 out.reset();
                 quality -= 10;
                 bitmap.compress(Bitmap.CompressFormat.JPEG, quality, out);
