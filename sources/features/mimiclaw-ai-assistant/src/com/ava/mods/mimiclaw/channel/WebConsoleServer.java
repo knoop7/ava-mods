@@ -975,7 +975,7 @@ public class WebConsoleServer {
             + ".skillTab.active{background:var(--accent);color:var(--accentText);}"
             + ".skillPanel{}"
             + ".composerWrap{padding:12px 16px;border-top:1px solid var(--line);background:var(--panel);}"
-            + ".composer{position:relative;height:100px;padding:16px;background:var(--field);border-radius:24px;transition:border-color 0.15s;border:2px solid transparent;}"
+            + ".composer{position:relative;height:120px;padding:16px;background:var(--field);border-radius:24px;transition:border-color 0.15s;border:2px solid transparent;}"
             + ".composer.dragover{border-color:var(--accent);background:var(--accentSoft);}"
             + ".composer textarea{display:block;width:100%;height:100%;border:0;background:transparent;color:var(--text);padding:0 96px 0 8px;outline:none;font-size:16px;line-height:1.4;resize:none;overflow:auto;}"
             + ".composer textarea::placeholder{color:var(--muted);}"
@@ -988,7 +988,7 @@ public class WebConsoleServer {
             + ".composer button.sendBtn svg{width:18px;height:18px;}"
             + ".composer button.attachBtn svg{width:18px;height:18px;}"
             + ".attachPreview{position:absolute;left:14px;bottom:14px;display:flex;align-items:center;gap:6px;max-width:calc(100% - 120px);}"
-            + ".attachItem{display:flex;align-items:center;gap:4px;padding:4px 8px;background:var(--field);border:1px solid var(--line);border-radius:8px;font-size:11px;color:var(--text);max-width:120px;}"
+            + ".attachItem{display:flex;align-items:center;gap:4px;padding:4px 8px;background:var(--attachBg);border:1px solid var(--line);border-radius:8px;font-size:11px;color:var(--text);max-width:120px;}"
             + ".attachItem span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}"
             + ".attachItem button{width:16px;height:16px;padding:0;background:transparent;border:0;color:var(--muted);cursor:pointer;display:flex;align-items:center;justify-content:center;}"
             + ".attachItem button:hover{color:var(--text);}"
@@ -1146,7 +1146,7 @@ public class WebConsoleServer {
     }
 
     private String baseCss() {
-        return ":root{color-scheme:light;--font:'SF Pro Display','Segoe UI',system-ui,sans-serif;--bg:#faf8ff;--sidebar:#f3f3fc;--panel:#ffffff;--panelAlt:#ededf6;--field:#f3f3fc;--line:#e2e8f0;--text:#191b22;--muted:#64748b;--accent:#0417e0;--accentSoft:#eef2ff;--accentText:#ffffff;--userBubble:#0417e0;--userText:#ffffff;--botBubble:#e2e8f0;--codeBg:#f6f8fc;--codeTop:#edf2f8;--codeLine:#d8e0ec;--codeText:#1f2937;--codeMuted:#7c8798;--shadow:0 22px 60px rgba(24,39,75,.10);--userShadow:0 8px 24px rgba(37,99,235,.18);}html[data-theme='dark']{color-scheme:dark;--bg:#111319;--sidebar:#191b22;--panel:#1e1f26;--panelAlt:#282a30;--field:#2d2d2d;--line:#3d3d3d;--text:#f1f5f9;--muted:#94a3b8;--accent:#a78b73;--accentSoft:#3a322c;--accentText:#fffaf6;--userBubble:#a78b73;--userText:#ffffff;--botBubble:#2d2d2d;--codeBg:#161b22;--codeTop:#1f2630;--codeLine:#2d3641;--codeText:#e5edf6;--codeMuted:#8ea0b5;--shadow:0 22px 60px rgba(0,0,0,.34);--userShadow:0 8px 24px rgba(167,139,115,.25);}*{box-sizing:border-box;}button,input{font:inherit;}";
+        return ":root{color-scheme:light;--font:'SF Pro Display','Segoe UI',system-ui,sans-serif;--bg:#faf8ff;--sidebar:#f3f3fc;--panel:#ffffff;--panelAlt:#ededf6;--field:#f3f3fc;--line:#e2e8f0;--text:#191b22;--muted:#64748b;--accent:#0417e0;--accentSoft:#eef2ff;--accentText:#ffffff;--userBubble:#0417e0;--userText:#ffffff;--botBubble:#e2e8f0;--attachBg:#ffffff;--codeBg:#f6f8fc;--codeTop:#edf2f8;--codeLine:#d8e0ec;--codeText:#1f2937;--codeMuted:#7c8798;--shadow:0 22px 60px rgba(24,39,75,.10);--userShadow:0 8px 24px rgba(37,99,235,.18);}html[data-theme='dark']{color-scheme:dark;--bg:#111319;--sidebar:#191b22;--panel:#1e1f26;--panelAlt:#282a30;--field:#2d2d2d;--line:#3d3d3d;--text:#f1f5f9;--muted:#94a3b8;--accent:#a78b73;--accentSoft:#3a322c;--accentText:#fffaf6;--userBubble:#a78b73;--userText:#ffffff;--botBubble:#2d2d2d;--attachBg:#1e1b1b;--codeBg:#161b22;--codeTop:#1f2630;--codeLine:#2d3641;--codeText:#e5edf6;--codeMuted:#8ea0b5;--shadow:0 22px 60px rgba(0,0,0,.34);--userShadow:0 8px 24px rgba(167,139,115,.25);}*{box-sizing:border-box;}button,input{font:inherit;}";
     }
 
     private String themeScript() {
