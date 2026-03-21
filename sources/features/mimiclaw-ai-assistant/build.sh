@@ -5,6 +5,8 @@ ANDROID_JAR="$ANDROID_SDK/platforms/android-34/android.jar"
 D8_TOOL="$ANDROID_SDK/build-tools/34.0.0/d8"
 BUILD_DIR="build"
 OUTPUT_JAR="libs/mimiclaw-manager.jar"
+MANIFEST_JSON="manifest.json"
+BUILD_INFO_JAVA="src/com/ava/mods/mimiclaw/BuildInfo.java"
 GRADLE_CACHE="$HOME/.gradle/caches/modules-2/files-2.1"
 OKHTTP_JAR=$(find "$GRADLE_CACHE" -path '*com.squareup.okhttp3/okhttp/4.12.0/*/*.jar' | head -1)
 OKIO_JAR=$(find "$GRADLE_CACHE" -path '*com.squareup.okio/okio-jvm/3.9.1/*/*.jar' | head -1)
@@ -31,6 +33,22 @@ fi
 rm -rf $BUILD_DIR
 mkdir -p $BUILD_DIR
 mkdir -p libs
+
+VERSION=$(sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "$MANIFEST_JSON" | head -1)
+if [ -z "$VERSION" ]; then
+    echo "Error: failed to read version from $MANIFEST_JSON"
+    exit 1
+fi
+
+cat > "$BUILD_INFO_JAVA" <<EOF
+package com.ava.mods.mimiclaw;
+
+public final class BuildInfo {
+    private BuildInfo() {}
+
+    public static final String VERSION = "v$VERSION";
+}
+EOF
 
 echo "Compiling Java sources..."
 javac -source 1.8 -target 1.8 \

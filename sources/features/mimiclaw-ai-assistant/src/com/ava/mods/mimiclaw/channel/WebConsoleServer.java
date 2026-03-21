@@ -1,6 +1,7 @@
 package com.ava.mods.mimiclaw.channel;
 
 import android.util.Log;
+import com.ava.mods.mimiclaw.BuildInfo;
 import com.ava.mods.mimiclaw.MimiClawManager;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -30,7 +31,6 @@ public class WebConsoleServer {
     private static final String TAG = "WebConsoleServer";
     private static final int PORT = 18789;
     private static final String COOKIE_NAME = "openclaw_session";
-
     private final MimiClawManager manager;
     private final Map<String, Long> sessions = new ConcurrentHashMap<>();
     private final java.util.List<BufferedWriter> sseClients = java.util.Collections.synchronizedList(new java.util.ArrayList<>());
@@ -1100,7 +1100,7 @@ public class WebConsoleServer {
             + "<div class='topbar'>"
             + "<div style='display:flex;align-items:center;gap:12px;'>"
             + "<button class='iconBtn menuBtn' onclick='openSidebar()' title='Menu'>" + svgMenu + "</button>"
-            + "<div class='titleBlock'><h2>AI Console</h2><p>Chat with AI assistant</p></div>"
+            + "<div class='titleBlock'><h2>AI assistant</h2><p>" + BuildInfo.VERSION + "</p></div>"
             + "</div>"
             + "<div class='topActions'><span class='statusPill' id='chatStatus'>Connecting</span><button class='ghostBtn' onclick='reloadHistory()'>" + svgRefresh + " Refresh</button></div>"
             + "</div>"
