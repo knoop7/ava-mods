@@ -118,6 +118,7 @@ public class MimiClawManager {
         switch (key) {
             case "api_key":
                 llmProxy.setApiKey(value);
+                getPrefs().edit().putString("cfg_api_key", value).apply();
                 break;
             case "model":
                 llmProxy.setModel(value);
@@ -196,6 +197,23 @@ public class MimiClawManager {
         String saved = getPrefs().getString("web_console_password", "");
         if (saved != null && !saved.trim().isEmpty()) {
             webConsolePassword = saved.trim();
+        }
+        
+        String provider = getPrefs().getString("cfg_provider", "");
+        if (provider != null && !provider.isEmpty()) {
+            llmProxy.setProvider(provider);
+        }
+        String model = getPrefs().getString("cfg_model", "");
+        if (model != null && !model.isEmpty()) {
+            llmProxy.setModel(model);
+        }
+        String apiKey = getPrefs().getString("cfg_api_key", "");
+        if (apiKey != null && !apiKey.isEmpty()) {
+            llmProxy.setApiKey(apiKey);
+        }
+        String customApiUrl = getPrefs().getString("cfg_custom_api_url", "");
+        if (customApiUrl != null && !customApiUrl.isEmpty()) {
+            llmProxy.setCustomApiUrl(customApiUrl);
         }
     }
 
