@@ -221,7 +221,10 @@ public class WebConsoleServer {
                     String content = null;
                     String base64Data = null;
                     if (fileType != null && fileType.startsWith("image/")) {
-                        base64Data = android.util.Base64.encodeToString(fileData, android.util.Base64.NO_WRAP);
+                        // Compress image before encoding
+                        byte[] compressedData = compressImage(fileData);
+                        base64Data = android.util.Base64.encodeToString(compressedData, android.util.Base64.NO_WRAP);
+                        fileType = "image/jpeg"; // Always output as JPEG after compression
                     } else if (fileType != null && (fileType.startsWith("text/") || fileType.contains("json") || fileType.contains("xml") || fileName.endsWith(".md") || fileName.endsWith(".txt") || fileName.endsWith(".csv"))) {
                         content = new String(fileData, StandardCharsets.UTF_8);
                         if (content.length() > 50000) {
@@ -698,6 +701,34 @@ public class WebConsoleServer {
         }
         return json;
     }
+    
+    private static final int MAX_IMAGE_SIZE = 800 * 1024; // 800KB max
+    
+    private byte[] compressImage(byte[] imageData) {
+        try {
+            android.graphics.Bitmap bitmap = android.graphics.BitmapFactory.decodeByteArray(imageData, 0, imageData.length);
+            if (bitmap == null) {
+                return imageData;
+            }
+            
+            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+            int quality = 75;
+            bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, quality, out);
+            
+            while (out.size() > MAX_IMAGE_SIZE && quality > 20) {
+                out.reset();
+                quality -= 10;
+                bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, quality, out);
+            }
+            
+            bitmap.recycle();
+            Log.d(TAG, "Image compressed: " + imageData.length + " -> " + out.size() + " bytes, quality=" + quality);
+            return out.toByteArray();
+        } catch (Exception e) {
+            Log.w(TAG, "Image compression failed", e);
+            return imageData;
+        }
+    }
 
     private String extractBoundary(String contentType) {
         if (contentType == null) return null;
@@ -1142,7 +1173,7 @@ public class WebConsoleServer {
             + "if(j.ok){document.getElementById('chatStatus').textContent=j.status||'Done';syncBusyFromStatus(j.status||'');if(j.response){if(j.response==='Conversation cleared.'){document.getElementById('messages').innerHTML='';shownMsgs.clear();}else{addBubble(j.response,'bot');}}}else{document.getElementById('chatStatus').textContent='Error';setComposerBusy(false);addBubble('Error: '+(j.error||'request_failed'),'bot');}}catch(e){document.getElementById('chatStatus').textContent='Error';setComposerBusy(false);addBubble('Error: '+e.message,'bot');console.error('sendChat error',e);}finally{sending=false;}}"
             + "async function stopChat(){if(!window.__openclawBusy)return;try{document.getElementById('chatStatus').textContent='Stopping...';const r=await fetch(apiUrl('/api/stop'),{method:'POST',credentials:'include',headers:apiHeaders({'Content-Type':'application/json'})});const j=await r.json();if(j&&j.ok){setComposerBusy(false);document.getElementById('chatStatus').textContent=j.status||'idle';addBubble('Generation stopped.','bot');}else{document.getElementById('chatStatus').textContent='Stop failed';}}catch(e){document.getElementById('chatStatus').textContent='Stop failed';console.error('stopChat error',e);}}"
             + "async function updatePassword(){try{const r=await fetch(apiUrl('/api/password'),{method:'POST',headers:apiHeaders({'Content-Type':'application/json'}),body:JSON.stringify({currentPassword:document.getElementById('currentPassword').value,newPassword:document.getElementById('newPassword').value})});const j=await r.json();document.getElementById('settingsStatus').textContent=j.ok?'Updated':(j.error||'Failed');if(j.ok){document.getElementById('currentPassword').value='';document.getElementById('newPassword').value='';}}catch(e){document.getElementById('settingsStatus').textContent='Error';}}"
-            + "function statusHtml(s){if(!s)return'<i class=\"dot\"></i>Ready';const code=s.split(': ')[0];const m={idle:'<i class=\"dot\"></i>Ready',processing:'<i class=\"dot spin\"></i>Processing',llm_request:'<i class=\"dot spin\"></i>AI',tool_use:'<i class=\"dot spin\"></i>Tools',responding:'<i class=\"dot ok\"></i>Done',error:'<i class=\"dot err\"></i>Error'};return m[code]||'<i class=\"dot\"></i>'+code;}"
+            + "function statusHtml(s){if(!s)return'<i class=\"dot\"></i>Ready';const p=s.split(': ');const c=p[0];const d=p.slice(1).join(': ');const m={idle:'Ready',processing:'Working',llm_request:'AI',tool_use:'Tools',responding:'Done',error:'Err'};let label=m[c]||c;if(c==='error'&&d){const h=d.match(/API error (\\d+)/);if(h){const e={'400':'Bad','401':'Auth','403':'Deny','404':'404','413':'Big','429':'Limit','500':'Srv','502':'Gate','503':'Down','504':'Time'};label=e[h[1]]||'E'+h[1];}else if(d.includes('timeout')){label='Time';}else if(d.includes('connect')){label='Net';}}const dot=c==='error'?'err':(c==='responding'?'ok':(c==='idle'?'':'spin'));return'<i class=\"dot'+(dot?' '+dot:'')+'\"></i>'+label;}"
             + "let es=null,esRetry=0,lastPong=0;function connectSSE(){if(es){try{es.close();}catch(x){}}es=new EventSource(apiUrl('/api/events'),{withCredentials:true});lastPong=Date.now();es.addEventListener('status',e=>{document.getElementById('chatStatus').innerHTML=statusHtml(e.data);syncBusyFromStatus(e.data||'');esRetry=0;lastPong=Date.now();});es.addEventListener('message',e=>{lastPong=Date.now();try{const d=JSON.parse(e.data);if(d.content&&d.role!=='user'){addBubble(d.content,'bot');}}catch(x){}});es.addEventListener('skill_change',e=>{lastPong=Date.now();try{const d=JSON.parse(e.data);if(d.message){addBubble(d.message,'bot');}loadSkillControl();}catch(x){}});es.onerror=e=>{if(es){es.close();es=null;}esRetry++;setTimeout(connectSSE,Math.min(esRetry*500,5000));};es.onopen=()=>{esRetry=0;lastPong=Date.now();}}setInterval(()=>{if(es&&Date.now()-lastPong>15000){es.close();es=null;connectSSE();}},5000);"
             + "async function loadConfig(){try{const r=await fetch(apiUrl('/api/config'),{credentials:'include',headers:apiHeaders()});const j=await r.json();if(j.ok){document.getElementById('cfgProvider').value=j.provider||'openai';document.getElementById('cfgModel').value=j.model||'';document.getElementById('cfgApiUrl').value=j.custom_api_url||'';document.getElementById('cfgApiKey').value=j.api_key||'';}}catch(e){console.error('loadConfig error',e);}}"
             + "let saveTimer=null;async function saveConfig(){if(saveTimer)clearTimeout(saveTimer);saveTimer=setTimeout(async()=>{try{const r=await fetch(apiUrl('/api/config'),{method:'POST',credentials:'include',headers:apiHeaders({'Content-Type':'application/json'}),body:JSON.stringify({provider:document.getElementById('cfgProvider').value,model:document.getElementById('cfgModel').value,custom_api_url:document.getElementById('cfgApiUrl').value,api_key:document.getElementById('cfgApiKey').value})});const j=await r.json();document.getElementById('configStatus').textContent=j.ok?'Saved':'Failed';}catch(e){document.getElementById('configStatus').textContent='Error';}},500);}function toggleApiKey(){const input=document.getElementById('cfgApiKey');if(!input)return;input.type=input.type==='password'?'text':'password';}"
