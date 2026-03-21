@@ -429,9 +429,14 @@ public class LlmProxy {
             Object content = msg.opt("content");
             
             if (content instanceof String) {
+                String contentStr = (String) content;
                 JSONObject m = new JSONObject();
                 m.put("role", role);
-                m.put("content", content);
+                if ("user".equals(role) && contentStr.contains("<image_data>")) {
+                    m.put("content", buildUserContentWithImages(contentStr));
+                } else {
+                    m.put("content", contentStr);
+                }
                 result.put(m);
                 validToolCallIds.clear();
             } else if (content instanceof JSONArray) {
@@ -561,6 +566,47 @@ public class LlmProxy {
             return "image/webp";
         }
         return "image/png";
+    }
+
+    private JSONArray buildUserContentWithImages(String text) throws Exception {
+        JSONArray content = new JSONArray();
+        java.util.regex.Pattern pattern = java.util.regex.Pattern.compile("<image_data>([^<]+)</image_data>");
+        java.util.regex.Matcher matcher = pattern.matcher(text);
+        int lastEnd = 0;
+        while (matcher.find()) {
+            String before = text.substring(lastEnd, matcher.start()).trim();
+            if (!before.isEmpty()) {
+                JSONObject textBlock = new JSONObject();
+                textBlock.put("type", "text");
+                textBlock.put("text", before);
+                content.put(textBlock);
+            }
+            String dataUrl = matcher.group(1).trim();
+            if (!dataUrl.startsWith("data:")) {
+                dataUrl = "data:" + dataUrl;
+            }
+            JSONObject imageBlock = new JSONObject();
+            imageBlock.put("type", "image_url");
+            JSONObject imageUrl = new JSONObject();
+            imageUrl.put("url", dataUrl);
+            imageBlock.put("image_url", imageUrl);
+            content.put(imageBlock);
+            lastEnd = matcher.end();
+        }
+        String after = text.substring(lastEnd).trim();
+        if (!after.isEmpty()) {
+            JSONObject textBlock = new JSONObject();
+            textBlock.put("type", "text");
+            textBlock.put("text", after);
+            content.put(textBlock);
+        }
+        if (content.length() == 0) {
+            JSONObject textBlock = new JSONObject();
+            textBlock.put("type", "text");
+            textBlock.put("text", text);
+            content.put(textBlock);
+        }
+        return content;
     }
     
     private JSONArray convertToolsOpenAI(JSONArray tools) throws Exception {
