@@ -215,8 +215,13 @@ public class AgentLoop implements Runnable {
             Log.e(TAG, "Failed to process message", e);
             String detail = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
             notifyStatus("error", detail);
+            String errorText = "Error: " + detail;
+            // Save error to history for webconsole
+            if ("webconsole".equals(msg.channel)) {
+                sessionManager.appendMessage(buildSessionKey(msg), "assistant", errorText);
+            }
             MessageBus.Message errorMsg = new MessageBus.Message(
-                msg.channel, msg.chatId, "Error: " + detail
+                msg.channel, msg.chatId, errorText
             );
             messageBus.pushOutbound(errorMsg);
         } finally {
