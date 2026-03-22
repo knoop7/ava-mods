@@ -67,8 +67,8 @@ public class CronService {
         }
         
         scheduler = Executors.newSingleThreadScheduledExecutor();
-        scheduler.scheduleAtFixedRate(this::processDueJobs, 
-            CHECK_INTERVAL_MS, CHECK_INTERVAL_MS, TimeUnit.MILLISECONDS);
+        scheduler.scheduleAtFixedRate(this::processDueJobs,
+            0, CHECK_INTERVAL_MS, TimeUnit.MILLISECONDS);
         
         Log.d(TAG, "Cron service started with " + jobs.size() + " jobs");
     }
