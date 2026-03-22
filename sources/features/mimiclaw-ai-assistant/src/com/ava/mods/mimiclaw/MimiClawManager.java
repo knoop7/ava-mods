@@ -412,35 +412,6 @@ public class MimiClawManager {
         }
     }
 
-    public JSONObject saveCurrentConfigAsProfile(String profileId, String profileName, boolean makeActive) {
-        try {
-            JSONObject mainConfig = sanitizeLegacyMainConfig(readMainConfig());
-            JSONObject config = ensureProviderProfiles(readProfilesConfig(), mainConfig);
-            JSONArray profiles = config.optJSONArray(PROVIDER_PROFILES_KEY);
-            if (profiles == null) {
-                profiles = new JSONArray();
-                config.put(PROVIDER_PROFILES_KEY, profiles);
-            }
-            String normalizedId = sanitizeProfileId(profileId, profileName);
-            String normalizedName = profileName != null && !profileName.trim().isEmpty()
-                ? profileName.trim()
-                : normalizedId;
-            JSONObject profile = buildProfileFromCurrentConfig(mainConfig, normalizedId, normalizedName);
-            upsertProfile(profiles, profile);
-            if (makeActive) {
-                config.put(ACTIVE_PROFILE_ID_KEY, normalizedId);
-            }
-            writeProfilesConfig(config);
-            JSONObject result = new JSONObject();
-            result.put("active_profile_id", config.optString(ACTIVE_PROFILE_ID_KEY, normalizedId));
-            result.put("profile", profile);
-            return result;
-        } catch (Exception e) {
-            Log.e(TAG, "Failed to save provider profile: " + e.getMessage());
-            return new JSONObject();
-        }
-    }
-
     public JSONObject createEmptyProviderProfile(String profileId, String profileName, boolean makeActive) {
         try {
             JSONObject config = ensureProviderProfiles(readProfilesConfig(), readMainConfig());
@@ -449,10 +420,8 @@ public class MimiClawManager {
                 profiles = new JSONArray();
                 config.put(PROVIDER_PROFILES_KEY, profiles);
             }
-            String normalizedId = sanitizeProfileId(profileId, profileName);
-            String normalizedName = profileName != null && !profileName.trim().isEmpty()
-                ? profileName.trim()
-                : normalizedId;
+            String normalizedName = nextProfileName(profiles);
+            String normalizedId = nextProfileId(profiles, normalizedName);
             JSONObject profile = buildEmptyProfile(normalizedId, normalizedName);
             upsertProfile(profiles, profile);
             if (makeActive) {
@@ -478,6 +447,40 @@ public class MimiClawManager {
             Log.e(TAG, "Failed to create empty provider profile: " + e.getMessage());
             return new JSONObject();
         }
+    }
+
+    public JSONObject renameProviderProfile(String profileId, String profileName) {
+        try {
+            String normalizedId = profileId == null ? "" : profileId.trim();
+            String normalizedName = profileName == null ? "" : profileName.trim();
+            if (normalizedId.isEmpty() || normalizedName.isEmpty()) {
+                JSONObject result = new JSONObject();
+                result.put("updated", false);
+                return result;
+            }
+            JSONObject config = ensureProviderProfiles(readProfilesConfig(), readMainConfig());
+            JSONArray profiles = config.optJSONArray(PROVIDER_PROFILES_KEY);
+            if (profiles == null) {
+                JSONObject result = new JSONObject();
+                result.put("updated", false);
+                return result;
+            }
+            for (int i = 0; i < profiles.length(); i++) {
+                JSONObject profile = profiles.optJSONObject(i);
+                if (profile == null || !normalizedId.equals(profile.optString("id"))) {
+                    continue;
+                }
+                profile.put("name", normalizedName);
+                writeProfilesConfig(config);
+                JSONObject result = new JSONObject();
+                result.put("updated", true);
+                result.put("profile", profile);
+                return result;
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to rename provider profile: " + e.getMessage());
+        }
+        return new JSONObject();
     }
 
     public JSONObject deleteProviderProfile(String profileId) {
@@ -775,6 +778,54 @@ public class MimiClawManager {
             .replaceAll("^-+", "")
             .replaceAll("-+$", "");
         return normalized.isEmpty() ? "profile" : normalized;
+    }
+
+    private String nextProfileName(JSONArray profiles) {
+        int index = profiles != null ? profiles.length() + 1 : 1;
+        while (true) {
+            String candidate = "Profile " + index;
+            if (!hasProfileName(profiles, candidate)) {
+                return candidate;
+            }
+            index++;
+        }
+    }
+
+    private String nextProfileId(JSONArray profiles, String profileName) {
+        String baseId = sanitizeProfileId("", profileName);
+        String candidate = baseId;
+        int suffix = 2;
+        while (hasProfileId(profiles, candidate)) {
+            candidate = baseId + "-" + suffix;
+            suffix++;
+        }
+        return candidate;
+    }
+
+    private boolean hasProfileName(JSONArray profiles, String name) {
+        if (profiles == null || name == null) {
+            return false;
+        }
+        for (int i = 0; i < profiles.length(); i++) {
+            JSONObject profile = profiles.optJSONObject(i);
+            if (profile != null && name.equalsIgnoreCase(profile.optString("name", ""))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean hasProfileId(JSONArray profiles, String id) {
+        if (profiles == null || id == null) {
+            return false;
+        }
+        for (int i = 0; i < profiles.length(); i++) {
+            JSONObject profile = profiles.optJSONObject(i);
+            if (profile != null && id.equals(profile.optString("id", ""))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public JSONObject getSkillConfig() {
