@@ -1145,7 +1145,7 @@ public class WebConsoleServer {
             + "<details><summary>" + svgRobot + " API</summary><div class='settingsRow compact'>"
             + "<div class='sectionDivider'><strong>Provider Profile</strong><span>Switch between saved provider setups without retyping URL, key, and limits.</span></div>"
             + "<div class='fieldGroup'><div class='fieldLabel'>Current Profile</div><select id='cfgActiveProfile' onchange='switchActiveProfile()'></select></div>"
-            + "<div class='fieldGroup'><div class='fieldLabel'>Profile Name</div><input id='cfgProfileName' placeholder='Give this setup a clear name' oninput='renameCurrentProfile()'><div class='fieldHint'>Edit saves automatically. Add creates a new blank profile.</div></div>"
+            + "<div class='fieldGroup'><div class='fieldLabel'>Edit</div><input id='cfgProfileName' placeholder='Give this setup a clear name' oninput='renameCurrentProfile()'><div class='fieldHint'>Edit saves automatically. Add creates a new blank profile.</div></div>"
             + "<div class='inlineActions'><button class='inlineMiniBtn' type='button' onclick='createProfileDraft()'>Add</button><button class='inlineMiniBtn' type='button' onclick='deleteCurrentProfile()'>Delete</button></div>"
             + "<div class='sectionDivider'><strong>Connection</strong><span>These fields belong to the currently selected profile.</span></div>"
             + "<input id='cfgModel' placeholder='Model' oninput='saveConfig()'>"
