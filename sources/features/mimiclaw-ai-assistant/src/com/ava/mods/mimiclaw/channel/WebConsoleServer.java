@@ -560,7 +560,13 @@ public class WebConsoleServer {
         long lastPing = System.currentTimeMillis();
 
         JSONArray initHistory = manager.getWebConsoleHistory(sessionId, 200);
+        for (int i = 0; i < initHistory.length(); i++) {
+            JSONObject msg = initHistory.getJSONObject(i);
+            writer.write("event: message\ndata: " + msg.toString() + "\n\n");
+        }
+        writer.flush();
         lastMsgCount = initHistory.length();
+        lastPing = System.currentTimeMillis();
 
         try {
             while (running && !client.isClosed()) {
