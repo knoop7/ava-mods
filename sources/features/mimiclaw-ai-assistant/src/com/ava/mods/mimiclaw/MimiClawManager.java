@@ -426,6 +426,43 @@ public class MimiClawManager {
         }
     }
 
+    public JSONObject createEmptyProviderProfile(String profileId, String profileName, boolean makeActive) {
+        try {
+            JSONObject config = ensureProviderProfiles(readMainConfig());
+            JSONArray profiles = config.optJSONArray(PROVIDER_PROFILES_KEY);
+            if (profiles == null) {
+                profiles = new JSONArray();
+                config.put(PROVIDER_PROFILES_KEY, profiles);
+            }
+            String normalizedId = sanitizeProfileId(profileId, profileName);
+            String normalizedName = profileName != null && !profileName.trim().isEmpty()
+                ? profileName.trim()
+                : normalizedId;
+            JSONObject profile = buildEmptyProfile(normalizedId, normalizedName);
+            upsertProfile(profiles, profile);
+            if (makeActive) {
+                config.put(ACTIVE_PROFILE_ID_KEY, normalizedId);
+                applyProfileToTopLevelConfig(config, profile);
+            }
+            writeMainConfig(config);
+            if (makeActive) {
+                applyConfig("provider", profile.optString("provider", "openai"));
+                applyConfig("model", profile.optString("model", ""));
+                applyConfig("custom_api_url", profile.optString("custom_api_url", ""));
+                applyConfig("api_key", profile.optString("api_key", ""));
+                applyConfig("max_tokens", profile.optString("max_tokens", "4096"));
+                applyConfig("max_tool_iterations", profile.optString("max_tool_iterations", "30"));
+            }
+            JSONObject result = new JSONObject();
+            result.put("active_profile_id", config.optString(ACTIVE_PROFILE_ID_KEY, normalizedId));
+            result.put("profile", profile);
+            return result;
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to create empty provider profile: " + e.getMessage());
+            return new JSONObject();
+        }
+    }
+
     private JSONObject readMainConfig() throws Exception {
         java.io.File configDir = new java.io.File(context.getFilesDir(), "mod_configs");
         configDir.mkdirs();
@@ -472,6 +509,19 @@ public class MimiClawManager {
         profile.put("api_key", config.optString("api_key", getPrefs().getString("cfg_api_key", "")));
         profile.put("max_tokens", config.optString("max_tokens", "4096"));
         profile.put("max_tool_iterations", config.optString("max_tool_iterations", "30"));
+        return profile;
+    }
+
+    private JSONObject buildEmptyProfile(String id, String name) throws Exception {
+        JSONObject profile = new JSONObject();
+        profile.put("id", id);
+        profile.put("name", name);
+        profile.put("provider", "openai");
+        profile.put("model", "");
+        profile.put("custom_api_url", "");
+        profile.put("api_key", "");
+        profile.put("max_tokens", "4096");
+        profile.put("max_tool_iterations", "30");
         return profile;
     }
 

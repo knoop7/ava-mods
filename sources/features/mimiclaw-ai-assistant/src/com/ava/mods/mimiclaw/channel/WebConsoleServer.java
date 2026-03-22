@@ -382,8 +382,17 @@ public class WebConsoleServer {
                     writeJson(output, 200, okJson().put("updated", true), null);
                     return;
                 }
-                if ("save_current".equals(action) || "create".equals(action)) {
+                if ("save_current".equals(action)) {
                     JSONObject result = manager.saveCurrentConfigAsProfile(
+                        json.optString("profile_id", ""),
+                        json.optString("profile_name", ""),
+                        json.optBoolean("make_active", true)
+                    );
+                    writeJson(output, 200, okJson().put("updated", true).put("result", result), null);
+                    return;
+                }
+                if ("create".equals(action)) {
+                    JSONObject result = manager.createEmptyProviderProfile(
                         json.optString("profile_id", ""),
                         json.optString("profile_name", ""),
                         json.optBoolean("make_active", true)
@@ -1038,6 +1047,7 @@ public class WebConsoleServer {
             + ".settingsRow.compact input{padding:6px 8px;font-size:12px;border-radius:6px;border:1px solid var(--line);background:var(--field);color:var(--text);}"
             + ".fieldGroup{display:flex;flex-direction:column;gap:4px;}"
             + ".fieldLabel{font-size:11px;font-weight:600;color:var(--muted);letter-spacing:.02em;}"
+            + ".fieldHint{font-size:10px;line-height:1.45;color:var(--muted);opacity:.9;}"
             + ".inputWrap{position:relative;width:100%;}"
             + ".inputWrap::after{content:'';position:absolute;top:1px;right:24px;bottom:1px;width:24px;border-radius:0 6px 6px 0;background:linear-gradient(90deg,rgba(0,0,0,0),var(--field) 70%);pointer-events:none;z-index:2;}"
             + ".inputWrap input{width:100%;padding-right:42px;position:relative;z-index:1;}"
@@ -1047,6 +1057,13 @@ public class WebConsoleServer {
             + ".settingsRow.compact input:focus,.settingsRow.compact select:focus{outline:none;border-color:var(--accent);}"
             + ".compactBtn{padding:6px 12px;font-size:12px;border-radius:6px;border:none;background:var(--accent);color:var(--accentText);cursor:pointer;transition:opacity .15s;}"
             + ".compactBtn:hover{opacity:0.85;}"
+            + ".inlineActions{display:flex;gap:6px;align-items:center;flex-wrap:wrap;}"
+            + ".inlineMiniBtn{padding:5px 10px;font-size:11px;line-height:1;border-radius:999px;border:1px solid var(--line);background:var(--field);color:var(--text);cursor:pointer;transition:opacity .15s,border-color .15s,background .15s;}"
+            + ".inlineMiniBtn:hover{opacity:.9;border-color:var(--accent);}"
+            + ".inlineMiniBtn.primary{background:var(--accent);border-color:var(--accent);color:var(--accentText);}"
+            + ".sectionDivider{margin:4px 0 2px;padding-top:8px;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:2px;}"
+            + ".sectionDivider strong{font-size:11px;line-height:1.2;color:var(--text);}"
+            + ".sectionDivider span{font-size:10px;line-height:1.4;color:var(--muted);}"
             + ".skillTabs{display:flex;gap:4px;margin-bottom:8px;}"
             + ".skillTab{padding:4px 10px;font-size:11px;color:var(--muted);cursor:pointer;border-radius:6px;transition:all .15s;}"
             + ".skillTab:hover{background:var(--field);}"
@@ -1122,13 +1139,15 @@ public class WebConsoleServer {
             + "<div class='navCard'><div class='navTitle'>Workspace</div><div class='navItem'><strong>Web Console</strong><span>Port 18789, persistent local history</span></div><div class='jsonBox' id='statusJson'>Loading...</div></div>"
             + "<div class='settingsCard'><div class='navTitle'>Configuration</div>"
             + "<details><summary>" + svgRobot + " API</summary><div class='settingsRow compact'>"
-            + "<div class='fieldGroup'><div class='fieldLabel'>Protocol</div><select id='cfgProvider' onchange='saveConfig()'><option value='openai'>OpenAI</option><option value='anthropic'>Anthropic</option></select></div>"
-            + "<div class='fieldGroup'><div class='fieldLabel'>Active Profile</div><select id='cfgActiveProfile' onchange='switchActiveProfile()'></select></div>"
-            + "<input id='cfgProfileName' placeholder='Profile name' oninput='markProfileDraft()'>"
-            + "<div style='display:flex;gap:6px;'><button class='compactBtn' type='button' onclick='saveCurrentProfile()'>Save Current</button><button class='ghostBtn' type='button' onclick='createProfileDraft()'>New Profile</button></div>"
+            + "<div class='sectionDivider'><strong>Provider Profile</strong><span>Switch between saved provider setups without retyping URL, key, and limits.</span></div>"
+            + "<div class='fieldGroup'><div class='fieldLabel'>Current Profile</div><select id='cfgActiveProfile' onchange='switchActiveProfile()'></select></div>"
+            + "<div class='fieldGroup'><div class='fieldLabel'>Profile Name</div><input id='cfgProfileName' placeholder='Give this setup a clear name' oninput='markProfileDraft()'><div class='fieldHint'>Rename or save the current setup. New Profile creates a clean blank setup.</div></div>"
+            + "<div class='inlineActions'><button class='inlineMiniBtn primary' type='button' onclick='saveCurrentProfile()'>Save Profile</button><button class='inlineMiniBtn' type='button' onclick='createProfileDraft()'>New Blank Profile</button></div>"
+            + "<div class='sectionDivider'><strong>Connection</strong><span>These fields belong to the currently selected profile.</span></div>"
             + "<input id='cfgModel' placeholder='Model' oninput='saveConfig()'>"
             + "<input id='cfgApiUrl' placeholder='API URL' oninput='saveConfig()'>"
             + "<div class='inputWrap'><input id='cfgApiKey' type='password' placeholder='API Key' oninput='saveConfig()'><button class='eyeBtn' type='button' onclick='toggleApiKey()' aria-label='Toggle API key visibility'>" + svgEye + "</button></div>"
+            + "<div class='fieldGroup'><div class='fieldLabel'>Protocol</div><select id='cfgProvider' onchange='saveConfig()'><option value='openai'>OpenAI</option><option value='anthropic'>Anthropic</option></select></div>"
             + "<div class='fieldGroup'><div class='fieldLabel'>Max Tokens</div><input id='cfgMaxTokens' type='number' min='256' max='32768' step='256' placeholder='4096' oninput='saveConfig()'></div>"
             + "<div class='fieldGroup'><div class='fieldLabel'>Tool Call Limit</div><input id='cfgMaxToolIterations' type='number' min='1' max='100' step='1' placeholder='30' oninput='saveConfig()'></div>"
             + "<div class='status' id='configStatus'></div></div></details>"
@@ -1222,8 +1241,8 @@ public class WebConsoleServer {
             + "function renderProfileOptions(){const select=document.getElementById('cfgActiveProfile');if(!select)return;let h='';(providerProfiles||[]).forEach(p=>{const id=(p&&p.id)||'';const name=(p&&p.name)||id||'Profile';h+='<option value=\"'+escapeHtml(id)+'\" '+(id===activeProfileId?'selected':'')+'>'+escapeHtml(name)+'</option>';});select.innerHTML=h;const active=(providerProfiles||[]).find(p=>p&&p.id===activeProfileId)||providerProfiles[0]||null;const nameInput=document.getElementById('cfgProfileName');if(nameInput){nameInput.value=active&&active.name?active.name:'';}profileDraftDirty=false;}"
             + "function markProfileDraft(){profileDraftDirty=true;}"
             + "async function switchActiveProfile(){const select=document.getElementById('cfgActiveProfile');if(!select)return;const nextId=select.value||'';if(!nextId||nextId===activeProfileId)return;try{const r=await fetch(apiUrl('/api/config/profile'),{method:'POST',credentials:'include',headers:apiHeaders({'Content-Type':'application/json'}),body:JSON.stringify({action:'set_active',profile_id:nextId})});const j=await r.json();if(j.ok){activeProfileId=nextId;await loadConfig();document.getElementById('configStatus').textContent='Switched';}else{document.getElementById('configStatus').textContent='Failed';}}catch(e){document.getElementById('configStatus').textContent='Error';}}"
-            + "async function saveCurrentProfile(){const nameInput=document.getElementById('cfgProfileName');const profileName=nameInput&&nameInput.value?nameInput.value.trim():'';const profileId=activeProfileId||'';try{const r=await fetch(apiUrl('/api/config/profile'),{method:'POST',credentials:'include',headers:apiHeaders({'Content-Type':'application/json'}),body:JSON.stringify({action:'save_current',profile_id:profileId,profile_name:profileName,make_active:true})});const j=await r.json();if(j.ok){await loadConfig();document.getElementById('configStatus').textContent='Profile saved';}else{document.getElementById('configStatus').textContent='Failed';}}catch(e){document.getElementById('configStatus').textContent='Error';}}"
-            + "async function createProfileDraft(){const nameInput=document.getElementById('cfgProfileName');const profileName=nameInput&&nameInput.value?nameInput.value.trim():'';const fallback='Profile '+((providerProfiles||[]).length+1);try{const r=await fetch(apiUrl('/api/config/profile'),{method:'POST',credentials:'include',headers:apiHeaders({'Content-Type':'application/json'}),body:JSON.stringify({action:'create',profile_name:profileName||fallback,make_active:true})});const j=await r.json();if(j.ok){await loadConfig();document.getElementById('configStatus').textContent='Profile created';}else{document.getElementById('configStatus').textContent='Failed';}}catch(e){document.getElementById('configStatus').textContent='Error';}}"
+            + "async function saveCurrentProfile(){const nameInput=document.getElementById('cfgProfileName');const profileName=nameInput&&nameInput.value?nameInput.value.trim():'';const profileId=activeProfileId||'';try{const r=await fetch(apiUrl('/api/config/profile'),{method:'POST',credentials:'include',headers:apiHeaders({'Content-Type':'application/json'}),body:JSON.stringify({action:'save_current',profile_id:profileId,profile_name:profileName,make_active:true})});const j=await r.json();if(j.ok){await loadConfig();document.getElementById('configStatus').textContent='Profile saved';}else{document.getElementById('configStatus').textContent='Save failed';}}catch(e){document.getElementById('configStatus').textContent='Error';}}"
+            + "async function createProfileDraft(){const nameInput=document.getElementById('cfgProfileName');const profileName=nameInput&&nameInput.value?nameInput.value.trim():'';const fallback='Profile '+((providerProfiles||[]).length+1);try{const r=await fetch(apiUrl('/api/config/profile'),{method:'POST',credentials:'include',headers:apiHeaders({'Content-Type':'application/json'}),body:JSON.stringify({action:'create',profile_name:profileName||fallback,make_active:true})});const j=await r.json();if(j.ok){await loadConfig();document.getElementById('configStatus').textContent='Blank profile created';}else{document.getElementById('configStatus').textContent='Create failed';}}catch(e){document.getElementById('configStatus').textContent='Error';}}"
             + "async function loadConfig(){try{const r=await fetch(apiUrl('/api/config'),{credentials:'include',headers:apiHeaders()});const j=await r.json();if(j.ok){providerProfiles=Array.isArray(j.profiles)?j.profiles:[];activeProfileId=j.active_profile_id||'default';renderProfileOptions();document.getElementById('cfgProvider').value=j.provider||'openai';document.getElementById('cfgModel').value=j.model||'';document.getElementById('cfgApiUrl').value=j.custom_api_url||'';document.getElementById('cfgApiKey').value=j.api_key||'';document.getElementById('cfgMaxTokens').value=j.max_tokens||'4096';document.getElementById('cfgMaxToolIterations').value=j.max_tool_iterations||'30';}}catch(e){console.error('loadConfig error',e);}}"
             + "let saveTimer=null;async function saveConfig(){if(saveTimer)clearTimeout(saveTimer);saveTimer=setTimeout(async()=>{try{const maxTokens=document.getElementById('cfgMaxTokens');let maxTokensValue=maxTokens&&maxTokens.value?parseInt(maxTokens.value,10):4096;if(!Number.isFinite(maxTokensValue))maxTokensValue=4096;maxTokensValue=Math.max(256,Math.min(32768,maxTokensValue));if(maxTokens)maxTokens.value=String(maxTokensValue);const maxToolIterations=document.getElementById('cfgMaxToolIterations');let maxToolIterationsValue=maxToolIterations&&maxToolIterations.value?parseInt(maxToolIterations.value,10):30;if(!Number.isFinite(maxToolIterationsValue))maxToolIterationsValue=30;maxToolIterationsValue=Math.max(1,Math.min(100,maxToolIterationsValue));if(maxToolIterations)maxToolIterations.value=String(maxToolIterationsValue);const r=await fetch(apiUrl('/api/config'),{method:'POST',credentials:'include',headers:apiHeaders({'Content-Type':'application/json'}),body:JSON.stringify({provider:document.getElementById('cfgProvider').value,model:document.getElementById('cfgModel').value,custom_api_url:document.getElementById('cfgApiUrl').value,api_key:document.getElementById('cfgApiKey').value,max_tokens:maxTokensValue,max_tool_iterations:maxToolIterationsValue})});const j=await r.json();document.getElementById('configStatus').textContent=j.ok?'Saved':'Failed';}catch(e){document.getElementById('configStatus').textContent='Error';}},500);}function toggleApiKey(){const input=document.getElementById('cfgApiKey');if(!input)return;input.type=input.type==='password'?'text':'password';}"
             + "const builtinSkills=[{id:'homeassistant',name:'Home Assistant',desc:'Smart home control (26 tools)',default:true},{id:'android_system_bridge',name:'Android System',desc:'Device info, shell commands',default:true},{id:'android_accessibility_bridge',name:'Accessibility',desc:'UI inspection and control',default:true},{id:'android_browser_bridge',name:'Browser',desc:'Floating browser control',default:true},{id:'multi_search_engine',name:'Web Search',desc:'Tavily + 17 engines',default:true}];"
