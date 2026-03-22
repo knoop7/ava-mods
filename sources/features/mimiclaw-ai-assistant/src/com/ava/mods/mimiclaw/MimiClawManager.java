@@ -26,6 +26,7 @@ import org.json.JSONObject;
 public class MimiClawManager {
     private static final String TAG = "MimiClawManager";
     private static final String MAIN_CONFIG_FILE = "mimiclaw-ai-assistant.json";
+    private static final String PROFILES_CONFIG_FILE = "mimiclaw-ai-assistant-profiles.json";
     private static final String ACTIVE_PROFILE_ID_KEY = "active_profile_id";
     private static final String PROVIDER_PROFILES_KEY = "provider_profiles";
     private static final String AI_BROWSER_STATE_PATH = "browser/ai_browser_state.json";
@@ -346,7 +347,7 @@ public class MimiClawManager {
 
     public JSONObject getProviderProfilesPayload() {
         try {
-            JSONObject config = ensureProviderProfiles(readMainConfig());
+            JSONObject config = ensureProviderProfiles(readProfilesConfig());
             JSONObject result = new JSONObject();
             result.put("active_profile_id", config.optString(ACTIVE_PROFILE_ID_KEY, "default"));
             result.put("profiles", config.optJSONArray(PROVIDER_PROFILES_KEY));
@@ -368,7 +369,7 @@ public class MimiClawManager {
             return;
         }
         try {
-            JSONObject config = ensureProviderProfiles(readMainConfig());
+            JSONObject config = ensureProviderProfiles(readProfilesConfig());
             JSONArray profiles = config.optJSONArray(PROVIDER_PROFILES_KEY);
             if (profiles == null) {
                 return;
@@ -383,8 +384,10 @@ public class MimiClawManager {
                     continue;
                 }
                 config.put(ACTIVE_PROFILE_ID_KEY, normalizedId);
-                applyProfileToTopLevelConfig(config, profile);
-                writeMainConfig(config);
+                writeProfilesConfig(config);
+                JSONObject mainConfig = readMainConfig();
+                applyProfileToTopLevelConfig(mainConfig, profile);
+                writeMainConfig(mainConfig);
                 applyConfig("provider", profile.optString("provider", "openai"));
                 applyConfig("model", profile.optString("model", ""));
                 applyConfig("custom_api_url", profile.optString("custom_api_url", ""));
@@ -400,7 +403,7 @@ public class MimiClawManager {
 
     public JSONObject saveCurrentConfigAsProfile(String profileId, String profileName, boolean makeActive) {
         try {
-            JSONObject config = ensureProviderProfiles(readMainConfig());
+            JSONObject config = ensureProviderProfiles(readProfilesConfig());
             JSONArray profiles = config.optJSONArray(PROVIDER_PROFILES_KEY);
             if (profiles == null) {
                 profiles = new JSONArray();
@@ -415,7 +418,7 @@ public class MimiClawManager {
             if (makeActive) {
                 config.put(ACTIVE_PROFILE_ID_KEY, normalizedId);
             }
-            writeMainConfig(config);
+            writeProfilesConfig(config);
             JSONObject result = new JSONObject();
             result.put("active_profile_id", config.optString(ACTIVE_PROFILE_ID_KEY, normalizedId));
             result.put("profile", profile);
@@ -428,7 +431,7 @@ public class MimiClawManager {
 
     public JSONObject createEmptyProviderProfile(String profileId, String profileName, boolean makeActive) {
         try {
-            JSONObject config = ensureProviderProfiles(readMainConfig());
+            JSONObject config = ensureProviderProfiles(readProfilesConfig());
             JSONArray profiles = config.optJSONArray(PROVIDER_PROFILES_KEY);
             if (profiles == null) {
                 profiles = new JSONArray();
@@ -442,9 +445,11 @@ public class MimiClawManager {
             upsertProfile(profiles, profile);
             if (makeActive) {
                 config.put(ACTIVE_PROFILE_ID_KEY, normalizedId);
-                applyProfileToTopLevelConfig(config, profile);
+                JSONObject mainConfig = readMainConfig();
+                applyProfileToTopLevelConfig(mainConfig, profile);
+                writeMainConfig(mainConfig);
             }
-            writeMainConfig(config);
+            writeProfilesConfig(config);
             if (makeActive) {
                 applyConfig("provider", profile.optString("provider", "openai"));
                 applyConfig("model", profile.optString("model", ""));
@@ -463,10 +468,85 @@ public class MimiClawManager {
         }
     }
 
+    public JSONObject deleteProviderProfile(String profileId) {
+        try {
+            JSONObject config = ensureProviderProfiles(readProfilesConfig());
+            JSONArray profiles = config.optJSONArray(PROVIDER_PROFILES_KEY);
+            if (profiles == null || profiles.length() <= 1) {
+                JSONObject result = new JSONObject();
+                result.put("deleted", false);
+                result.put("reason", "last_profile");
+                result.put("active_profile_id", config.optString(ACTIVE_PROFILE_ID_KEY, "default"));
+                return result;
+            }
+            String normalizedId = profileId == null ? "" : profileId.trim();
+            JSONArray nextProfiles = new JSONArray();
+            JSONObject nextActiveProfile = null;
+            boolean deleted = false;
+            for (int i = 0; i < profiles.length(); i++) {
+                JSONObject profile = profiles.optJSONObject(i);
+                if (profile == null) {
+                    continue;
+                }
+                if (normalizedId.equals(profile.optString("id"))) {
+                    deleted = true;
+                    continue;
+                }
+                if (nextActiveProfile == null) {
+                    nextActiveProfile = profile;
+                }
+                nextProfiles.put(profile);
+            }
+            if (!deleted) {
+                JSONObject result = new JSONObject();
+                result.put("deleted", false);
+                result.put("reason", "not_found");
+                result.put("active_profile_id", config.optString(ACTIVE_PROFILE_ID_KEY, "default"));
+                return result;
+            }
+            config.put(PROVIDER_PROFILES_KEY, nextProfiles);
+            String activeId = config.optString(ACTIVE_PROFILE_ID_KEY, "default");
+            if (normalizedId.equals(activeId)) {
+                if (nextActiveProfile == null) {
+                    nextActiveProfile = nextProfiles.optJSONObject(0);
+                }
+                if (nextActiveProfile != null) {
+                    String nextId = nextActiveProfile.optString("id", "default");
+                    config.put(ACTIVE_PROFILE_ID_KEY, nextId);
+                    JSONObject mainConfig = readMainConfig();
+                    applyProfileToTopLevelConfig(mainConfig, nextActiveProfile);
+                    writeMainConfig(mainConfig);
+                    applyConfig("provider", nextActiveProfile.optString("provider", "openai"));
+                    applyConfig("model", nextActiveProfile.optString("model", ""));
+                    applyConfig("custom_api_url", nextActiveProfile.optString("custom_api_url", ""));
+                    applyConfig("api_key", nextActiveProfile.optString("api_key", ""));
+                    applyConfig("max_tokens", nextActiveProfile.optString("max_tokens", "4096"));
+                    applyConfig("max_tool_iterations", nextActiveProfile.optString("max_tool_iterations", "30"));
+                }
+            }
+            writeProfilesConfig(config);
+            JSONObject result = new JSONObject();
+            result.put("deleted", true);
+            result.put("active_profile_id", config.optString(ACTIVE_PROFILE_ID_KEY, "default"));
+            return result;
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to delete provider profile: " + e.getMessage());
+            return new JSONObject();
+        }
+    }
+
     private JSONObject readMainConfig() throws Exception {
+        return readJsonConfigFile(MAIN_CONFIG_FILE);
+    }
+
+    private JSONObject readProfilesConfig() throws Exception {
+        return readJsonConfigFile(PROFILES_CONFIG_FILE);
+    }
+
+    private JSONObject readJsonConfigFile(String fileName) throws Exception {
         java.io.File configDir = new java.io.File(context.getFilesDir(), "mod_configs");
         configDir.mkdirs();
-        java.io.File configFile = new java.io.File(configDir, MAIN_CONFIG_FILE);
+        java.io.File configFile = new java.io.File(configDir, fileName);
         if (!configFile.exists()) {
             return new JSONObject();
         }
@@ -475,9 +555,17 @@ public class MimiClawManager {
     }
 
     private void writeMainConfig(JSONObject config) throws Exception {
+        writeJsonConfigFile(MAIN_CONFIG_FILE, config);
+    }
+
+    private void writeProfilesConfig(JSONObject config) throws Exception {
+        writeJsonConfigFile(PROFILES_CONFIG_FILE, config);
+    }
+
+    private void writeJsonConfigFile(String fileName, JSONObject config) throws Exception {
         java.io.File configDir = new java.io.File(context.getFilesDir(), "mod_configs");
         configDir.mkdirs();
-        java.io.File configFile = new java.io.File(configDir, MAIN_CONFIG_FILE);
+        java.io.File configFile = new java.io.File(configDir, fileName);
         java.io.FileWriter writer = new java.io.FileWriter(configFile);
         writer.write(config.toString());
         writer.close();
