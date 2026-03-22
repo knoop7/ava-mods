@@ -16,7 +16,7 @@ import java.util.Locale;
 
 public class AgentLoop implements Runnable {
     private static final String TAG = "AgentLoop";
-    private static final int MAX_TOOL_ITERATIONS = 50;
+    private static final int MAX_TOOL_ITERATIONS = 30;
     private static final String HIDDEN_BROWSER_EVENT_PREFIX = "[BROWSER_UI_EVENT]";
 
     public interface StatusListener {
@@ -115,7 +115,7 @@ public class AgentLoop implements Runnable {
 
             String sessionKey = buildSessionKey(msg);
             toolRegistry.setCurrentContext(msg.channel, msg.chatId);
-            JSONArray messages = sessionManager.getHistory(sessionKey, 50);
+            JSONArray messages = sessionManager.getHistory(sessionKey, 100);
             boolean isFirstMessage = messages.length() == 0;
             String systemPrompt = buildSystemPrompt(msg, isFirstMessage);
             if (hiddenBrowserEvent) {

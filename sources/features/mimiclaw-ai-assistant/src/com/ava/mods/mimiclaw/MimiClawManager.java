@@ -208,21 +208,29 @@ public class MimiClawManager {
             webConsolePassword = saved.trim();
         }
         
-        String provider = getPrefs().getString("cfg_provider", "");
+        String provider = getConfigValue("provider", getPrefs().getString("cfg_provider", ""));
         if (provider != null && !provider.isEmpty()) {
             llmProxy.setProvider(provider);
         }
-        String model = getPrefs().getString("cfg_model", "");
+        String model = getConfigValue("model", getPrefs().getString("cfg_model", ""));
         if (model != null && !model.isEmpty()) {
             llmProxy.setModel(model);
         }
-        String apiKey = getPrefs().getString("cfg_api_key", "");
+        String apiKey = getConfigValue("api_key", getPrefs().getString("cfg_api_key", ""));
         if (apiKey != null && !apiKey.isEmpty()) {
             llmProxy.setApiKey(apiKey);
         }
-        String customApiUrl = getPrefs().getString("cfg_custom_api_url", "");
+        String customApiUrl = getConfigValue("custom_api_url", getPrefs().getString("cfg_custom_api_url", ""));
         if (customApiUrl != null && !customApiUrl.isEmpty()) {
             llmProxy.setCustomApiUrl(customApiUrl);
+        }
+        String maxToolIterations = getConfigValue("max_tool_iterations", "30");
+        if (maxToolIterations != null && !maxToolIterations.isEmpty()) {
+            try {
+                agentLoop.setMaxToolIterations(Integer.parseInt(maxToolIterations));
+            } catch (NumberFormatException e) {
+                Log.w(TAG, "Invalid persisted max_tool_iterations: " + maxToolIterations);
+            }
         }
     }
 
@@ -312,16 +320,30 @@ public class MimiClawManager {
         } catch (Exception e) {
             Log.e(TAG, "Failed to write config file: " + e.getMessage());
         }
-        
+
         switch (key) {
+            case "api_key":
+                getPrefs().edit().putString("cfg_api_key", value).apply();
+                llmProxy.setApiKey(value);
+                break;
             case "provider":
+                getPrefs().edit().putString("cfg_provider", value).apply();
                 llmProxy.setProvider(value);
                 break;
             case "model":
+                getPrefs().edit().putString("cfg_model", value).apply();
                 llmProxy.setModel(value);
                 break;
             case "custom_api_url":
+                getPrefs().edit().putString("cfg_custom_api_url", value).apply();
                 llmProxy.setCustomApiUrl(value);
+                break;
+            case "max_tool_iterations":
+                try {
+                    agentLoop.setMaxToolIterations(Integer.parseInt(value));
+                } catch (NumberFormatException e) {
+                    Log.w(TAG, "Invalid max_tool_iterations: " + value);
+                }
                 break;
         }
     }

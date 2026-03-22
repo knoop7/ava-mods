@@ -17,7 +17,7 @@ public class ContextBuilder {
     private final MemoryStore memoryStore;
     private final SkillLoader skillLoader;
     private Function<String, Boolean> skillEnabledChecker;
-    private int maxToolIterations = 50;
+    private int maxToolIterations = 30;
 
     public ContextBuilder(MemoryStore memoryStore, SkillLoader skillLoader) {
         this.memoryStore = memoryStore;

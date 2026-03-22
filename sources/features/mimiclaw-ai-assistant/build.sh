@@ -8,11 +8,19 @@ OUTPUT_JAR="libs/mimiclaw-manager.jar"
 MANIFEST_JSON="manifest.json"
 BUILD_INFO_JAVA="src/com/ava/mods/mimiclaw/BuildInfo.java"
 GRADLE_CACHE="$HOME/.gradle/caches/modules-2/files-2.1"
-OKHTTP_JAR=$(find "$GRADLE_CACHE" -path '*com.squareup.okhttp3/okhttp/4.12.0/*/*.jar' | head -1)
-OKIO_JAR=$(find "$GRADLE_CACHE" -path '*com.squareup.okio/okio-jvm/3.9.1/*/*.jar' | head -1)
-KOTLIN_STDLIB_JAR=$(find "$GRADLE_CACHE" -path '*org.jetbrains.kotlin/kotlin-stdlib/2.2.21/*/*.jar' | head -1)
-KOTLIN_STDLIB_JDK7_JAR=$(find "$GRADLE_CACHE" -path '*org.jetbrains.kotlin/kotlin-stdlib-jdk7/*/*.jar' | grep -v sources | head -1)
-KOTLIN_STDLIB_JDK8_JAR=$(find "$GRADLE_CACHE" -path '*org.jetbrains.kotlin/kotlin-stdlib-jdk8/*/*.jar' | grep -v sources | head -1)
+find_cached_jar() {
+    find "$GRADLE_CACHE" -path "$1" \
+        | grep -v -- '-sources\.jar$' \
+        | grep -v -- '-javadoc\.jar$' \
+        | sort \
+        | head -1
+}
+
+OKHTTP_JAR=$(find_cached_jar '*com.squareup.okhttp3/okhttp/4.12.0/*/*.jar')
+OKIO_JAR=$(find_cached_jar '*com.squareup.okio/okio-jvm/3.9.1/*/*.jar')
+KOTLIN_STDLIB_JAR=$(find_cached_jar '*org.jetbrains.kotlin/kotlin-stdlib/2.2.21/*/*.jar')
+KOTLIN_STDLIB_JDK7_JAR=$(find_cached_jar '*org.jetbrains.kotlin/kotlin-stdlib-jdk7/*/*.jar')
+KOTLIN_STDLIB_JDK8_JAR=$(find_cached_jar '*org.jetbrains.kotlin/kotlin-stdlib-jdk8/*/*.jar')
 TERMUX_JAR="libs/termux/classes.jar"
 THIRD_PARTY_CP="$OKHTTP_JAR:$OKIO_JAR:$KOTLIN_STDLIB_JAR:$KOTLIN_STDLIB_JDK7_JAR:$KOTLIN_STDLIB_JDK8_JAR:$TERMUX_JAR"
 
@@ -21,6 +29,13 @@ if [ ! -f "$ANDROID_JAR" ]; then
     echo "Please set ANDROID_HOME or install Android SDK platform 34"
     exit 1
 fi
+
+for dep in "$OKHTTP_JAR" "$OKIO_JAR" "$KOTLIN_STDLIB_JAR" "$TERMUX_JAR"; do
+    if [ -z "$dep" ] || [ ! -f "$dep" ]; then
+        echo "Error: missing compile dependency jar: $dep"
+        exit 1
+    fi
+done
 
 if [ ! -f "$D8_TOOL" ]; then
     D8_TOOL=$(find "$ANDROID_SDK/build-tools" -name "d8" 2>/dev/null | sort -V | tail -1)
