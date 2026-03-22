@@ -287,11 +287,23 @@ public class MimiClawManager {
         }
     }
     
-    public String getAgentStatus() {
-        if (lastError != null && !lastError.isEmpty()) {
-            return agentStatus + ": " + lastError;
+    private String toPublicAgentStatus(String rawStatus) {
+        String status = rawStatus == null ? "idle" : rawStatus;
+        if ("llm_request".equals(status)) {
+            return "thinking";
         }
-        return agentStatus;
+        if (status.startsWith("llm_request:")) {
+            return "thinking" + status.substring("llm_request".length());
+        }
+        return status;
+    }
+
+    public String getAgentStatus() {
+        String status = toPublicAgentStatus(agentStatus);
+        if (lastError != null && !lastError.isEmpty()) {
+            return status + ": " + lastError;
+        }
+        return status;
     }
     
     public String getConfigValue(String key, String defaultValue) {
