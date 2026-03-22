@@ -347,7 +347,7 @@ public class MimiClawManager {
 
     public JSONObject getProviderProfilesPayload() {
         try {
-            JSONObject config = ensureProviderProfiles(readProfilesConfig());
+            JSONObject config = ensureProviderProfiles(readProfilesConfig(), readMainConfig());
             JSONObject result = new JSONObject();
             result.put("active_profile_id", config.optString(ACTIVE_PROFILE_ID_KEY, "default"));
             result.put("profiles", config.optJSONArray(PROVIDER_PROFILES_KEY));
@@ -369,7 +369,7 @@ public class MimiClawManager {
             return;
         }
         try {
-            JSONObject config = ensureProviderProfiles(readProfilesConfig());
+            JSONObject config = ensureProviderProfiles(readProfilesConfig(), readMainConfig());
             JSONArray profiles = config.optJSONArray(PROVIDER_PROFILES_KEY);
             if (profiles == null) {
                 return;
@@ -403,7 +403,8 @@ public class MimiClawManager {
 
     public JSONObject saveCurrentConfigAsProfile(String profileId, String profileName, boolean makeActive) {
         try {
-            JSONObject config = ensureProviderProfiles(readProfilesConfig());
+            JSONObject mainConfig = sanitizeLegacyMainConfig(readMainConfig());
+            JSONObject config = ensureProviderProfiles(readProfilesConfig(), mainConfig);
             JSONArray profiles = config.optJSONArray(PROVIDER_PROFILES_KEY);
             if (profiles == null) {
                 profiles = new JSONArray();
@@ -413,7 +414,7 @@ public class MimiClawManager {
             String normalizedName = profileName != null && !profileName.trim().isEmpty()
                 ? profileName.trim()
                 : normalizedId;
-            JSONObject profile = buildProfileFromCurrentConfig(config, normalizedId, normalizedName);
+            JSONObject profile = buildProfileFromCurrentConfig(mainConfig, normalizedId, normalizedName);
             upsertProfile(profiles, profile);
             if (makeActive) {
                 config.put(ACTIVE_PROFILE_ID_KEY, normalizedId);
@@ -431,7 +432,7 @@ public class MimiClawManager {
 
     public JSONObject createEmptyProviderProfile(String profileId, String profileName, boolean makeActive) {
         try {
-            JSONObject config = ensureProviderProfiles(readProfilesConfig());
+            JSONObject config = ensureProviderProfiles(readProfilesConfig(), readMainConfig());
             JSONArray profiles = config.optJSONArray(PROVIDER_PROFILES_KEY);
             if (profiles == null) {
                 profiles = new JSONArray();
@@ -470,7 +471,7 @@ public class MimiClawManager {
 
     public JSONObject deleteProviderProfile(String profileId) {
         try {
-            JSONObject config = ensureProviderProfiles(readProfilesConfig());
+            JSONObject config = ensureProviderProfiles(readProfilesConfig(), readMainConfig());
             JSONArray profiles = config.optJSONArray(PROVIDER_PROFILES_KEY);
             if (profiles == null || profiles.length() <= 1) {
                 JSONObject result = new JSONObject();
@@ -576,11 +577,11 @@ public class MimiClawManager {
             return new JSONObject();
         }
         boolean changed = false;
-        if (config.has(PROVIDER_PROFILES_KEY) && !(config.opt(PROVIDER_PROFILES_KEY) instanceof String)) {
+        if (config.has(PROVIDER_PROFILES_KEY)) {
             config.remove(PROVIDER_PROFILES_KEY);
             changed = true;
         }
-        if (config.has(ACTIVE_PROFILE_ID_KEY) && !(config.opt(ACTIVE_PROFILE_ID_KEY) instanceof String)) {
+        if (config.has(ACTIVE_PROFILE_ID_KEY)) {
             config.remove(ACTIVE_PROFILE_ID_KEY);
             changed = true;
         }
@@ -590,11 +591,13 @@ public class MimiClawManager {
         return config;
     }
 
-    private JSONObject ensureProviderProfiles(JSONObject config) throws Exception {
+    private JSONObject ensureProviderProfiles(JSONObject profilesConfig, JSONObject mainConfig) throws Exception {
+        JSONObject config = profilesConfig != null ? profilesConfig : new JSONObject();
         JSONArray profiles = config.optJSONArray(PROVIDER_PROFILES_KEY);
         if (profiles == null || profiles.length() == 0) {
             profiles = new JSONArray();
-            profiles.put(buildProfileFromCurrentConfig(config, "default", "Default"));
+            JSONObject sourceConfig = sanitizeLegacyMainConfig(mainConfig != null ? mainConfig : readMainConfig());
+            profiles.put(buildProfileFromCurrentConfig(sourceConfig, "default", "Default"));
             config.put(PROVIDER_PROFILES_KEY, profiles);
         }
         String activeId = config.optString(ACTIVE_PROFILE_ID_KEY, "");
@@ -602,7 +605,7 @@ public class MimiClawManager {
             JSONObject first = profiles.optJSONObject(0);
             config.put(ACTIVE_PROFILE_ID_KEY, first != null ? first.optString("id", "default") : "default");
         }
-        writeMainConfig(config);
+        writeProfilesConfig(config);
         return config;
     }
 
@@ -633,23 +636,25 @@ public class MimiClawManager {
     }
 
     private void syncActiveProfileFields(JSONObject config, String key, String value) throws Exception {
-        config = ensureProviderProfiles(config);
-        JSONArray profiles = config.optJSONArray(PROVIDER_PROFILES_KEY);
+        if (!isProfileField(key)) {
+            return;
+        }
+        JSONObject profilesConfig = ensureProviderProfiles(readProfilesConfig(), config);
+        JSONArray profiles = profilesConfig.optJSONArray(PROVIDER_PROFILES_KEY);
         if (profiles == null) {
             return;
         }
-        String activeId = config.optString(ACTIVE_PROFILE_ID_KEY, "default");
+        String activeId = profilesConfig.optString(ACTIVE_PROFILE_ID_KEY, "default");
         for (int i = 0; i < profiles.length(); i++) {
             JSONObject profile = profiles.optJSONObject(i);
             if (profile == null || !activeId.equals(profile.optString("id"))) {
                 continue;
             }
-            if (isProfileField(key)) {
-                profile.put(key, value);
-            }
+            profile.put(key, value);
             if (!profile.has("name") || profile.optString("name", "").trim().isEmpty()) {
                 profile.put("name", activeId);
             }
+            writeProfilesConfig(profilesConfig);
             return;
         }
     }
