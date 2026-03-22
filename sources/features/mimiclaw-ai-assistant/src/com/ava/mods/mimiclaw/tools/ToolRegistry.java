@@ -845,7 +845,7 @@ public class ToolRegistry {
             inputJson -> {
                 JSONObject input = new JSONObject(inputJson);
                 CronService.CronJob job = new CronService.CronJob();
-                job.name = input.optString("name", "");
+                job.name = normalizeCronJobName(input.optString("name", ""));
                 job.message = input.optString("message", "");
                 job.channel = input.optString("channel", currentChannel);
                 job.chatId = input.optString("chat_id", currentChatId);
@@ -2174,6 +2174,18 @@ public class ToolRegistry {
         // Map multi_search_engine tools
         toolSkillMap.put("web_search", "multi_search_engine");
         toolSkillMap.put("web_fetch", "multi_search_engine");
+    }
+
+    private String normalizeCronJobName(String raw) {
+        String base = raw == null ? "" : raw.trim();
+        String normalized = base.replaceAll("[^A-Za-z0-9]", "");
+        if (normalized.isEmpty()) {
+            normalized = "Task";
+        }
+        if (normalized.length() > 10) {
+            normalized = normalized.substring(0, 10);
+        }
+        return normalized;
     }
     
     // ========== Home Assistant Helpers ==========

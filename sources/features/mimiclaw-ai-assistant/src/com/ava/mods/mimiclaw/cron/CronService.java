@@ -136,6 +136,31 @@ public class CronService {
         }
         return false;
     }
+
+    public synchronized boolean setJobEnabled(String jobId, boolean enabled) {
+        for (CronJob job : jobs) {
+            if (!safeEquals(job.id, jobId)) {
+                continue;
+            }
+            job.enabled = enabled;
+            long now = System.currentTimeMillis() / 1000;
+            if (enabled) {
+                if (job.kind == KIND_EVERY) {
+                    job.nextRun = now + Math.max(1, job.intervalS);
+                } else if (job.kind == KIND_AT && job.atEpoch > now) {
+                    job.nextRun = job.atEpoch;
+                } else {
+                    job.nextRun = 0;
+                    job.enabled = false;
+                }
+            } else {
+                job.nextRun = 0;
+            }
+            saveJobs();
+            return true;
+        }
+        return false;
+    }
     
     public List<CronJob> listJobs() {
         return new ArrayList<>(jobs);
@@ -177,13 +202,13 @@ public class CronService {
             existing.chatId = chatId;
             changed = true;
         }
-        if (!existing.enabled) {
-            existing.enabled = true;
-            changed = true;
-        }
         if (changed) {
             long now = System.currentTimeMillis() / 1000;
-            existing.nextRun = now + intervalS;
+            if (existing.enabled) {
+                existing.nextRun = now + intervalS;
+            } else {
+                existing.nextRun = 0;
+            }
             saveJobs();
         }
     }

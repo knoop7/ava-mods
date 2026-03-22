@@ -1289,6 +1289,13 @@ public class MimiClawManager {
         return result;
     }
 
+    public boolean setCronJobEnabled(String jobId, boolean enabled) {
+        if (cronService == null || jobId == null || jobId.trim().isEmpty()) {
+            return false;
+        }
+        return cronService.setJobEnabled(jobId.trim(), enabled);
+    }
+
     private boolean isInternalWebConsoleMessage(String content) {
         if (content == null) {
             return false;
