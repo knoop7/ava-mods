@@ -338,6 +338,13 @@ public class MimiClawManager {
                 getPrefs().edit().putString("cfg_custom_api_url", value).apply();
                 llmProxy.setCustomApiUrl(value);
                 break;
+            case "max_tokens":
+                try {
+                    llmProxy.setMaxTokens(Integer.parseInt(value));
+                } catch (NumberFormatException e) {
+                    Log.w(TAG, "Invalid max_tokens: " + value);
+                }
+                break;
             case "max_tool_iterations":
                 try {
                     agentLoop.setMaxToolIterations(Integer.parseInt(value));

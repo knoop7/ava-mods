@@ -237,8 +237,10 @@ public class LlmProxy {
             normalized = normalized.substring(0, normalized.length() - 1);
         }
 
-        if (normalized.endsWith("/chat/completions") || normalized.endsWith("/messages")) {
-            return normalized;
+        if (normalized.endsWith("/chat/completions")) {
+            normalized = normalized.substring(0, normalized.length() - "/chat/completions".length());
+        } else if (normalized.endsWith("/messages")) {
+            normalized = normalized.substring(0, normalized.length() - "/messages".length());
         }
 
         if (normalized.endsWith("/v1")) {
