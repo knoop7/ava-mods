@@ -1047,7 +1047,7 @@ public class WebConsoleServer {
             + ".skillItem input{width:14px;height:14px;cursor:pointer;accent-color:var(--accent);}"
             + ".skillItem span{color:var(--text);}"
             + ".skillDivider{font-size:10px;color:var(--muted);margin:8px 0 4px;padding-top:8px;border-top:1px solid var(--line);text-transform:uppercase;letter-spacing:0.5px;}"
-            + ".settingsRow.compact{gap:6px;padding:8px 0;}"
+            + ".settingsRow.compact{gap:6px;}"
             + ".settingsRow.compact select{padding:6px 8px;font-size:12px;border-radius:6px;border:1px solid var(--line);background:var(--field);color:var(--text);cursor:pointer;appearance:none;background-image:url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E\");background-repeat:no-repeat;background-position:right 6px center;padding-right:24px;}"
             + ".settingsRow.compact input{padding:6px 8px;font-size:12px;border-radius:6px;border:1px solid var(--line);background:var(--field);color:var(--text);}"
             + ".fieldGroup{display:flex;flex-direction:column;gap:4px;}"

@@ -292,7 +292,7 @@ public class MimiClawManager {
     
     public String getConfigValue(String key, String defaultValue) {
         try {
-            JSONObject config = readMainConfig();
+            JSONObject config = sanitizeLegacyMainConfig(readMainConfig());
             String value = config.optString(key, "");
             if (!value.isEmpty()) return value;
         } catch (Exception e) {
@@ -303,7 +303,7 @@ public class MimiClawManager {
     
     public void setConfigValue(String key, String value) {
         try {
-            JSONObject config = readMainConfig();
+            JSONObject config = sanitizeLegacyMainConfig(readMainConfig());
             config.put(key, value);
             syncActiveProfileFields(config, key, value);
             writeMainConfig(config);
@@ -555,7 +555,7 @@ public class MimiClawManager {
     }
 
     private void writeMainConfig(JSONObject config) throws Exception {
-        writeJsonConfigFile(MAIN_CONFIG_FILE, config);
+        writeJsonConfigFile(MAIN_CONFIG_FILE, sanitizeLegacyMainConfig(config));
     }
 
     private void writeProfilesConfig(JSONObject config) throws Exception {
@@ -569,6 +569,25 @@ public class MimiClawManager {
         java.io.FileWriter writer = new java.io.FileWriter(configFile);
         writer.write(config.toString());
         writer.close();
+    }
+
+    private JSONObject sanitizeLegacyMainConfig(JSONObject config) throws Exception {
+        if (config == null) {
+            return new JSONObject();
+        }
+        boolean changed = false;
+        if (config.has(PROVIDER_PROFILES_KEY) && !(config.opt(PROVIDER_PROFILES_KEY) instanceof String)) {
+            config.remove(PROVIDER_PROFILES_KEY);
+            changed = true;
+        }
+        if (config.has(ACTIVE_PROFILE_ID_KEY) && !(config.opt(ACTIVE_PROFILE_ID_KEY) instanceof String)) {
+            config.remove(ACTIVE_PROFILE_ID_KEY);
+            changed = true;
+        }
+        if (changed) {
+            writeJsonConfigFile(MAIN_CONFIG_FILE, config);
+        }
+        return config;
     }
 
     private JSONObject ensureProviderProfiles(JSONObject config) throws Exception {
