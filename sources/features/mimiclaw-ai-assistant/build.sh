@@ -49,12 +49,19 @@ rm -rf $BUILD_DIR
 mkdir -p $BUILD_DIR
 mkdir -p libs
 
-VERSION=$(sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "$MANIFEST_JSON" | head -1)
+if [ -n "$1" ]; then
+    VERSION="$1"
+    sed -i '' "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" "$MANIFEST_JSON"
+else
+    VERSION=$(sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "$MANIFEST_JSON" | head -1)
+fi
+
 if [ -z "$VERSION" ]; then
     echo "Error: failed to read version from $MANIFEST_JSON"
     exit 1
 fi
 
+mkdir -p "$(dirname "$BUILD_INFO_JAVA")"
 cat > "$BUILD_INFO_JAVA" <<EOF
 package com.ava.mods.mimiclaw;
 
@@ -64,6 +71,8 @@ public final class BuildInfo {
     public static final String VERSION = "v$VERSION";
 }
 EOF
+
+echo "Synced BuildInfo.VERSION -> v$VERSION"
 
 echo "Compiling Java sources..."
 javac -source 1.8 -target 1.8 \

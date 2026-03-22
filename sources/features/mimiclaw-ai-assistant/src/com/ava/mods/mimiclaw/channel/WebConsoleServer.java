@@ -329,13 +329,16 @@ public class WebConsoleServer {
             }
 
             if ("GET".equals(method) && "/api/config".equals(path)) {
+                JSONObject profiles = manager.getProviderProfilesPayload();
                 JSONObject result = okJson()
                     .put("provider", manager.getConfigValue("provider", "openai"))
                     .put("model", manager.getConfigValue("model", ""))
                     .put("custom_api_url", manager.getConfigValue("custom_api_url", "https://openrouter.ai/api/v1"))
                     .put("api_key", manager.getConfigValue("api_key", ""))
                     .put("max_tokens", manager.getConfigValue("max_tokens", "4096"))
-                    .put("max_tool_iterations", manager.getConfigValue("max_tool_iterations", "30"));
+                    .put("max_tool_iterations", manager.getConfigValue("max_tool_iterations", "30"))
+                    .put("active_profile_id", profiles.optString("active_profile_id", "default"))
+                    .put("profiles", profiles.optJSONArray("profiles"));
                 writeJson(output, 200, result, null);
                 return;
             }
@@ -368,6 +371,27 @@ public class WebConsoleServer {
                     changed = true;
                 }
                 writeJson(output, 200, okJson().put("updated", changed), null);
+                return;
+            }
+
+            if ("POST".equals(method) && "/api/config/profile".equals(path)) {
+                JSONObject json = parseJson(body);
+                String action = json.optString("action", "");
+                if ("set_active".equals(action)) {
+                    manager.setActiveProviderProfile(json.optString("profile_id", ""));
+                    writeJson(output, 200, okJson().put("updated", true), null);
+                    return;
+                }
+                if ("save_current".equals(action) || "create".equals(action)) {
+                    JSONObject result = manager.saveCurrentConfigAsProfile(
+                        json.optString("profile_id", ""),
+                        json.optString("profile_name", ""),
+                        json.optBoolean("make_active", true)
+                    );
+                    writeJson(output, 200, okJson().put("updated", true).put("result", result), null);
+                    return;
+                }
+                writeJson(output, 400, errorJson("unsupported_profile_action"), null);
                 return;
             }
 
@@ -1015,7 +1039,7 @@ public class WebConsoleServer {
             + ".fieldGroup{display:flex;flex-direction:column;gap:4px;}"
             + ".fieldLabel{font-size:11px;font-weight:600;color:var(--muted);letter-spacing:.02em;}"
             + ".inputWrap{position:relative;width:100%;}"
-            + ".inputWrap::after{content:'';position:absolute;top:1px;right:30px;bottom:1px;width:26px;border-radius:0 6px 6px 0;background:linear-gradient(90deg,rgba(0,0,0,0),var(--field) 70%);pointer-events:none;z-index:2;}"
+            + ".inputWrap::after{content:'';position:absolute;top:1px;right:24px;bottom:1px;width:24px;border-radius:0 6px 6px 0;background:linear-gradient(90deg,rgba(0,0,0,0),var(--field) 70%);pointer-events:none;z-index:2;}"
             + ".inputWrap input{width:100%;padding-right:42px;position:relative;z-index:1;}"
             + ".eyeBtn{position:absolute;right:5px;top:50%;transform:translateY(-50%);width:22px;height:22px;padding:0;border:1px solid rgba(100,116,139,.18);border-radius:999px;background:var(--panel);color:var(--muted);display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:3;opacity:.92;box-shadow:0 1px 2px rgba(15,23,42,.08);}"
             + ".eyeBtn:hover{color:var(--text);opacity:1;}"
@@ -1099,6 +1123,9 @@ public class WebConsoleServer {
             + "<div class='settingsCard'><div class='navTitle'>Configuration</div>"
             + "<details><summary>" + svgRobot + " API</summary><div class='settingsRow compact'>"
             + "<div class='fieldGroup'><div class='fieldLabel'>Protocol</div><select id='cfgProvider' onchange='saveConfig()'><option value='openai'>OpenAI</option><option value='anthropic'>Anthropic</option></select></div>"
+            + "<div class='fieldGroup'><div class='fieldLabel'>Active Profile</div><select id='cfgActiveProfile' onchange='switchActiveProfile()'></select></div>"
+            + "<input id='cfgProfileName' placeholder='Profile name' oninput='markProfileDraft()'>"
+            + "<div style='display:flex;gap:6px;'><button class='compactBtn' type='button' onclick='saveCurrentProfile()'>Save Current</button><button class='ghostBtn' type='button' onclick='createProfileDraft()'>New Profile</button></div>"
             + "<input id='cfgModel' placeholder='Model' oninput='saveConfig()'>"
             + "<input id='cfgApiUrl' placeholder='API URL' oninput='saveConfig()'>"
             + "<div class='inputWrap'><input id='cfgApiKey' type='password' placeholder='API Key' oninput='saveConfig()'><button class='eyeBtn' type='button' onclick='toggleApiKey()' aria-label='Toggle API key visibility'>" + svgEye + "</button></div>"
@@ -1191,7 +1218,13 @@ public class WebConsoleServer {
             + "async function updatePassword(){try{const r=await fetch(apiUrl('/api/password'),{method:'POST',headers:apiHeaders({'Content-Type':'application/json'}),body:JSON.stringify({currentPassword:document.getElementById('currentPassword').value,newPassword:document.getElementById('newPassword').value})});const j=await r.json();document.getElementById('settingsStatus').textContent=j.ok?'Updated':(j.error||'Failed');if(j.ok){document.getElementById('currentPassword').value='';document.getElementById('newPassword').value='';}}catch(e){document.getElementById('settingsStatus').textContent='Error';}}"
             + "function statusHtml(s){if(!s){document.getElementById('chatStatus').className='statusPill';return'<i class=\"dot\"></i>Ready';}const p=s.split(': ');const c=p[0];const d=p.slice(1).join(': ');const m={idle:'Ready',processing:'Work',llm_request:'AI',tool_use:'Tools',responding:'Done',error:'Err'};let label=m[c]||c;if(c==='error'&&d){const h=d.match(/API error (\\d+)/);if(h){const e={'400':'Bad','401':'Auth','403':'Deny','404':'404','413':'Big','429':'Limit','500':'Srv','502':'Gate','503':'Down','504':'Time'};label=e[h[1]]||'E'+h[1];}else if(d.includes('timeout')){label='Time';}else if(d.includes('connect')){label='Net';}}const cls={idle:'',processing:'',llm_request:'st-ai',tool_use:'st-warn',responding:'st-ok',error:'st-err'};const stCls=cls[c]||(c.includes('error')?'st-err':'');document.getElementById('chatStatus').className='statusPill'+(stCls?' '+stCls:'');const spin=(c==='processing'||c==='llm_request'||c==='tool_use')?' spin':'';return'<i class=\"dot'+spin+'\"></i>'+label;}"
             + "let es=null,esRetry=0,lastPong=0;function connectSSE(){if(es){try{es.close();}catch(x){}}es=new EventSource(apiUrl('/api/events'),{withCredentials:true});lastPong=Date.now();es.addEventListener('status',e=>{document.getElementById('chatStatus').innerHTML=statusHtml(e.data);syncBusyFromStatus(e.data||'');esRetry=0;lastPong=Date.now();});es.addEventListener('message',e=>{lastPong=Date.now();try{const d=JSON.parse(e.data);if(d.content&&d.role!=='user'){addBubble(d.content,'bot',false,d.timestamp||'');}}catch(x){}});es.addEventListener('skill_change',e=>{lastPong=Date.now();try{JSON.parse(e.data);loadSkillControl();}catch(x){}});es.onerror=e=>{if(es){es.close();es=null;}esRetry++;setTimeout(connectSSE,Math.min(esRetry*500,5000));};es.onopen=()=>{esRetry=0;lastPong=Date.now();}}setInterval(()=>{if(es&&Date.now()-lastPong>15000){es.close();es=null;connectSSE();}},5000);"
-            + "async function loadConfig(){try{const r=await fetch(apiUrl('/api/config'),{credentials:'include',headers:apiHeaders()});const j=await r.json();if(j.ok){document.getElementById('cfgProvider').value=j.provider||'openai';document.getElementById('cfgModel').value=j.model||'';document.getElementById('cfgApiUrl').value=j.custom_api_url||'';document.getElementById('cfgApiKey').value=j.api_key||'';document.getElementById('cfgMaxTokens').value=j.max_tokens||'4096';document.getElementById('cfgMaxToolIterations').value=j.max_tool_iterations||'30';}}catch(e){console.error('loadConfig error',e);}}"
+            + "let providerProfiles=[];let activeProfileId='default';let profileDraftDirty=false;"
+            + "function renderProfileOptions(){const select=document.getElementById('cfgActiveProfile');if(!select)return;let h='';(providerProfiles||[]).forEach(p=>{const id=(p&&p.id)||'';const name=(p&&p.name)||id||'Profile';h+='<option value=\"'+escapeHtml(id)+'\" '+(id===activeProfileId?'selected':'')+'>'+escapeHtml(name)+'</option>';});select.innerHTML=h;const active=(providerProfiles||[]).find(p=>p&&p.id===activeProfileId)||providerProfiles[0]||null;const nameInput=document.getElementById('cfgProfileName');if(nameInput){nameInput.value=active&&active.name?active.name:'';}profileDraftDirty=false;}"
+            + "function markProfileDraft(){profileDraftDirty=true;}"
+            + "async function switchActiveProfile(){const select=document.getElementById('cfgActiveProfile');if(!select)return;const nextId=select.value||'';if(!nextId||nextId===activeProfileId)return;try{const r=await fetch(apiUrl('/api/config/profile'),{method:'POST',credentials:'include',headers:apiHeaders({'Content-Type':'application/json'}),body:JSON.stringify({action:'set_active',profile_id:nextId})});const j=await r.json();if(j.ok){activeProfileId=nextId;await loadConfig();document.getElementById('configStatus').textContent='Switched';}else{document.getElementById('configStatus').textContent='Failed';}}catch(e){document.getElementById('configStatus').textContent='Error';}}"
+            + "async function saveCurrentProfile(){const nameInput=document.getElementById('cfgProfileName');const profileName=nameInput&&nameInput.value?nameInput.value.trim():'';const profileId=activeProfileId||'';try{const r=await fetch(apiUrl('/api/config/profile'),{method:'POST',credentials:'include',headers:apiHeaders({'Content-Type':'application/json'}),body:JSON.stringify({action:'save_current',profile_id:profileId,profile_name:profileName,make_active:true})});const j=await r.json();if(j.ok){await loadConfig();document.getElementById('configStatus').textContent='Profile saved';}else{document.getElementById('configStatus').textContent='Failed';}}catch(e){document.getElementById('configStatus').textContent='Error';}}"
+            + "async function createProfileDraft(){const nameInput=document.getElementById('cfgProfileName');const profileName=nameInput&&nameInput.value?nameInput.value.trim():'';const fallback='Profile '+((providerProfiles||[]).length+1);try{const r=await fetch(apiUrl('/api/config/profile'),{method:'POST',credentials:'include',headers:apiHeaders({'Content-Type':'application/json'}),body:JSON.stringify({action:'create',profile_name:profileName||fallback,make_active:true})});const j=await r.json();if(j.ok){await loadConfig();document.getElementById('configStatus').textContent='Profile created';}else{document.getElementById('configStatus').textContent='Failed';}}catch(e){document.getElementById('configStatus').textContent='Error';}}"
+            + "async function loadConfig(){try{const r=await fetch(apiUrl('/api/config'),{credentials:'include',headers:apiHeaders()});const j=await r.json();if(j.ok){providerProfiles=Array.isArray(j.profiles)?j.profiles:[];activeProfileId=j.active_profile_id||'default';renderProfileOptions();document.getElementById('cfgProvider').value=j.provider||'openai';document.getElementById('cfgModel').value=j.model||'';document.getElementById('cfgApiUrl').value=j.custom_api_url||'';document.getElementById('cfgApiKey').value=j.api_key||'';document.getElementById('cfgMaxTokens').value=j.max_tokens||'4096';document.getElementById('cfgMaxToolIterations').value=j.max_tool_iterations||'30';}}catch(e){console.error('loadConfig error',e);}}"
             + "let saveTimer=null;async function saveConfig(){if(saveTimer)clearTimeout(saveTimer);saveTimer=setTimeout(async()=>{try{const maxTokens=document.getElementById('cfgMaxTokens');let maxTokensValue=maxTokens&&maxTokens.value?parseInt(maxTokens.value,10):4096;if(!Number.isFinite(maxTokensValue))maxTokensValue=4096;maxTokensValue=Math.max(256,Math.min(32768,maxTokensValue));if(maxTokens)maxTokens.value=String(maxTokensValue);const maxToolIterations=document.getElementById('cfgMaxToolIterations');let maxToolIterationsValue=maxToolIterations&&maxToolIterations.value?parseInt(maxToolIterations.value,10):30;if(!Number.isFinite(maxToolIterationsValue))maxToolIterationsValue=30;maxToolIterationsValue=Math.max(1,Math.min(100,maxToolIterationsValue));if(maxToolIterations)maxToolIterations.value=String(maxToolIterationsValue);const r=await fetch(apiUrl('/api/config'),{method:'POST',credentials:'include',headers:apiHeaders({'Content-Type':'application/json'}),body:JSON.stringify({provider:document.getElementById('cfgProvider').value,model:document.getElementById('cfgModel').value,custom_api_url:document.getElementById('cfgApiUrl').value,api_key:document.getElementById('cfgApiKey').value,max_tokens:maxTokensValue,max_tool_iterations:maxToolIterationsValue})});const j=await r.json();document.getElementById('configStatus').textContent=j.ok?'Saved':'Failed';}catch(e){document.getElementById('configStatus').textContent='Error';}},500);}function toggleApiKey(){const input=document.getElementById('cfgApiKey');if(!input)return;input.type=input.type==='password'?'text':'password';}"
             + "const builtinSkills=[{id:'homeassistant',name:'Home Assistant',desc:'Smart home control (26 tools)',default:true},{id:'android_system_bridge',name:'Android System',desc:'Device info, shell commands',default:true},{id:'android_accessibility_bridge',name:'Accessibility',desc:'UI inspection and control',default:true},{id:'android_browser_bridge',name:'Browser',desc:'Floating browser control',default:true},{id:'multi_search_engine',name:'Web Search',desc:'Tavily + 17 engines',default:true}];"
             + "function toggleSkillTab(tab){document.querySelectorAll('.skillTab').forEach(t=>t.classList.remove('active'));document.querySelectorAll('.skillPanel').forEach(p=>p.style.display='none');document.querySelector('.skillTab[data-tab=\"'+tab+'\"]').classList.add('active');document.getElementById('skillPanel_'+tab).style.display='block';}"

@@ -25,6 +25,9 @@ import org.json.JSONObject;
 
 public class MimiClawManager {
     private static final String TAG = "MimiClawManager";
+    private static final String MAIN_CONFIG_FILE = "mimiclaw-ai-assistant.json";
+    private static final String ACTIVE_PROFILE_ID_KEY = "active_profile_id";
+    private static final String PROVIDER_PROFILES_KEY = "provider_profiles";
     private static final String AI_BROWSER_STATE_PATH = "browser/ai_browser_state.json";
     private static final String AI_BROWSER_EVENT_PREFIX = "[BROWSER_UI_EVENT]";
     private static final String ACTION_AI_BROWSER_UI_EVENT = "com.example.ava.AI_BROWSER_UI_EVENT";
@@ -288,13 +291,9 @@ public class MimiClawManager {
     
     public String getConfigValue(String key, String defaultValue) {
         try {
-            java.io.File configFile = new java.io.File(context.getFilesDir(), "mod_configs/mimiclaw-ai-assistant.json");
-            if (configFile.exists()) {
-                String content = new String(java.nio.file.Files.readAllBytes(configFile.toPath()), "UTF-8");
-                JSONObject config = new JSONObject(content);
-                String value = config.optString(key, "");
-                if (!value.isEmpty()) return value;
-            }
+            JSONObject config = readMainConfig();
+            String value = config.optString(key, "");
+            if (!value.isEmpty()) return value;
         } catch (Exception e) {
             Log.w(TAG, "Failed to read config file: " + e.getMessage());
         }
@@ -303,20 +302,10 @@ public class MimiClawManager {
     
     public void setConfigValue(String key, String value) {
         try {
-            java.io.File configDir = new java.io.File(context.getFilesDir(), "mod_configs");
-            configDir.mkdirs();
-            java.io.File configFile = new java.io.File(configDir, "mimiclaw-ai-assistant.json");
-            
-            JSONObject config = new JSONObject();
-            if (configFile.exists()) {
-                String content = new String(java.nio.file.Files.readAllBytes(configFile.toPath()), "UTF-8");
-                config = new JSONObject(content);
-            }
+            JSONObject config = readMainConfig();
             config.put(key, value);
-            
-            java.io.FileWriter writer = new java.io.FileWriter(configFile);
-            writer.write(config.toString());
-            writer.close();
+            syncActiveProfileFields(config, key, value);
+            writeMainConfig(config);
         } catch (Exception e) {
             Log.e(TAG, "Failed to write config file: " + e.getMessage());
         }
@@ -353,6 +342,201 @@ public class MimiClawManager {
                 }
                 break;
         }
+    }
+
+    public JSONObject getProviderProfilesPayload() {
+        try {
+            JSONObject config = ensureProviderProfiles(readMainConfig());
+            JSONObject result = new JSONObject();
+            result.put("active_profile_id", config.optString(ACTIVE_PROFILE_ID_KEY, "default"));
+            result.put("profiles", config.optJSONArray(PROVIDER_PROFILES_KEY));
+            return result;
+        } catch (Exception e) {
+            Log.w(TAG, "Failed to load provider profiles: " + e.getMessage());
+            JSONObject fallback = new JSONObject();
+            try {
+                fallback.put("active_profile_id", "default");
+                fallback.put("profiles", new JSONArray());
+            } catch (Exception ignored) {
+            }
+            return fallback;
+        }
+    }
+
+    public void setActiveProviderProfile(String profileId) {
+        if (profileId == null || profileId.trim().isEmpty()) {
+            return;
+        }
+        try {
+            JSONObject config = ensureProviderProfiles(readMainConfig());
+            JSONArray profiles = config.optJSONArray(PROVIDER_PROFILES_KEY);
+            if (profiles == null) {
+                return;
+            }
+            String normalizedId = profileId.trim();
+            for (int i = 0; i < profiles.length(); i++) {
+                JSONObject profile = profiles.optJSONObject(i);
+                if (profile == null) {
+                    continue;
+                }
+                if (!normalizedId.equals(profile.optString("id"))) {
+                    continue;
+                }
+                config.put(ACTIVE_PROFILE_ID_KEY, normalizedId);
+                applyProfileToTopLevelConfig(config, profile);
+                writeMainConfig(config);
+                applyConfig("provider", profile.optString("provider", "openai"));
+                applyConfig("model", profile.optString("model", ""));
+                applyConfig("custom_api_url", profile.optString("custom_api_url", ""));
+                applyConfig("api_key", profile.optString("api_key", ""));
+                applyConfig("max_tokens", profile.optString("max_tokens", "4096"));
+                applyConfig("max_tool_iterations", profile.optString("max_tool_iterations", "30"));
+                return;
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to set active provider profile: " + e.getMessage());
+        }
+    }
+
+    public JSONObject saveCurrentConfigAsProfile(String profileId, String profileName, boolean makeActive) {
+        try {
+            JSONObject config = ensureProviderProfiles(readMainConfig());
+            JSONArray profiles = config.optJSONArray(PROVIDER_PROFILES_KEY);
+            if (profiles == null) {
+                profiles = new JSONArray();
+                config.put(PROVIDER_PROFILES_KEY, profiles);
+            }
+            String normalizedId = sanitizeProfileId(profileId, profileName);
+            String normalizedName = profileName != null && !profileName.trim().isEmpty()
+                ? profileName.trim()
+                : normalizedId;
+            JSONObject profile = buildProfileFromCurrentConfig(config, normalizedId, normalizedName);
+            upsertProfile(profiles, profile);
+            if (makeActive) {
+                config.put(ACTIVE_PROFILE_ID_KEY, normalizedId);
+            }
+            writeMainConfig(config);
+            JSONObject result = new JSONObject();
+            result.put("active_profile_id", config.optString(ACTIVE_PROFILE_ID_KEY, normalizedId));
+            result.put("profile", profile);
+            return result;
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to save provider profile: " + e.getMessage());
+            return new JSONObject();
+        }
+    }
+
+    private JSONObject readMainConfig() throws Exception {
+        java.io.File configDir = new java.io.File(context.getFilesDir(), "mod_configs");
+        configDir.mkdirs();
+        java.io.File configFile = new java.io.File(configDir, MAIN_CONFIG_FILE);
+        if (!configFile.exists()) {
+            return new JSONObject();
+        }
+        String content = new String(java.nio.file.Files.readAllBytes(configFile.toPath()), "UTF-8");
+        return content.trim().isEmpty() ? new JSONObject() : new JSONObject(content);
+    }
+
+    private void writeMainConfig(JSONObject config) throws Exception {
+        java.io.File configDir = new java.io.File(context.getFilesDir(), "mod_configs");
+        configDir.mkdirs();
+        java.io.File configFile = new java.io.File(configDir, MAIN_CONFIG_FILE);
+        java.io.FileWriter writer = new java.io.FileWriter(configFile);
+        writer.write(config.toString());
+        writer.close();
+    }
+
+    private JSONObject ensureProviderProfiles(JSONObject config) throws Exception {
+        JSONArray profiles = config.optJSONArray(PROVIDER_PROFILES_KEY);
+        if (profiles == null || profiles.length() == 0) {
+            profiles = new JSONArray();
+            profiles.put(buildProfileFromCurrentConfig(config, "default", "Default"));
+            config.put(PROVIDER_PROFILES_KEY, profiles);
+        }
+        String activeId = config.optString(ACTIVE_PROFILE_ID_KEY, "");
+        if (activeId.isEmpty()) {
+            JSONObject first = profiles.optJSONObject(0);
+            config.put(ACTIVE_PROFILE_ID_KEY, first != null ? first.optString("id", "default") : "default");
+        }
+        writeMainConfig(config);
+        return config;
+    }
+
+    private JSONObject buildProfileFromCurrentConfig(JSONObject config, String id, String name) throws Exception {
+        JSONObject profile = new JSONObject();
+        profile.put("id", id);
+        profile.put("name", name);
+        profile.put("provider", config.optString("provider", getPrefs().getString("cfg_provider", "openai")));
+        profile.put("model", config.optString("model", getPrefs().getString("cfg_model", "")));
+        profile.put("custom_api_url", config.optString("custom_api_url", getPrefs().getString("cfg_custom_api_url", "")));
+        profile.put("api_key", config.optString("api_key", getPrefs().getString("cfg_api_key", "")));
+        profile.put("max_tokens", config.optString("max_tokens", "4096"));
+        profile.put("max_tool_iterations", config.optString("max_tool_iterations", "30"));
+        return profile;
+    }
+
+    private void syncActiveProfileFields(JSONObject config, String key, String value) throws Exception {
+        config = ensureProviderProfiles(config);
+        JSONArray profiles = config.optJSONArray(PROVIDER_PROFILES_KEY);
+        if (profiles == null) {
+            return;
+        }
+        String activeId = config.optString(ACTIVE_PROFILE_ID_KEY, "default");
+        for (int i = 0; i < profiles.length(); i++) {
+            JSONObject profile = profiles.optJSONObject(i);
+            if (profile == null || !activeId.equals(profile.optString("id"))) {
+                continue;
+            }
+            if (isProfileField(key)) {
+                profile.put(key, value);
+            }
+            if (!profile.has("name") || profile.optString("name", "").trim().isEmpty()) {
+                profile.put("name", activeId);
+            }
+            return;
+        }
+    }
+
+    private boolean isProfileField(String key) {
+        return "provider".equals(key)
+            || "model".equals(key)
+            || "custom_api_url".equals(key)
+            || "api_key".equals(key)
+            || "max_tokens".equals(key)
+            || "max_tool_iterations".equals(key);
+    }
+
+    private void applyProfileToTopLevelConfig(JSONObject config, JSONObject profile) throws Exception {
+        config.put("provider", profile.optString("provider", "openai"));
+        config.put("model", profile.optString("model", ""));
+        config.put("custom_api_url", profile.optString("custom_api_url", ""));
+        config.put("api_key", profile.optString("api_key", ""));
+        config.put("max_tokens", profile.optString("max_tokens", "4096"));
+        config.put("max_tool_iterations", profile.optString("max_tool_iterations", "30"));
+    }
+
+    private void upsertProfile(JSONArray profiles, JSONObject profile) throws Exception {
+        String id = profile.optString("id");
+        for (int i = 0; i < profiles.length(); i++) {
+            JSONObject existing = profiles.optJSONObject(i);
+            if (existing != null && id.equals(existing.optString("id"))) {
+                profiles.put(i, profile);
+                return;
+            }
+        }
+        profiles.put(profile);
+    }
+
+    private String sanitizeProfileId(String profileId, String profileName) {
+        String base = profileId != null && !profileId.trim().isEmpty() ? profileId : profileName;
+        if (base == null) {
+            base = "profile";
+        }
+        String normalized = base.trim().toLowerCase()
+            .replaceAll("[^a-z0-9]+", "-")
+            .replaceAll("^-+", "")
+            .replaceAll("-+$", "");
+        return normalized.isEmpty() ? "profile" : normalized;
     }
 
     public JSONObject getSkillConfig() {

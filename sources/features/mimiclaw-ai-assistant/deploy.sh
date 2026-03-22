@@ -13,16 +13,7 @@ ROOT_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 
 echo "=== Deploying OpenClaw(Mini) v$VERSION ==="
 
-# Always build first
-echo "Building..."
-cd "$SCRIPT_DIR"
-./build.sh
-if [ $? -ne 0 ]; then
-    echo "Build failed!"
-    exit 1
-fi
-
-# Update version in 4 places
+# Update version first, then build with the same version
 echo "Updating version numbers..."
 sed -i '' "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" "$ROOT_DIR/sources/features/mimiclaw-ai-assistant/manifest.json"
 sed -i '' "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" "$ROOT_DIR/mods/features/mimiclaw-ai-assistant/manifest.json"
@@ -42,6 +33,15 @@ with open('$ROOT_DIR/store.json', 'w') as f:
 "
 
 echo "Version updated to $VERSION"
+
+# Always build after version sync so BuildInfo/jar follow the requested version
+echo "Building..."
+cd "$SCRIPT_DIR"
+./build.sh "$VERSION"
+if [ $? -ne 0 ]; then
+    echo "Build failed!"
+    exit 1
+fi
 
 # Copy JAR
 echo "Copying JAR..."
