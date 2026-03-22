@@ -27,6 +27,7 @@ public class MimiClawManager {
     private static final String TAG = "MimiClawManager";
     private static final String MAIN_CONFIG_FILE = "mimiclaw-ai-assistant.json";
     private static final String PROFILES_CONFIG_FILE = "mimiclaw-ai-assistant-profiles.json";
+    private static final String LIVE_CONFIG_FILE = "mimiclaw-ai-assistant-live-config.json";
     private static final String ACTIVE_PROFILE_ID_KEY = "active_profile_id";
     private static final String PROVIDER_PROFILES_KEY = "provider_profiles";
     private static final String AI_BROWSER_STATE_PATH = "browser/ai_browser_state.json";
@@ -125,6 +126,9 @@ public class MimiClawManager {
         if (key == null || value == null) {
             return;
         }
+
+        value = resolveManagedConfigValue(key, value);
+        persistManagedConfigMirror(key, value);
         
         Log.d(TAG, "Config: " + key + " = " + value);
         
@@ -292,6 +296,12 @@ public class MimiClawManager {
     
     public String getConfigValue(String key, String defaultValue) {
         try {
+            if (isMirroredConfigKey(key)) {
+                JSONObject liveConfig = readLiveConfig();
+                if (liveConfig.has(key)) {
+                    return liveConfig.optString(key, defaultValue);
+                }
+            }
             JSONObject config = sanitizeLegacyMainConfig(readMainConfig());
             String value = config.optString(key, "");
             if (!value.isEmpty()) return value;
@@ -307,6 +317,7 @@ public class MimiClawManager {
             config.put(key, value);
             syncActiveProfileFields(config, key, value);
             writeMainConfig(config);
+            persistManagedConfigMirror(key, value);
         } catch (Exception e) {
             Log.e(TAG, "Failed to write config file: " + e.getMessage());
         }
@@ -544,6 +555,10 @@ public class MimiClawManager {
         return readJsonConfigFile(PROFILES_CONFIG_FILE);
     }
 
+    private JSONObject readLiveConfig() throws Exception {
+        return readJsonConfigFile(LIVE_CONFIG_FILE);
+    }
+
     private JSONObject readJsonConfigFile(String fileName) throws Exception {
         java.io.File configDir = new java.io.File(context.getFilesDir(), "mod_configs");
         configDir.mkdirs();
@@ -561,6 +576,10 @@ public class MimiClawManager {
 
     private void writeProfilesConfig(JSONObject config) throws Exception {
         writeJsonConfigFile(PROFILES_CONFIG_FILE, config);
+    }
+
+    private void writeLiveConfig(JSONObject config) throws Exception {
+        writeJsonConfigFile(LIVE_CONFIG_FILE, config);
     }
 
     private void writeJsonConfigFile(String fileName, JSONObject config) throws Exception {
@@ -666,6 +685,63 @@ public class MimiClawManager {
             || "api_key".equals(key)
             || "max_tokens".equals(key)
             || "max_tool_iterations".equals(key);
+    }
+
+    private boolean isMirroredConfigKey(String key) {
+        return isProfileField(key)
+            || "web_console_password".equals(key);
+    }
+
+    private String manifestDefaultForKey(String key) {
+        if ("provider".equals(key)) return "openai";
+        if ("model".equals(key)) return "stepfun/step-3.5-flash";
+        if ("custom_api_url".equals(key)) return "https://openrouter.ai/api/v1";
+        if ("api_key".equals(key)) return "";
+        if ("max_tokens".equals(key)) return "4096";
+        if ("max_tool_iterations".equals(key)) return "30";
+        if ("web_console_password".equals(key)) return "openclaw";
+        return null;
+    }
+
+    private String resolveManagedConfigValue(String key, String incomingValue) {
+        if (!isMirroredConfigKey(key)) {
+            return incomingValue;
+        }
+        try {
+            JSONObject mainConfig = sanitizeLegacyMainConfig(readMainConfig());
+            if (mainConfig.has(key)) {
+                return incomingValue;
+            }
+            JSONObject liveConfig = readLiveConfig();
+            if (!liveConfig.has(key)) {
+                return incomingValue;
+            }
+            String liveValue = liveConfig.optString(key, incomingValue);
+            String manifestDefault = manifestDefaultForKey(key);
+            if (manifestDefault == null) {
+                return incomingValue;
+            }
+            if (manifestDefault.equals(incomingValue) && !liveValue.equals(incomingValue)) {
+                Log.d(TAG, "Preserving mirrored config for " + key + " instead of manifest default");
+                return liveValue;
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Failed to resolve managed config for " + key + ": " + e.getMessage());
+        }
+        return incomingValue;
+    }
+
+    private void persistManagedConfigMirror(String key, String value) {
+        if (!isMirroredConfigKey(key)) {
+            return;
+        }
+        try {
+            JSONObject liveConfig = readLiveConfig();
+            liveConfig.put(key, value);
+            writeLiveConfig(liveConfig);
+        } catch (Exception e) {
+            Log.w(TAG, "Failed to persist managed config mirror for " + key + ": " + e.getMessage());
+        }
     }
 
     private void applyProfileToTopLevelConfig(JSONObject config, JSONObject profile) throws Exception {
