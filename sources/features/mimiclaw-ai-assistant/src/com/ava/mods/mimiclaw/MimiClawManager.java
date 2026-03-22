@@ -1265,6 +1265,30 @@ public class MimiClawManager {
         return result;
     }
 
+    public JSONArray getCronJobsForUi() {
+        JSONArray result = new JSONArray();
+        if (cronService == null) {
+            return result;
+        }
+        try {
+            java.util.List<com.ava.mods.mimiclaw.cron.CronService.CronJob> jobs = cronService.listJobs();
+            for (com.ava.mods.mimiclaw.cron.CronService.CronJob job : jobs) {
+                JSONObject item = new JSONObject();
+                item.put("id", job.id != null ? job.id : "");
+                item.put("name", job.name != null ? job.name : "");
+                item.put("enabled", job.enabled);
+                item.put("kind", job.kind == com.ava.mods.mimiclaw.cron.CronService.KIND_EVERY ? "every" : "at");
+                item.put("interval_s", job.intervalS);
+                item.put("at_epoch", job.atEpoch);
+                item.put("next_run", job.nextRun);
+                result.put(item);
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Failed to build cron jobs for UI", e);
+        }
+        return result;
+    }
+
     private boolean isInternalWebConsoleMessage(String content) {
         if (content == null) {
             return false;
