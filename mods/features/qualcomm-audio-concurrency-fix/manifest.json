@@ -1,9 +1,9 @@
 {
-  "id": "qualcomm-audio-concurrency-fix",
-  "name": "Qualcomm Audio Concurrency Fix",
+  "id": "qcom-audio-fix",
+  "name": "Qcom Audio",
   "version": "1.0.0",
   "author": "pantherale0",
-  "description": "Fixes audio concurrency issues on Qualcomm devices where wake sounds block microphone access",
+  "description": "Fix Qualcomm audio concurrency for voice assistant",
   "icon": "mdi:microphone",
   "libs": [
     "libs/qualcomm-audio-fix.jar"

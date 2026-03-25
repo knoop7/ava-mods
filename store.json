@@ -53,10 +53,10 @@
     },
     {
       "id": "qcom-audio-fix",
-      "name": "Qcom Audio Fix",
+      "name": "Qcom Audio",
       "version": "1.0.0",
       "author": "pantherale0",
-      "description": "Fixes audio concurrency issues on Qualcomm devices where wake sounds block microphone access",
+      "description": "Fix Qualcomm audio concurrency for voice assistant (ThinkSmart View)",
       "path": "mods/features/qualcomm-audio-concurrency-fix/"
     }
   ]
