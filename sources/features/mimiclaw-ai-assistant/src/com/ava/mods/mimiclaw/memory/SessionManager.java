@@ -120,6 +120,215 @@ public class SessionManager {
         }
     }
 
+    /**
+     * Compress history by truncating long tool results and old messages.
+     * Keeps recent messages intact, compresses older ones.
+     * @param history Full history
+     * @param maxTokensEstimate Approximate token limit (chars / 4)
+     * @param recentKeepCount Number of recent messages to keep uncompressed
+     */
+    public JSONArray compressHistory(JSONArray history, int maxTokensEstimate, int recentKeepCount) {
+        if (history == null || history.length() == 0) {
+            return history;
+        }
+        
+        try {
+            int totalChars = 0;
+            int maxChars = maxTokensEstimate * 4; // Rough token estimate
+            
+            JSONArray compressed = new JSONArray();
+            int len = history.length();
+            int compressThreshold = Math.max(0, len - recentKeepCount);
+            
+            for (int i = 0; i < len; i++) {
+                JSONObject msg = history.getJSONObject(i);
+                JSONObject newMsg = new JSONObject(msg.toString());
+                
+                // Smart compress based on message age
+                String content = newMsg.optString("content", "");
+                boolean isRecentMsg = i >= compressThreshold;
+                
+                // Tool results: smart compress
+                if (content.startsWith("[{") || content.startsWith("[")) {
+                    content = smartCompressToolResults(content, isRecentMsg);
+                    newMsg.put("content", content);
+                }
+                // Non-tool content: only truncate if very long and old
+                else if (!isRecentMsg && content.length() > 4000) {
+                    content = content.substring(0, 3000) + "\n...[truncated " + (content.length() - 3000) + " chars]";
+                    newMsg.put("content", content);
+                }
+                
+                String finalContent = newMsg.optString("content", "");
+                totalChars += finalContent.length();
+                
+                // If we're over budget, start dropping oldest messages
+                if (totalChars > maxChars && compressed.length() > recentKeepCount) {
+                    // Remove oldest message
+                    JSONArray newCompressed = new JSONArray();
+                    for (int j = 1; j < compressed.length(); j++) {
+                        newCompressed.put(compressed.get(j));
+                    }
+                    compressed = newCompressed;
+                    totalChars -= 500; // Rough estimate of removed content
+                }
+                
+                compressed.put(newMsg);
+            }
+            
+            return compressed;
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to compress history", e);
+            return history;
+        }
+    }
+
+    /**
+     * Smart compress tool results: extract key info, preserve structure.
+     * High-value tools (read_file, web_search) get more space.
+     * Low-value tools (get_time, status) get minimal space.
+     */
+    private String smartCompressToolResults(String jsonContent, boolean isRecent) {
+        try {
+            JSONArray arr = new JSONArray(jsonContent);
+            JSONArray compressed = new JSONArray();
+            
+            for (int i = 0; i < arr.length(); i++) {
+                JSONObject item = arr.getJSONObject(i);
+                String type = item.optString("type", "");
+                
+                if ("tool_use".equals(type)) {
+                    // Keep tool_use intact (small)
+                    compressed.put(item);
+                } else if ("tool_result".equals(type)) {
+                    JSONObject newItem = new JSONObject();
+                    newItem.put("type", "tool_result");
+                    newItem.put("tool_use_id", item.optString("tool_use_id", ""));
+                    
+                    String content = item.optString("content", "");
+                    String toolName = extractToolName(content);
+                    
+                    // Recent results: keep more
+                    // Old results: keep less but preserve key info
+                    int maxLen = isRecent ? 2000 : getMaxLenForTool(toolName);
+                    
+                    if (content.length() > maxLen) {
+                        // Try to extract key info first
+                        String extracted = extractKeyInfo(content, toolName);
+                        if (extracted.length() < content.length() / 2) {
+                            content = extracted;
+                        } else {
+                            content = content.substring(0, maxLen - 50) + "\n...[" + (content.length() - maxLen + 50) + " chars omitted]";
+                        }
+                    }
+                    newItem.put("content", content);
+                    compressed.put(newItem);
+                } else {
+                    compressed.put(item);
+                }
+            }
+            return compressed.toString();
+        } catch (Exception e) {
+            return jsonContent;
+        }
+    }
+
+    /**
+     * Get max length based on tool importance.
+     */
+    private int getMaxLenForTool(String toolName) {
+        if (toolName == null) return 500;
+        // High-value tools: more space
+        if (toolName.contains("read_file") || toolName.contains("web_search") || 
+            toolName.contains("web_fetch") || toolName.contains("ui_tree")) {
+            return 1500;
+        }
+        // Medium-value tools
+        if (toolName.contains("list_dir") || toolName.contains("shell") || 
+            toolName.contains("terminal")) {
+            return 800;
+        }
+        // Low-value tools: minimal
+        return 300;
+    }
+
+    /**
+     * Extract tool name from result content (heuristic).
+     */
+    private String extractToolName(String content) {
+        if (content == null) return "";
+        // Look for common patterns
+        if (content.contains("\"ok\":")) return "api_result";
+        if (content.contains("file_content")) return "read_file";
+        if (content.contains("search_results")) return "web_search";
+        if (content.contains("ui_tree")) return "ui_tree";
+        return "";
+    }
+
+    /**
+     * Extract key info from tool result.
+     */
+    private String extractKeyInfo(String content, String toolName) {
+        try {
+            // Try to parse as JSON and extract key fields
+            if (content.trim().startsWith("{")) {
+                JSONObject obj = new JSONObject(content);
+                JSONObject extracted = new JSONObject();
+                
+                // Always keep these fields
+                if (obj.has("ok")) extracted.put("ok", obj.get("ok"));
+                if (obj.has("error")) extracted.put("error", obj.get("error"));
+                if (obj.has("status")) extracted.put("status", obj.get("status"));
+                if (obj.has("message")) extracted.put("message", obj.get("message"));
+                
+                // Tool-specific extractions
+                if (obj.has("file_content")) {
+                    String fc = obj.optString("file_content", "");
+                    if (fc.length() > 1000) {
+                        extracted.put("file_content", fc.substring(0, 800) + "...[truncated]");
+                    } else {
+                        extracted.put("file_content", fc);
+                    }
+                }
+                if (obj.has("results") && obj.get("results") instanceof JSONArray) {
+                    JSONArray results = obj.getJSONArray("results");
+                    if (results.length() > 5) {
+                        JSONArray trimmed = new JSONArray();
+                        for (int i = 0; i < 5; i++) {
+                            trimmed.put(results.get(i));
+                        }
+                        extracted.put("results", trimmed);
+                        extracted.put("_note", "showing 5 of " + results.length());
+                    } else {
+                        extracted.put("results", results);
+                    }
+                }
+                
+                return extracted.toString();
+            }
+        } catch (Exception e) {
+            // Fall through to simple truncation
+        }
+        return content;
+    }
+
+    /**
+     * Estimate token count (rough: chars / 4 for English, / 2 for CJK).
+     */
+    public int estimateTokens(String text) {
+        if (text == null || text.isEmpty()) return 0;
+        int cjkCount = 0;
+        for (char c : text.toCharArray()) {
+            if (Character.UnicodeBlock.of(c) == Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS ||
+                Character.UnicodeBlock.of(c) == Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS_EXTENSION_A ||
+                Character.UnicodeBlock.of(c) == Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS_EXTENSION_B) {
+                cjkCount++;
+            }
+        }
+        int nonCjk = text.length() - cjkCount;
+        return (nonCjk / 4) + (cjkCount / 2);
+    }
+
     private JSONArray cloneHistory(JSONArray history) {
         JSONArray copy = new JSONArray();
         if (history == null) {

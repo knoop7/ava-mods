@@ -51,11 +51,10 @@ public class ContextBuilder {
             sb.append("If nothing actionable, return exactly: HEARTBEAT_OK\n");
             sb.append("Only return a notification if there's something worth pushing to the user.\n\n");
             
-            // Include essential user context (truncated)
+            // Include full user context (core identity, no truncation)
             String userInfo = memoryStore.readUserInfo();
             if (userInfo != null && !userInfo.isEmpty()) {
-                String truncated = userInfo.length() > 500 ? userInfo.substring(0, 500) + "..." : userInfo;
-                sb.append("## USER.md (summary)\n").append(truncated).append("\n\n");
+                sb.append("## USER.md\n").append(userInfo).append("\n\n");
             }
             
             appendSkill(sb, "heartbeat_cron.md");

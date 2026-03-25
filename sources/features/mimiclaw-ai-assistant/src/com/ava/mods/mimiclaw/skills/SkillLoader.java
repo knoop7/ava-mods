@@ -7,6 +7,7 @@ import java.io.FileReader;
 import java.io.FileWriter;
 import java.util.HashMap;
 import java.util.Map;
+import org.json.JSONArray;
 import org.json.JSONObject;
 
 public class SkillLoader {
@@ -198,11 +199,10 @@ public class SkillLoader {
     }
 
     /**
-     * Record skill usage. Call when a skill is applied.
+     * Record skill selection (when LLM chooses to use a skill).
      * @param skillName The skill name (without .md)
-     * @param success Whether the skill execution succeeded
      */
-    public void recordSkillUsage(String skillName, boolean success) {
+    public void recordSkillSelection(String skillName) {
         if (skillName == null || skillName.isEmpty()) return;
         try {
             String key = skillName.replace(".md", "");
@@ -210,15 +210,45 @@ public class SkillLoader {
             JSONObject skillStats = stats.optJSONObject(key);
             if (skillStats == null) {
                 skillStats = new JSONObject();
+                skillStats.put("selections", 0);
                 skillStats.put("applied", 0);
-                skillStats.put("success", 0);
-                skillStats.put("failed", 0);
+                skillStats.put("completions", 0);
+                skillStats.put("fallbacks", 0);
             }
-            skillStats.put("applied", skillStats.optInt("applied", 0) + 1);
-            if (success) {
-                skillStats.put("success", skillStats.optInt("success", 0) + 1);
+            skillStats.put("selections", skillStats.optInt("selections", 0) + 1);
+            skillStats.put("lastUsed", System.currentTimeMillis());
+            stats.put(key, skillStats);
+            saveStats(stats);
+        } catch (Exception ignored) {
+        }
+    }
+
+    /**
+     * Record skill application result (OpenSpace metrics).
+     * @param skillName The skill name (without .md)
+     * @param applied Whether skill was actually applied
+     * @param completed Whether task completed successfully
+     */
+    public void recordSkillResult(String skillName, boolean applied, boolean completed) {
+        if (skillName == null || skillName.isEmpty()) return;
+        try {
+            String key = skillName.replace(".md", "");
+            JSONObject stats = loadStats();
+            JSONObject skillStats = stats.optJSONObject(key);
+            if (skillStats == null) {
+                skillStats = new JSONObject();
+                skillStats.put("selections", 0);
+                skillStats.put("applied", 0);
+                skillStats.put("completions", 0);
+                skillStats.put("fallbacks", 0);
+            }
+            if (applied) {
+                skillStats.put("applied", skillStats.optInt("applied", 0) + 1);
+                if (completed) {
+                    skillStats.put("completions", skillStats.optInt("completions", 0) + 1);
+                }
             } else {
-                skillStats.put("failed", skillStats.optInt("failed", 0) + 1);
+                skillStats.put("fallbacks", skillStats.optInt("fallbacks", 0) + 1);
             }
             skillStats.put("lastUsed", System.currentTimeMillis());
             stats.put(key, skillStats);
@@ -228,9 +258,17 @@ public class SkillLoader {
     }
 
     /**
-     * Get skill statistics.
+     * Legacy method for backward compatibility.
+     */
+    public void recordSkillUsage(String skillName, boolean success) {
+        recordSkillSelection(skillName);
+        recordSkillResult(skillName, true, success);
+    }
+
+    /**
+     * Get skill statistics (OpenSpace metrics).
      * @param skillName The skill name (without .md)
-     * @return Map with keys: applied, success, failed, successRate, lastUsed
+     * @return Map with OpenSpace metrics: selections, applied, completions, fallbacks, rates
      */
     public Map<String, Object> getSkillStats(String skillName) {
         Map<String, Object> result = new HashMap<>();
@@ -239,21 +277,39 @@ public class SkillLoader {
         JSONObject stats = loadStats();
         JSONObject skillStats = stats.optJSONObject(key);
         if (skillStats == null) {
+            result.put("selections", 0);
             result.put("applied", 0);
-            result.put("success", 0);
-            result.put("failed", 0);
-            result.put("successRate", 0.0);
+            result.put("completions", 0);
+            result.put("fallbacks", 0);
+            result.put("appliedRate", 0.0);
+            result.put("completionRate", 0.0);
+            result.put("effectiveRate", 0.0);
+            result.put("fallbackRate", 0.0);
             return result;
         }
+        int selections = skillStats.optInt("selections", 0);
         int applied = skillStats.optInt("applied", 0);
-        int success = skillStats.optInt("success", 0);
-        int failed = skillStats.optInt("failed", 0);
-        double rate = applied > 0 ? (double) success / applied * 100 : 0.0;
+        int completions = skillStats.optInt("completions", 0);
+        int fallbacks = skillStats.optInt("fallbacks", 0);
+        
+        // OpenSpace rates
+        double appliedRate = selections > 0 ? (double) applied / selections * 100 : 0.0;
+        double completionRate = applied > 0 ? (double) completions / applied * 100 : 0.0;
+        double effectiveRate = selections > 0 ? (double) completions / selections * 100 : 0.0;
+        double fallbackRate = selections > 0 ? (double) fallbacks / selections * 100 : 0.0;
+        
+        result.put("selections", selections);
         result.put("applied", applied);
-        result.put("success", success);
-        result.put("failed", failed);
-        result.put("successRate", Math.round(rate * 10) / 10.0);
+        result.put("completions", completions);
+        result.put("fallbacks", fallbacks);
+        result.put("appliedRate", Math.round(appliedRate * 10) / 10.0);
+        result.put("completionRate", Math.round(completionRate * 10) / 10.0);
+        result.put("effectiveRate", Math.round(effectiveRate * 10) / 10.0);
+        result.put("fallbackRate", Math.round(fallbackRate * 10) / 10.0);
         result.put("lastUsed", skillStats.optLong("lastUsed", 0));
+        
+        // Legacy compatibility
+        result.put("successRate", completionRate);
         return result;
     }
 
@@ -519,6 +575,167 @@ public class SkillLoader {
             }
         }
         return results;
+    }
+
+    // ========== Success Pattern Cache (OpenSpace: reuse successful solutions) ==========
+    
+    private File getPatternsFile() {
+        return new File(skillsDir, ".success_patterns.json");
+    }
+
+    private JSONObject loadPatterns() {
+        File file = getPatternsFile();
+        if (!file.exists()) {
+            return new JSONObject();
+        }
+        try {
+            String content = readFileContent(file);
+            return new JSONObject(content);
+        } catch (Exception e) {
+            return new JSONObject();
+        }
+    }
+
+    private void savePatterns(JSONObject patterns) {
+        try (FileWriter writer = new FileWriter(getPatternsFile())) {
+            writer.write(patterns.toString(2));
+        } catch (Exception ignored) {
+        }
+    }
+
+    /**
+     * Record a successful tool sequence for a task type.
+     * @param taskType Type of task (e.g., "file_read", "web_search", "ui_click")
+     * @param toolSequence List of tool names used
+     * @param context Brief context/query that triggered this
+     */
+    public void recordSuccessPattern(String taskType, java.util.List<String> toolSequence, String context) {
+        if (taskType == null || toolSequence == null || toolSequence.isEmpty()) return;
+        try {
+            JSONObject patterns = loadPatterns();
+            JSONArray typePatterns = patterns.optJSONArray(taskType);
+            if (typePatterns == null) {
+                typePatterns = new JSONArray();
+            }
+            
+            // Create pattern entry
+            JSONObject pattern = new JSONObject();
+            JSONArray tools = new JSONArray();
+            for (String tool : toolSequence) {
+                tools.put(tool);
+            }
+            pattern.put("tools", tools);
+            pattern.put("context", context != null ? context.substring(0, Math.min(200, context.length())) : "");
+            pattern.put("timestamp", System.currentTimeMillis());
+            pattern.put("uses", 1);
+            
+            // Check for similar pattern (same tool sequence)
+            boolean found = false;
+            for (int i = 0; i < typePatterns.length(); i++) {
+                JSONObject existing = typePatterns.optJSONObject(i);
+                if (existing != null && toolsMatch(existing.optJSONArray("tools"), tools)) {
+                    existing.put("uses", existing.optInt("uses", 1) + 1);
+                    existing.put("timestamp", System.currentTimeMillis());
+                    found = true;
+                    break;
+                }
+            }
+            
+            if (!found) {
+                // Keep max 10 patterns per type
+                if (typePatterns.length() >= 10) {
+                    // Remove oldest/least used
+                    int removeIdx = findLeastUsedPattern(typePatterns);
+                    typePatterns.remove(removeIdx);
+                }
+                typePatterns.put(pattern);
+            }
+            
+            patterns.put(taskType, typePatterns);
+            savePatterns(patterns);
+        } catch (Exception ignored) {
+        }
+    }
+
+    private boolean toolsMatch(JSONArray a, JSONArray b) {
+        if (a == null || b == null || a.length() != b.length()) return false;
+        try {
+            for (int i = 0; i < a.length(); i++) {
+                if (!a.optString(i, "").equals(b.optString(i, ""))) {
+                    return false;
+                }
+            }
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private int findLeastUsedPattern(JSONArray patterns) {
+        int minIdx = 0;
+        int minUses = Integer.MAX_VALUE;
+        for (int i = 0; i < patterns.length(); i++) {
+            JSONObject p = patterns.optJSONObject(i);
+            if (p != null) {
+                int uses = p.optInt("uses", 1);
+                if (uses < minUses) {
+                    minUses = uses;
+                    minIdx = i;
+                }
+            }
+        }
+        return minIdx;
+    }
+
+    /**
+     * Get successful patterns for a task type.
+     * @param taskType Type of task
+     * @return List of tool sequences sorted by usage count
+     */
+    public java.util.List<java.util.List<String>> getSuccessPatterns(String taskType) {
+        java.util.List<java.util.List<String>> results = new java.util.ArrayList<>();
+        if (taskType == null) return results;
+        
+        try {
+            JSONObject patterns = loadPatterns();
+            JSONArray typePatterns = patterns.optJSONArray(taskType);
+            if (typePatterns == null) return results;
+            
+            // Sort by uses descending
+            java.util.List<JSONObject> sorted = new java.util.ArrayList<>();
+            for (int i = 0; i < typePatterns.length(); i++) {
+                JSONObject p = typePatterns.optJSONObject(i);
+                if (p != null) sorted.add(p);
+            }
+            sorted.sort((a, b) -> b.optInt("uses", 0) - a.optInt("uses", 0));
+            
+            for (JSONObject p : sorted) {
+                JSONArray tools = p.optJSONArray("tools");
+                if (tools != null) {
+                    java.util.List<String> seq = new java.util.ArrayList<>();
+                    for (int i = 0; i < tools.length(); i++) {
+                        seq.add(tools.optString(i, ""));
+                    }
+                    results.add(seq);
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return results;
+    }
+
+    /**
+     * Get hint for task based on successful patterns.
+     * Returns a brief suggestion of tools to use.
+     */
+    public String getPatternHint(String taskType) {
+        java.util.List<java.util.List<String>> patterns = getSuccessPatterns(taskType);
+        if (patterns.isEmpty()) return "";
+        
+        java.util.List<String> best = patterns.get(0);
+        if (best.isEmpty()) return "";
+        
+        return "Suggested tools: " + String.join(" → ", best);
     }
 
     /**
