@@ -160,7 +160,12 @@ public class WebConsoleServer {
                 String filePath = "";
                 int qIdx = rawPath.indexOf("?path=");
                 if (qIdx >= 0) {
-                    filePath = decode(rawPath.substring(qIdx + 6));
+                    String pathPart = rawPath.substring(qIdx + 6);
+                    int ampIdx = pathPart.indexOf('&');
+                    if (ampIdx >= 0) {
+                        pathPart = pathPart.substring(0, ampIdx);
+                    }
+                    filePath = decode(pathPart);
                 }
                 if (filePath.isEmpty()) {
                     writeJson(output, 400, errorJson("path_required"), null);
@@ -168,6 +173,7 @@ public class WebConsoleServer {
                 }
                 java.io.File file = new java.io.File(filePath);
                 if (!file.exists() || !file.canRead()) {
+                    Log.w(TAG, "File not found or not readable: " + filePath + " exists=" + file.exists() + " canRead=" + file.canRead());
                     writeJson(output, 404, errorJson("file_not_found"), null);
                     return;
                 }
