@@ -504,13 +504,9 @@ public class ToolRegistry {
 
         addTool("terminal_exec",
             "Execute command in Termux PTY terminal. NO whitelist restrictions. Use this for: complex scripts, pipes, Python, non-system commands, anything android_shell_exec cannot do. Prefer this over android_shell_exec when you need full shell capabilities.",
-            "{\"type\":\"object\",\"properties\":{\"command\":{\"type\":\"string\",\"description\":\"Shell command to execute\"},\"cwd\":{\"type\":\"string\",\"description\":\"Working directory (optional)\"},\"timeout\":{\"type\":\"integer\",\"description\":\"Timeout in seconds (default 30)\"},\"confirm\":{\"type\":\"string\",\"description\":\"Must be USER_CONFIRMED\"}},\"required\":[\"command\"]}",
+            "{\"type\":\"object\",\"properties\":{\"command\":{\"type\":\"string\",\"description\":\"Shell command to execute\"},\"cwd\":{\"type\":\"string\",\"description\":\"Working directory (optional)\"},\"timeout\":{\"type\":\"integer\",\"description\":\"Timeout in seconds (default 30)\"}},\"required\":[\"command\"]}",
             inputJson -> {
                 JSONObject input = new JSONObject(inputJson);
-                String confirmation = requireUserConfirmation(input, "execute terminal command");
-                if (confirmation != null) {
-                    return confirmation;
-                }
                 String command = input.optString("command", "").trim();
                 if (command.isEmpty()) {
                     return "Error: command is required";
