@@ -173,7 +173,6 @@ public class WebConsoleServer {
                 }
                 java.io.File file = new java.io.File(filePath);
                 if (!file.exists() || !file.canRead()) {
-                    Log.w(TAG, "File not found or not readable: " + filePath + " exists=" + file.exists() + " canRead=" + file.canRead());
                     writeJson(output, 404, errorJson("file_not_found"), null);
                     return;
                 }

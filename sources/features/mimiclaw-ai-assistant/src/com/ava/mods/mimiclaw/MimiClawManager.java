@@ -1367,30 +1367,23 @@ public class MimiClawManager {
         try {
             JSONArray arr = new JSONArray(content);
             JSONArray result = new JSONArray();
-            boolean hasVisibleContent = false;
             for (int i = 0; i < arr.length(); i++) {
                 JSONObject block = arr.getJSONObject(i);
                 String type = block.optString("type", "");
                 if ("text".equals(type)) {
                     String text = block.optString("text", "").trim();
                     if (!text.isEmpty() && !"null".equals(text)) {
-                        hasVisibleContent = true;
                         result.put(block);
                     }
                 } else if ("tool_use".equals(type) || "tool_result".equals(type)) {
-                    // Truncate large tool content (keep 1500-3000 chars)
-                    if ("tool_result".equals(type)) {
-                        String c = block.optString("content", "");
-                        if (c.length() > 3000) {
-                            block.put("content", c.substring(0, 3000) + "... (truncated)");
-                        }
-                    }
+                    // Keep tool blocks intact for UI rendering
                     result.put(block);
                 }
             }
             if (result.length() == 0) return null;
             return result.toString();
         } catch (Exception e) {
+            // Not a JSON array, return as-is (plain text)
             return content;
         }
     }
