@@ -179,7 +179,9 @@ public class WebConsoleServer {
                 }
                 String mimeType = guessMimeType(filePath);
                 byte[] data = java.nio.file.Files.readAllBytes(file.toPath());
-                writeResponse(output, 200, mimeType, data, null, null);
+                String fileName = file.getName();
+                String disposition = "attachment; filename=\"" + fileName.replace("\"", "\\\"") + "\"";
+                writeResponse(output, 200, mimeType, data, "Content-Disposition: " + disposition, null);
                 return;
             }
 

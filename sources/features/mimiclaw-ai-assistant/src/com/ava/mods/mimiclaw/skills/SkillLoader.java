@@ -5,6 +5,9 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
 import java.io.FileWriter;
+import java.util.HashMap;
+import java.util.Map;
+import org.json.JSONObject;
 
 public class SkillLoader {
     private final File skillsDir;
@@ -25,15 +28,23 @@ public class SkillLoader {
 
         StringBuilder sb = new StringBuilder();
         for (File file : files) {
-            String title = file.getName().replace(".md", "");
+            String name = file.getName();
+            String title = name.replace(".md", "");
             String description = extractDescription(file);
-            sb.append("- **")
-                .append(title)
-                .append("**: ")
-                .append(description.isEmpty() ? "No description" : description)
-                .append(" (read with: read_skill ")
-                .append(file.getName())
-                .append(")\n");
+            Map<String, String> meta = parseSkillMeta(name);
+            String version = meta.getOrDefault("version", "");
+            String tags = meta.getOrDefault("tags", "");
+            
+            sb.append("- **").append(title).append("**");
+            if (!version.isEmpty()) {
+                sb.append(" v").append(version);
+            }
+            if (!tags.isEmpty()) {
+                sb.append(" ").append(tags);
+            }
+            sb.append(": ");
+            sb.append(description.isEmpty() ? "No description" : description);
+            sb.append("\n");
         }
         return sb.toString();
     }
@@ -69,6 +80,20 @@ public class SkillLoader {
             if (firstLine == null) {
                 return "";
             }
+            // Skip YAML frontmatter if present
+            if (firstLine.trim().equals("---")) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    if (line.trim().equals("---")) {
+                        break;
+                    }
+                }
+                // Read the actual first line after frontmatter
+                firstLine = reader.readLine();
+                if (firstLine == null) {
+                    return "";
+                }
+            }
             String line;
             StringBuilder sb = new StringBuilder();
             while ((line = reader.readLine()) != null) {
@@ -87,9 +112,489 @@ public class SkillLoader {
         }
     }
 
+    /**
+     * Parse YAML frontmatter from skill file.
+     * Returns map with keys: version, origin, tags, description, etc.
+     */
+    public Map<String, String> parseSkillMeta(String name) {
+        Map<String, String> meta = new HashMap<>();
+        if (name == null || name.trim().isEmpty()) {
+            return meta;
+        }
+        String safeName = name.endsWith(".md") ? name : name + ".md";
+        File file = new File(skillsDir, safeName);
+        if (!file.exists() || !file.isFile()) {
+            return meta;
+        }
+        try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
+            String firstLine = reader.readLine();
+            if (firstLine == null || !firstLine.trim().equals("---")) {
+                return meta;
+            }
+            String line;
+            while ((line = reader.readLine()) != null) {
+                if (line.trim().equals("---")) {
+                    break;
+                }
+                int colonIdx = line.indexOf(':');
+                if (colonIdx > 0) {
+                    String key = line.substring(0, colonIdx).trim();
+                    String value = line.substring(colonIdx + 1).trim();
+                    // Remove quotes if present
+                    if (value.startsWith("\"") && value.endsWith("\"")) {
+                        value = value.substring(1, value.length() - 1);
+                    }
+                    meta.put(key, value);
+                }
+            }
+        } catch (Exception e) {
+            // Ignore parse errors
+        }
+        return meta;
+    }
+
+    /**
+     * Get skill content without YAML frontmatter.
+     */
+    public String readSkillContent(String name) {
+        String full = readSkill(name);
+        if (full.isEmpty()) {
+            return full;
+        }
+        if (!full.startsWith("---")) {
+            return full;
+        }
+        int endIdx = full.indexOf("\n---", 3);
+        if (endIdx < 0) {
+            return full;
+        }
+        return full.substring(endIdx + 4).trim();
+    }
+
+    // ========== Skill Statistics (OpenSpace concept) ==========
+    
+    private File getStatsFile() {
+        return new File(skillsDir, ".skill_stats.json");
+    }
+
+    private JSONObject loadStats() {
+        File statsFile = getStatsFile();
+        if (!statsFile.exists()) {
+            return new JSONObject();
+        }
+        try {
+            String content = readFileContent(statsFile);
+            return new JSONObject(content);
+        } catch (Exception e) {
+            return new JSONObject();
+        }
+    }
+
+    private void saveStats(JSONObject stats) {
+        try (FileWriter writer = new FileWriter(getStatsFile())) {
+            writer.write(stats.toString(2));
+        } catch (Exception ignored) {
+        }
+    }
+
+    /**
+     * Record skill usage. Call when a skill is applied.
+     * @param skillName The skill name (without .md)
+     * @param success Whether the skill execution succeeded
+     */
+    public void recordSkillUsage(String skillName, boolean success) {
+        if (skillName == null || skillName.isEmpty()) return;
+        try {
+            String key = skillName.replace(".md", "");
+            JSONObject stats = loadStats();
+            JSONObject skillStats = stats.optJSONObject(key);
+            if (skillStats == null) {
+                skillStats = new JSONObject();
+                skillStats.put("applied", 0);
+                skillStats.put("success", 0);
+                skillStats.put("failed", 0);
+            }
+            skillStats.put("applied", skillStats.optInt("applied", 0) + 1);
+            if (success) {
+                skillStats.put("success", skillStats.optInt("success", 0) + 1);
+            } else {
+                skillStats.put("failed", skillStats.optInt("failed", 0) + 1);
+            }
+            skillStats.put("lastUsed", System.currentTimeMillis());
+            stats.put(key, skillStats);
+            saveStats(stats);
+        } catch (Exception ignored) {
+        }
+    }
+
+    /**
+     * Get skill statistics.
+     * @param skillName The skill name (without .md)
+     * @return Map with keys: applied, success, failed, successRate, lastUsed
+     */
+    public Map<String, Object> getSkillStats(String skillName) {
+        Map<String, Object> result = new HashMap<>();
+        if (skillName == null || skillName.isEmpty()) return result;
+        String key = skillName.replace(".md", "");
+        JSONObject stats = loadStats();
+        JSONObject skillStats = stats.optJSONObject(key);
+        if (skillStats == null) {
+            result.put("applied", 0);
+            result.put("success", 0);
+            result.put("failed", 0);
+            result.put("successRate", 0.0);
+            return result;
+        }
+        int applied = skillStats.optInt("applied", 0);
+        int success = skillStats.optInt("success", 0);
+        int failed = skillStats.optInt("failed", 0);
+        double rate = applied > 0 ? (double) success / applied * 100 : 0.0;
+        result.put("applied", applied);
+        result.put("success", success);
+        result.put("failed", failed);
+        result.put("successRate", Math.round(rate * 10) / 10.0);
+        result.put("lastUsed", skillStats.optLong("lastUsed", 0));
+        return result;
+    }
+
+    /**
+     * Get all skill statistics summary.
+     */
+    public String buildStatsSummary() {
+        JSONObject stats = loadStats();
+        if (stats.length() == 0) {
+            return "No skill usage recorded yet.";
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append("## Skill Statistics\n");
+        java.util.Iterator<String> keys = stats.keys();
+        while (keys.hasNext()) {
+            String key = keys.next();
+            JSONObject s = stats.optJSONObject(key);
+            if (s == null) continue;
+            int applied = s.optInt("applied", 0);
+            int success = s.optInt("success", 0);
+            double rate = applied > 0 ? (double) success / applied * 100 : 0.0;
+            sb.append("- **").append(key).append("**: ");
+            sb.append(applied).append(" uses, ");
+            sb.append(String.format("%.1f", rate)).append("% success\n");
+        }
+        return sb.toString();
+    }
+
+    // ========== Skill Evolution (OpenSpace concept) ==========
+    // Evolution modes: FIX (repair), DERIVED (enhance), CAPTURED (new from execution)
+    
+    /**
+     * Create a derived skill from parent.
+     * @param parentName Parent skill name
+     * @param newName New skill name
+     * @param newContent New skill content (without frontmatter)
+     * @param reason Reason for derivation
+     */
+    public boolean deriveSkill(String parentName, String newName, String newContent, String reason) {
+        if (parentName == null || newName == null || newContent == null) return false;
+        Map<String, String> parentMeta = parseSkillMeta(parentName);
+        String parentVersion = parentMeta.getOrDefault("version", "1.0");
+        
+        StringBuilder sb = new StringBuilder();
+        sb.append("---\n");
+        sb.append("version: \"1.0\"\n");
+        sb.append("origin: derived\n");
+        sb.append("parent: \"").append(parentName.replace(".md", "")).append("\"\n");
+        sb.append("parent_version: \"").append(parentVersion).append("\"\n");
+        sb.append("derived_reason: \"").append(reason.replace("\"", "'")).append("\"\n");
+        sb.append("derived_at: ").append(System.currentTimeMillis()).append("\n");
+        sb.append("---\n");
+        sb.append(newContent);
+        
+        return writeSkill(newName, sb.toString());
+    }
+
+    /**
+     * Fix/update an existing skill (increment version).
+     * @param skillName Skill name
+     * @param newContent New content (without frontmatter)
+     * @param fixReason Reason for fix
+     */
+    public boolean fixSkill(String skillName, String newContent, String fixReason) {
+        if (skillName == null || newContent == null) return false;
+        Map<String, String> meta = parseSkillMeta(skillName);
+        String oldVersion = meta.getOrDefault("version", "1.0");
+        String origin = meta.getOrDefault("origin", "user");
+        String tags = meta.getOrDefault("tags", "");
+        
+        // Increment version
+        String newVersion;
+        try {
+            double v = Double.parseDouble(oldVersion);
+            newVersion = String.format("%.1f", v + 0.1);
+        } catch (Exception e) {
+            newVersion = oldVersion + ".1";
+        }
+        
+        StringBuilder sb = new StringBuilder();
+        sb.append("---\n");
+        sb.append("version: \"").append(newVersion).append("\"\n");
+        sb.append("origin: ").append(origin).append("\n");
+        if (!tags.isEmpty()) {
+            sb.append("tags: ").append(tags).append("\n");
+        }
+        sb.append("fixed_from: \"").append(oldVersion).append("\"\n");
+        sb.append("fix_reason: \"").append(fixReason.replace("\"", "'")).append("\"\n");
+        sb.append("fixed_at: ").append(System.currentTimeMillis()).append("\n");
+        sb.append("---\n");
+        sb.append(newContent);
+        
+        return writeSkill(skillName, sb.toString());
+    }
+
+    /**
+     * Capture a new skill from successful execution pattern.
+     * @param skillName New skill name
+     * @param content Skill content (without frontmatter)
+     * @param tags Tags for the skill
+     * @param captureSource Source of capture (e.g., "task_execution")
+     */
+    public boolean captureSkill(String skillName, String content, String tags, String captureSource) {
+        if (skillName == null || content == null) return false;
+        
+        StringBuilder sb = new StringBuilder();
+        sb.append("---\n");
+        sb.append("version: \"1.0\"\n");
+        sb.append("origin: captured\n");
+        if (tags != null && !tags.isEmpty()) {
+            sb.append("tags: [").append(tags).append("]\n");
+        }
+        sb.append("capture_source: \"").append(captureSource != null ? captureSource : "unknown").append("\"\n");
+        sb.append("captured_at: ").append(System.currentTimeMillis()).append("\n");
+        sb.append("---\n");
+        sb.append(content);
+        
+        return writeSkill(skillName, sb.toString());
+    }
+
+    /**
+     * Write skill file.
+     */
+    private boolean writeSkill(String name, String content) {
+        if (name == null || content == null) return false;
+        String safeName = name.endsWith(".md") ? name : name + ".md";
+        File file = new File(skillsDir, safeName);
+        try (FileWriter writer = new FileWriter(file)) {
+            writer.write(content);
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /**
+     * Get skill evolution history from metadata.
+     */
+    public Map<String, String> getEvolutionInfo(String skillName) {
+        Map<String, String> info = new HashMap<>();
+        Map<String, String> meta = parseSkillMeta(skillName);
+        info.put("origin", meta.getOrDefault("origin", "unknown"));
+        info.put("version", meta.getOrDefault("version", "1.0"));
+        if (meta.containsKey("parent")) {
+            info.put("parent", meta.get("parent"));
+            info.put("parent_version", meta.getOrDefault("parent_version", ""));
+            info.put("derived_reason", meta.getOrDefault("derived_reason", ""));
+        }
+        if (meta.containsKey("fixed_from")) {
+            info.put("fixed_from", meta.get("fixed_from"));
+            info.put("fix_reason", meta.getOrDefault("fix_reason", ""));
+        }
+        if (meta.containsKey("capture_source")) {
+            info.put("capture_source", meta.get("capture_source"));
+        }
+        return info;
+    }
+
+    // ========== Skill Search & Ranking (OpenSpace concept) ==========
+    
+    /**
+     * Search skills by keyword (simple BM25-like scoring).
+     * @param query Search query
+     * @return List of skill names sorted by relevance
+     */
+    public java.util.List<String> searchSkills(String query) {
+        java.util.List<String> results = new java.util.ArrayList<>();
+        if (query == null || query.trim().isEmpty()) {
+            return results;
+        }
+        
+        String[] queryTerms = query.toLowerCase().split("\\s+");
+        File[] files = skillsDir.listFiles((dir, name) -> name.endsWith(".md"));
+        if (files == null) return results;
+        
+        java.util.List<Map.Entry<String, Double>> scored = new java.util.ArrayList<>();
+        
+        for (File file : files) {
+            String name = file.getName().replace(".md", "");
+            String content = readFileContent(file).toLowerCase();
+            Map<String, String> meta = parseSkillMeta(file.getName());
+            String tags = meta.getOrDefault("tags", "").toLowerCase();
+            
+            double score = 0;
+            for (String term : queryTerms) {
+                // Name match (highest weight)
+                if (name.toLowerCase().contains(term)) {
+                    score += 10;
+                }
+                // Tag match (high weight)
+                if (tags.contains(term)) {
+                    score += 5;
+                }
+                // Content match (lower weight, count occurrences)
+                int count = countOccurrences(content, term);
+                score += Math.min(count, 5); // Cap at 5 to avoid spam
+            }
+            
+            // Boost by success rate
+            Map<String, Object> stats = getSkillStats(name);
+            double successRate = (Double) stats.getOrDefault("successRate", 0.0);
+            score *= (1 + successRate / 200); // Up to 1.5x boost
+            
+            if (score > 0) {
+                scored.add(new java.util.AbstractMap.SimpleEntry<>(name, score));
+            }
+        }
+        
+        // Sort by score descending
+        scored.sort((a, b) -> Double.compare(b.getValue(), a.getValue()));
+        
+        for (Map.Entry<String, Double> entry : scored) {
+            results.add(entry.getKey());
+        }
+        return results;
+    }
+
+    private int countOccurrences(String text, String term) {
+        int count = 0;
+        int idx = 0;
+        while ((idx = text.indexOf(term, idx)) != -1) {
+            count++;
+            idx += term.length();
+        }
+        return count;
+    }
+
+    /**
+     * Get skills by tag.
+     */
+    public java.util.List<String> getSkillsByTag(String tag) {
+        java.util.List<String> results = new java.util.ArrayList<>();
+        if (tag == null || tag.trim().isEmpty()) return results;
+        
+        File[] files = skillsDir.listFiles((dir, name) -> name.endsWith(".md"));
+        if (files == null) return results;
+        
+        String searchTag = tag.toLowerCase().trim();
+        for (File file : files) {
+            Map<String, String> meta = parseSkillMeta(file.getName());
+            String tags = meta.getOrDefault("tags", "").toLowerCase();
+            if (tags.contains(searchTag)) {
+                results.add(file.getName().replace(".md", ""));
+            }
+        }
+        return results;
+    }
+
+    /**
+     * Get skills by origin type.
+     */
+    public java.util.List<String> getSkillsByOrigin(String origin) {
+        java.util.List<String> results = new java.util.ArrayList<>();
+        if (origin == null) return results;
+        
+        File[] files = skillsDir.listFiles((dir, name) -> name.endsWith(".md"));
+        if (files == null) return results;
+        
+        for (File file : files) {
+            Map<String, String> meta = parseSkillMeta(file.getName());
+            if (origin.equals(meta.get("origin"))) {
+                results.add(file.getName().replace(".md", ""));
+            }
+        }
+        return results;
+    }
+
+    /**
+     * Get top performing skills by success rate.
+     */
+    public java.util.List<String> getTopSkills(int limit) {
+        java.util.List<String> results = new java.util.ArrayList<>();
+        JSONObject stats = loadStats();
+        
+        java.util.List<Map.Entry<String, Double>> ranked = new java.util.ArrayList<>();
+        java.util.Iterator<String> iter = stats.keys();
+        while (iter.hasNext()) {
+            String key = iter.next();
+            JSONObject s = stats.optJSONObject(key);
+            if (s == null) continue;
+            int applied = s.optInt("applied", 0);
+            if (applied < 3) continue; // Need at least 3 uses
+            int success = s.optInt("success", 0);
+            double rate = (double) success / applied;
+            ranked.add(new java.util.AbstractMap.SimpleEntry<>(key, rate));
+        }
+        
+        ranked.sort((a, b) -> Double.compare(b.getValue(), a.getValue()));
+        
+        int count = 0;
+        for (Map.Entry<String, Double> entry : ranked) {
+            if (count >= limit) break;
+            results.add(entry.getKey());
+            count++;
+        }
+        return results;
+    }
+
+    /**
+     * Build evolution lineage for a skill (version DAG).
+     */
+    public String buildLineage(String skillName) {
+        StringBuilder sb = new StringBuilder();
+        Map<String, String> info = getEvolutionInfo(skillName);
+        
+        sb.append("## ").append(skillName).append(" Lineage\n");
+        sb.append("- **Version**: ").append(info.getOrDefault("version", "1.0")).append("\n");
+        sb.append("- **Origin**: ").append(info.getOrDefault("origin", "unknown")).append("\n");
+        
+        if (info.containsKey("parent")) {
+            sb.append("- **Derived from**: ").append(info.get("parent"));
+            sb.append(" v").append(info.getOrDefault("parent_version", "?")).append("\n");
+            sb.append("- **Reason**: ").append(info.getOrDefault("derived_reason", "")).append("\n");
+        }
+        if (info.containsKey("fixed_from")) {
+            sb.append("- **Fixed from**: v").append(info.get("fixed_from")).append("\n");
+            sb.append("- **Fix reason**: ").append(info.getOrDefault("fix_reason", "")).append("\n");
+        }
+        if (info.containsKey("capture_source")) {
+            sb.append("- **Captured from**: ").append(info.get("capture_source")).append("\n");
+        }
+        
+        // Add stats
+        Map<String, Object> stats = getSkillStats(skillName);
+        int applied = (Integer) stats.getOrDefault("applied", 0);
+        if (applied > 0) {
+            sb.append("- **Usage**: ").append(applied).append(" times, ");
+            sb.append(stats.get("successRate")).append("% success\n");
+        }
+        
+        return sb.toString();
+    }
+
     private void ensureBuiltinSkills() {
         writeBuiltinSkill(
             "android_system_bridge.md",
+            "---\n" +
+            "version: \"1.0\"\n" +
+            "origin: builtin\n" +
+            "tags: [android, shell, system]\n" +
+            "---\n" +
             "# Android System Bridge\n" +
             "\n" +
             "Use this skill when you need to inspect Android device state or run safe shell commands through Ava.\n" +
@@ -168,6 +673,11 @@ public class SkillLoader {
 
         writeBuiltinSkill(
             "android_accessibility_bridge.md",
+            "---\n" +
+            "version: \"1.0\"\n" +
+            "origin: builtin\n" +
+            "tags: [android, accessibility, ui]\n" +
+            "---\n" +
             "# Android Accessibility Bridge\n" +
             "\n" +
             "Use this skill when you need to inspect or operate Android UI without root.\n" +
@@ -208,6 +718,11 @@ public class SkillLoader {
 
         writeBuiltinSkill(
             "android_browser_bridge.md",
+            "---\n" +
+            "version: \"1.0\"\n" +
+            "origin: builtin\n" +
+            "tags: [android, browser, web]\n" +
+            "---\n" +
             "# Android Browser Bridge\n" +
             "\n" +
             "**CRITICAL**: This skill controls ONLY Ava's internal floating browser overlay.\n" +
@@ -237,6 +752,11 @@ public class SkillLoader {
 
         writeBuiltinSkill(
             "homeassistant.md",
+            "---\n" +
+            "version: \"1.0\"\n" +
+            "origin: builtin\n" +
+            "tags: [smarthome, homeassistant, iot]\n" +
+            "---\n" +
             "# Home Assistant\n" +
             "\n" +
             "Control smart home devices via Home Assistant REST API.\n" +
@@ -307,6 +827,11 @@ public class SkillLoader {
 
         writeBuiltinSkill(
             "android_skill_installer.md",
+            "---\n" +
+            "version: \"1.0\"\n" +
+            "origin: builtin\n" +
+            "tags: [skill, management, install]\n" +
+            "---\n" +
             "# Android Skill Installer\n" +
             "\n" +
             "Use this skill when you need to install, inspect, update, or delete local SKILL markdown files for OpenClaw(Mini).\n" +
@@ -329,6 +854,11 @@ public class SkillLoader {
 
         writeBuiltinSkill(
             "heartbeat_cron.md",
+            "---\n" +
+            "version: \"1.0\"\n" +
+            "origin: builtin\n" +
+            "tags: [cron, heartbeat, automation]\n" +
+            "---\n" +
             "# Built-in Heartbeat\n" +
             "\n" +
             "OpenClaw(Mini) includes a built-in isolated heartbeat job.\n" +
@@ -355,6 +885,11 @@ public class SkillLoader {
 
         writeBuiltinSkill(
             "qqbot_media.md",
+            "---\n" +
+            "version: \"1.0\"\n" +
+            "origin: builtin\n" +
+            "tags: [qq, media, messaging]\n" +
+            "---\n" +
             "# QQBot Media Output\n" +
             "\n" +
             "Use this skill when the current conversation channel is QQ and you need to send images or voice.\n" +
@@ -390,6 +925,11 @@ public class SkillLoader {
 
         writeBuiltinSkill(
             "multi_search_engine.md",
+            "---\n" +
+            "version: \"2.0\"\n" +
+            "origin: builtin\n" +
+            "tags: [search, web, tavily]\n" +
+            "---\n" +
             "# Multi Search Engine v2.0\n" +
             "\n" +
             "Web search with Tavily API (default) + 17 fallback engines.\n" +
