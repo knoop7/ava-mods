@@ -52,8 +52,8 @@
       "jar_hash": "e436018cf2f023f89c8fdf8b6f3184fd"
     },
     {
-      "id": "qualcomm-audio-concurrency-fix",
-      "name": "Qualcomm Audio Concurrency Fix",
+      "id": "qcom-audio-fix",
+      "name": "Qcom Audio Fix",
       "version": "1.0.0",
       "author": "pantherale0",
       "description": "Fixes audio concurrency issues on Qualcomm devices where wake sounds block microphone access",
