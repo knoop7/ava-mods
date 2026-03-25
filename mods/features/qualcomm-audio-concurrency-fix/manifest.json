@@ -1,0 +1,34 @@
+{
+  "id": "qualcomm-audio-concurrency-fix",
+  "name": "Qualcomm Audio Concurrency Fix",
+  "version": "1.0.0",
+  "author": "pantherale0",
+  "description": "Fixes audio concurrency issues on Qualcomm devices where wake sounds block microphone access",
+  "icon": "mdi:microphone",
+  "libs": [
+    "libs/qualcomm-audio-fix.jar"
+  ],
+  "manager": "com.ava.mods.qualcomm.audio.AudioConcurrencyFix",
+  "permissions": [],
+  "entities": [
+    {
+      "type": "button",
+      "id": "apply_fix",
+      "name": "Apply Audio Fix",
+      "icon": "mdi:wrench",
+      "press": "applyFix"
+    },
+    {
+      "type": "sensor",
+      "id": "status",
+      "name": "Fix Status",
+      "icon": "mdi:information",
+      "state": "getStatus"
+    }
+  ],
+  "config": [],
+  "requirements": {
+    "root": true,
+    "chipset": "qualcomm"
+  }
+}
