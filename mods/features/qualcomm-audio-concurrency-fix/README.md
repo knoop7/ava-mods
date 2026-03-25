@@ -1,10 +1,10 @@
 # Qualcomm Audio Concurrency Fix
 
-Fixes audio concurrency issues on Qualcomm devices where certain platforms/ROMs do not allow concurrent audio sessions. This prevents the voice assistant from hearing input when wake sounds are played.
+> See [Issue #56](https://github.com/knoop7/Ava/issues/56)
 
-## Problem Description
+When wake sound plays during `VOICE_ASSISTANT_STT_START`, the HAL driver blocks microphone access on devices that disallow concurrent audio sessions.
 
-When the device plays the wake sound, the underlying driver blocks microphone access:
+## Problem
 
 ```
 platform_stdev_check_and_update_concurrency: concurrency active 0, tx 2, rx 1, concurrency session_allowed 0

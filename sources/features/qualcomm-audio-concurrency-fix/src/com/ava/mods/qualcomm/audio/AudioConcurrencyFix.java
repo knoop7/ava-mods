@@ -10,17 +10,20 @@ import java.io.InputStreamReader;
 
 /**
  * Qualcomm Audio Concurrency Fix
- * 
- * Fixes audio concurrency issues on Qualcomm devices where certain platforms/ROMs
- * do not allow concurrent audio sessions. This prevents the voice assistant from
- * hearing input when wake sounds are played.
- * 
- * Supported chipsets: msm8953-snd-card-mtp and similar Qualcomm audio cards
- * 
+ *
+ * When wake sound plays during VOICE_ASSISTANT_STT_START, the HAL driver blocks
+ * microphone access on devices that disallow concurrent audio sessions.
+ *
+ * Errors observed:
+ *   platform_stdev_check_and_update_concurrency: session_allowed 0
+ *   ACDB-LOADER: Error: ACDB AFE returned = -19 (ENODEV)
+ *   msm_gpioset_activate: gpio set name does not exist
+ *
+ * See https://github.com/knoop7/Ava/issues/56
  * Original solution by @pantherale0
- * https://github.com/AvaAI/Ava/issues/XXX
- * 
- * Required: Root access
+ *
+ * Supported: Qualcomm SoC devices (msm8953, msm8996, msm8998, sdm*, sm8*, etc.)
+ * Requires: Root access
  */
 public class AudioConcurrencyFix {
     private static final String TAG = "QualcommAudioFix";
@@ -40,28 +43,28 @@ public class AudioConcurrencyFix {
         }
     }
     
-    /**
-     * Check if device has a compatible Qualcomm sound card.
-     */
+    private static final String[] KNOWN_QCOM_PREFIXES = {
+        "msm8909", "msm8916", "msm8937", "msm8940", "msm8952", "msm8953",
+        "msm8956", "msm8976", "msm8996", "msm8998",
+        "sdm429", "sdm439", "sdm450", "sdm630", "sdm636", "sdm660",
+        "sdm670", "sdm710", "sdm845",
+        "sm6115", "sm6125", "sm6150", "sm6225", "sm6250", "sm6350", "sm6375",
+        "sm7125", "sm7150", "sm7225", "sm7250", "sm7325", "sm7450",
+        "sm8150", "sm8250", "sm8350", "sm8450", "sm8475", "sm8550", "sm8650",
+        "qcs403", "qcs605",
+        "qcom"
+    };
+
+    private static final String[][] DEVICE_MIXER_OVERRIDES = {
+        {"thinksmart", "SLIM_0_TX", "MI2S_TX", "SLIMBUS_0_TX", "TERT_MI2S_TX"},
+    };
+
     public static boolean isCompatibleDevice() {
-        try {
-            File cardsFile = new File("/proc/asound/cards");
-            if (!cardsFile.exists()) {
-                return false;
-            }
-            BufferedReader reader = new BufferedReader(new FileReader(cardsFile));
-            String line;
-            while ((line = reader.readLine()) != null) {
-                if (line.contains("msm8953") || line.contains("msm8996") || 
-                    line.contains("msm8998") || line.contains("sdm") ||
-                    line.contains("sm8") || line.contains("qcom")) {
-                    reader.close();
-                    return true;
-                }
-            }
-            reader.close();
-        } catch (Exception e) {
-            Log.w(TAG, "Failed to check sound card compatibility", e);
+        String cards = getSoundCardInfo();
+        if (cards == null || cards.isEmpty()) return false;
+        String lower = cards.toLowerCase();
+        for (String prefix : KNOWN_QCOM_PREFIXES) {
+            if (lower.contains(prefix)) return true;
         }
         return false;
     }
@@ -117,68 +120,67 @@ public class AudioConcurrencyFix {
         }
     }
     
-    /**
-     * Apply the audio concurrency fix.
-     * Requires root access.
-     */
     public static FixResult applyFix(Context context) {
         if (!isRootAvailable()) {
             return new FixResult(false, "Root access required", false);
         }
-        
         if (!isCompatibleDevice()) {
-            return new FixResult(false, "Device not compatible (no Qualcomm sound card detected)", false);
+            return new FixResult(false, "No compatible Qualcomm sound card", false);
         }
-        
+        if (!new File(SOUND_TRIGGER_CONFIG).exists()) {
+            return new FixResult(false, SOUND_TRIGGER_CONFIG + " not found", false);
+        }
+
         try {
-            // Remount vendor as read-write
             execRoot("mount -o rw,remount /vendor");
-            
-            // Update sound trigger platform config
-            String[] soundTriggerFixes = {
-                "sed -i 's/<param rx_concurrency_disabled=\"true\" \\/>/<param rx_concurrency_disabled=\"false\" \\/>/g' " + SOUND_TRIGGER_CONFIG,
-                "sed -i 's/<param concurrent_capture=\"false\" \\/>/<param concurrent_capture=\"true\" \\/>/g' " + SOUND_TRIGGER_CONFIG,
-                "sed -i 's/<param concurrent_voip_call=\"false\" \\/>/<param concurrent_voip_call=\"true\" \\/>/g' " + SOUND_TRIGGER_CONFIG,
-                "sed -i 's/<param concurrent_voice_call=\"false\" \\/>/<param concurrent_voice_call=\"true\" \\/>/g' " + SOUND_TRIGGER_CONFIG
+
+            String[] concurrencyFixes = {
+                sedReplace("rx_concurrency_disabled", "true", "false", SOUND_TRIGGER_CONFIG),
+                sedReplace("concurrent_capture", "false", "true", SOUND_TRIGGER_CONFIG),
+                sedReplace("concurrent_voip_call", "false", "true", SOUND_TRIGGER_CONFIG),
+                sedReplace("concurrent_voice_call", "false", "true", SOUND_TRIGGER_CONFIG),
             };
-            
-            for (String cmd : soundTriggerFixes) {
-                execRoot(cmd);
+            for (String cmd : concurrencyFixes) execRoot(cmd);
+
+            if (new File(VENDOR_BUILD_PROP).exists()) {
+                String[] propFixes = {
+                    "sed -i 's/vendor.voice.playback.conc.disabled=true/vendor.voice.playback.conc.disabled=false/g' " + VENDOR_BUILD_PROP,
+                    "sed -i 's/vendor.voice.voip.conc.disabled=true/vendor.voice.voip.conc.disabled=false/g' " + VENDOR_BUILD_PROP,
+                };
+                for (String cmd : propFixes) execRoot(cmd);
             }
-            
-            // Update build properties
-            String[] buildPropFixes = {
-                "sed -i 's/vendor.voice.playback.conc.disabled=true/vendor.voice.playback.conc.disabled=false/g' " + VENDOR_BUILD_PROP,
-                "sed -i 's/vendor.voice.voip.conc.disabled=true/vendor.voice.voip.conc.disabled=false/g' " + VENDOR_BUILD_PROP
-            };
-            
-            for (String cmd : buildPropFixes) {
-                execRoot(cmd);
-            }
-            
-            // Update mixer paths (for ThinkSmart View and similar devices)
-            String[] mixerFixes = {
-                "sed -i 's/SLIM_0_TX/MI2S_TX/g' " + SOUND_TRIGGER_CONFIG,
-                "sed -i 's/SLIMBUS_0_TX/TERT_MI2S_TX/g' " + SOUND_TRIGGER_CONFIG
-            };
-            
-            for (String cmd : mixerFixes) {
-                execRoot(cmd);
-            }
-            
-            // Remount vendor as read-only
+
+            applyDeviceMixerOverrides();
+
             execRoot("mount -o ro,remount /vendor");
-            
-            // Verify fix was applied
+
             if (isConcurrencyEnabled()) {
-                return new FixResult(true, "Audio concurrency fix applied successfully. Reboot required.", true);
-            } else {
-                return new FixResult(false, "Fix commands executed but verification failed", true);
+                return new FixResult(true, "Applied. Reboot required.", true);
             }
-            
+            return new FixResult(false, "Commands ran but verification failed", true);
         } catch (Exception e) {
-            Log.e(TAG, "Failed to apply audio concurrency fix", e);
+            Log.e(TAG, "applyFix failed", e);
+            try { execRoot("mount -o ro,remount /vendor"); } catch (Exception ignored) {}
             return new FixResult(false, "Error: " + e.getMessage(), false);
+        }
+    }
+
+    private static String sedReplace(String param, String from, String to, String file) {
+        return "sed -i 's/<param " + param + "=\"" + from + "\" \\/>/<param " + param + "=\"" + to + "\" \\/>/g' " + file;
+    }
+
+    private static void applyDeviceMixerOverrides() throws Exception {
+        String model = android.os.Build.MODEL.toLowerCase();
+        String product = android.os.Build.PRODUCT.toLowerCase();
+        String device = android.os.Build.DEVICE.toLowerCase();
+        String id = model + " " + product + " " + device;
+
+        for (String[] override : DEVICE_MIXER_OVERRIDES) {
+            if (id.contains(override[0])) {
+                for (int i = 1; i < override.length - 1; i += 2) {
+                    execRoot("sed -i 's/" + override[i] + "/" + override[i + 1] + "/g' " + SOUND_TRIGGER_CONFIG);
+                }
+            }
         }
     }
     
@@ -224,25 +226,19 @@ public class AudioConcurrencyFix {
         return output.toString();
     }
     
-    /**
-     * Get diagnostic info for troubleshooting.
-     */
     public static String getDiagnosticInfo() {
         StringBuilder sb = new StringBuilder();
-        sb.append("=== Qualcomm Audio Concurrency Diagnostic ===\n\n");
-        
-        sb.append("Sound Cards:\n");
-        sb.append(getSoundCardInfo()).append("\n\n");
-        
-        sb.append("Compatible Device: ").append(isCompatibleDevice()).append("\n");
-        sb.append("Root Available: ").append(isRootAvailable()).append("\n");
-        sb.append("Concurrency Enabled: ").append(isConcurrencyEnabled()).append("\n\n");
-        
-        // Check config file existence
-        sb.append("Config Files:\n");
-        sb.append("  sound_trigger_platform_info.xml: ").append(new File(SOUND_TRIGGER_CONFIG).exists()).append("\n");
-        sb.append("  vendor/build.prop: ").append(new File(VENDOR_BUILD_PROP).exists()).append("\n");
-        
+        sb.append("=== Qualcomm Audio Concurrency Diagnostic ===\n");
+        sb.append("Issue: https://github.com/knoop7/Ava/issues/56\n\n");
+        sb.append("Device: ").append(android.os.Build.MODEL).append(" (").append(android.os.Build.DEVICE).append(")\n");
+        sb.append("Product: ").append(android.os.Build.PRODUCT).append("\n\n");
+        sb.append("Sound Cards:\n").append(getSoundCardInfo()).append("\n\n");
+        sb.append("Compatible: ").append(isCompatibleDevice()).append("\n");
+        sb.append("Root: ").append(isRootAvailable()).append("\n");
+        sb.append("Concurrency: ").append(isConcurrencyEnabled()).append("\n\n");
+        sb.append("Files:\n");
+        sb.append("  ").append(SOUND_TRIGGER_CONFIG).append(": ").append(new File(SOUND_TRIGGER_CONFIG).exists()).append("\n");
+        sb.append("  ").append(VENDOR_BUILD_PROP).append(": ").append(new File(VENDOR_BUILD_PROP).exists()).append("\n");
         return sb.toString();
     }
 }
