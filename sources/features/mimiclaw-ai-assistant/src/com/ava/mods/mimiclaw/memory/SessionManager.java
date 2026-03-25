@@ -148,13 +148,17 @@ public class SessionManager {
                 String content = newMsg.optString("content", "");
                 boolean isRecentMsg = i >= compressThreshold;
                 
-                // Tool results: smart compress
-                if (content.startsWith("[{") || content.startsWith("[")) {
-                    content = smartCompressToolResults(content, isRecentMsg);
+                // Recent messages: keep intact for proper UI rendering
+                if (isRecentMsg) {
+                    // No compression for recent messages
+                }
+                // Old tool results: smart compress
+                else if (content.startsWith("[{") || content.startsWith("[")) {
+                    content = smartCompressToolResults(content, false);
                     newMsg.put("content", content);
                 }
-                // Non-tool content: only truncate if very long and old
-                else if (!isRecentMsg && content.length() > 4000) {
+                // Old non-tool content: truncate if very long
+                else if (content.length() > 4000) {
                     content = content.substring(0, 3000) + "\n...[truncated " + (content.length() - 3000) + " chars]";
                     newMsg.put("content", content);
                 }
