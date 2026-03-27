@@ -341,12 +341,14 @@ public class A64DeviceSupportManager {
     }
 
     private void executeAction(Context ctx, String action) {
+        android.util.Log.d(TAG, "executeAction: " + action);
         if (action == null || ACTION_NONE.equals(action)) {
             return;
         }
         
         switch (action) {
             case ACTION_SCREEN_TOGGLE:
+                android.util.Log.d(TAG, "toggleBrightness called, isScreenDimmed=" + isScreenDimmed);
                 toggleBrightness();
                 break;
             case ACTION_VOICE_WAKE:
@@ -416,46 +418,65 @@ public class A64DeviceSupportManager {
 
     private void toggleBrightness() {
         try {
-            if (isScreenDimmed) {
-                setSystemBrightness(savedBrightness);
+            int currentBrightness = getSystemBrightness();
+            android.util.Log.d(TAG, "toggleBrightness: current=" + currentBrightness + ", saved=" + savedBrightness + ", dimmed=" + isScreenDimmed);
+            
+            // 根据当前亮度判断状态，而不是依赖 isScreenDimmed 变量
+            if (currentBrightness <= MIN_BRIGHTNESS) {
+                // 当前是暗屏，需要亮屏
+                int targetBrightness = savedBrightness > MIN_BRIGHTNESS ? savedBrightness : 128;
+                setSystemBrightness(targetBrightness);
                 isScreenDimmed = false;
+                android.util.Log.d(TAG, "Screen ON: brightness=" + targetBrightness);
             } else {
-                savedBrightness = getSystemBrightness();
-                if (savedBrightness <= 0) {
-                    savedBrightness = MAX_BRIGHTNESS;
-                }
+                // 当前是亮屏，需要暗屏
+                savedBrightness = currentBrightness;
                 setSystemBrightness(MIN_BRIGHTNESS);
                 isScreenDimmed = true;
+                android.util.Log.d(TAG, "Screen OFF: saved=" + savedBrightness);
             }
         } catch (Exception e) {
-            // ignore
+            android.util.Log.e(TAG, "toggleBrightness error", e);
         }
     }
 
     private int getSystemBrightness() {
         try {
-            Process process = Runtime.getRuntime().exec(
-                new String[]{"su", "-c", "settings get system screen_brightness"});
+            Process process = Runtime.getRuntime().exec("su");
+            DataOutputStream os = new DataOutputStream(process.getOutputStream());
+            os.writeBytes("settings get system screen_brightness\n");
+            os.writeBytes("exit\n");
+            os.flush();
+            
             BufferedReader reader = new BufferedReader(
                 new java.io.InputStreamReader(process.getInputStream()));
             String line = reader.readLine();
             reader.close();
+            os.close();
             process.waitFor();
-            if (line != null) {
+            
+            if (line != null && !line.isEmpty()) {
                 return Integer.parseInt(line.trim());
             }
         } catch (Exception e) {
-            // ignore
+            android.util.Log.e(TAG, "getSystemBrightness error", e);
         }
         return -1;
     }
 
     private boolean setSystemBrightness(int brightness) {
         try {
-            Process process = Runtime.getRuntime().exec(
-                new String[]{"su", "-c", "settings put system screen_brightness " + brightness});
-            return process.waitFor() == 0;
+            Process process = Runtime.getRuntime().exec("su");
+            DataOutputStream os = new DataOutputStream(process.getOutputStream());
+            os.writeBytes("settings put system screen_brightness " + brightness + "\n");
+            os.writeBytes("exit\n");
+            os.flush();
+            os.close();
+            int result = process.waitFor();
+            android.util.Log.d(TAG, "setSystemBrightness " + brightness + " result=" + result);
+            return result == 0;
         } catch (Exception e) {
+            android.util.Log.e(TAG, "setSystemBrightness error", e);
             return false;
         }
     }
