@@ -998,15 +998,11 @@ public class MimiClawManager {
     }
     
     public String getLastResponse() {
-        String heartbeatStatus = null;
-        if (qqChannel != null && qqChannel.isEnabled()) {
-            heartbeatStatus = qqChannel.getHeartbeatStatus();
-        } else if (telegramChannel != null) {
-            heartbeatStatus = telegramChannel.isEnabled() ? "Telegram enabled" : "Telegram offline";
-        }
-        if (heartbeatStatus != null && !heartbeatStatus.isEmpty()) {
-            lastResponse = heartbeatStatus;
-        }
+        return lastResponse;
+    }
+
+    public String getAiResponseForHass() {
+        // This method is called by HASS entity, controlled by expose_ai_response config
         return lastResponse;
     }
     

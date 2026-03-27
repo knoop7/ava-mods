@@ -1,7 +1,7 @@
 {
   "id": "mimiclaw-ai-assistant",
   "name": "OpenClaw(Mini)",
-  "version": "1.4.44",
+  "version": "1.4.45",
   "author": "Ava",
   "description": "A Java-built Android AI assistant for device control, screenshots, UI actions, automation, diagnostics, messaging, and future skills.",
   "icon": "mdi:robot",
@@ -28,11 +28,12 @@
     },
     {
       "type": "text_sensor",
-      "id": "last_response",
-      "name": "Last Response",
+      "id": "ai_response",
+      "name": "AI Response",
       "icon": "mdi:message-reply-text",
       "category": "diagnostic",
-      "read": "getLastResponse"
+      "read": "getAiResponseForHass",
+      "enabledByConfig": "expose_ai_response"
     },
     {
       "type": "text_sensor",
@@ -174,6 +175,14 @@
     },
     {
       "type": "switch",
+      "key": "expose_ai_response",
+      "label": "Expose AI Response",
+      "description": "Expose last AI response to Home Assistant",
+      "dialogHint": "Default off for privacy",
+      "defaultValue": "false"
+    },
+    {
+      "type": "switch",
       "key": "web_console_enabled",
       "label": "Web Console",
       "description": "Enable local web console",
@@ -189,5 +198,5 @@
       "defaultValue": "openclaw"
     }
   ],
-  "jar_hash": "353bc0200f5462a2bc58f8897126e659"
+  "jar_hash": "77016c30f807aaa83e69b8718a1091f2"
 }
