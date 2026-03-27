@@ -581,10 +581,20 @@ public class MimiClawManager {
         if (!configFile.exists()) {
             return new JSONObject();
         }
+        String content = readFileAsString(configFile);
+        return content.trim().isEmpty() ? new JSONObject() : new JSONObject(content);
+    }
+
+    private String readFileAsString(java.io.File file) throws Exception {
+        // Android 8.0+ (API 26) 支持 java.nio.file.Files
+        if (android.os.Build.VERSION.SDK_INT >= 26) {
+            return new String(java.nio.file.Files.readAllBytes(file.toPath()), "UTF-8");
+        }
+        // Android 7.x 及以下使用 BufferedReader
         StringBuilder sb = new StringBuilder();
         java.io.BufferedReader reader = null;
         try {
-            reader = new java.io.BufferedReader(new java.io.FileReader(configFile));
+            reader = new java.io.BufferedReader(new java.io.FileReader(file));
             String line;
             while ((line = reader.readLine()) != null) {
                 sb.append(line);
@@ -592,8 +602,7 @@ public class MimiClawManager {
         } finally {
             if (reader != null) reader.close();
         }
-        String content = sb.toString();
-        return content.trim().isEmpty() ? new JSONObject() : new JSONObject(content);
+        return sb.toString();
     }
 
     private void writeMainConfig(JSONObject config) throws Exception {
@@ -855,14 +864,8 @@ public class MimiClawManager {
         try {
             java.io.File configFile = new java.io.File(context.getFilesDir(), "mod_configs/skill_config.json");
             if (configFile.exists()) {
-                StringBuilder sb = new StringBuilder();
-                java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.FileReader(configFile));
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    sb.append(line);
-                }
-                reader.close();
-                return new JSONObject(sb.toString());
+                String content = readFileAsString(configFile);
+                return new JSONObject(content);
             }
         } catch (Exception e) {
             Log.w(TAG, "Failed to read skill config: " + e.getMessage());
@@ -878,14 +881,8 @@ public class MimiClawManager {
             
             JSONObject config = new JSONObject();
             if (configFile.exists()) {
-                StringBuilder sb = new StringBuilder();
-                java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.FileReader(configFile));
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    sb.append(line);
-                }
-                reader.close();
-                config = new JSONObject(sb.toString());
+                String content = readFileAsString(configFile);
+                config = new JSONObject(content);
             }
             if (config.has(skillId) && config.optBoolean(skillId, enabled) == enabled) {
                 return;
