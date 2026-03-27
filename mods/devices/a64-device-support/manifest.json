@@ -1,12 +1,38 @@
 {
   "id": "a64-device-support",
   "name": "Allwinner A64 Custom",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "author": "Ava",
   "description": "Device compatibility hooks for Allwinner A64 chip devices (Ococci tablets, smart screens)",
   "icon": "mdi:chip",
   "libs": ["libs/a64-device-support.jar"],
-  "jar_hash": "cb3b96b6bd8bd73b8469586897034933",
+  "jar_hash": "3f6d48257b266212897bdd00b192e334",
   "manager": "com.ava.mods.a64.A64DeviceSupportManager",
+  "config": [
+    {
+      "type": "select",
+      "key": "home_short_press",
+      "label": "Home Key Short Press",
+      "description": "Action for short press",
+      "options": ["screen_toggle", "voice_wake", "none"],
+      "defaultValue": "screen_toggle"
+    },
+    {
+      "type": "select",
+      "key": "home_long_press",
+      "label": "Home Key Long Press",
+      "description": "Action for long press",
+      "options": ["screen_toggle", "voice_wake", "service_toggle", "none"],
+      "defaultValue": "voice_wake"
+    },
+    {
+      "type": "select",
+      "key": "inductor_sensor",
+      "label": "Inductor Sensor (GPIO 129)",
+      "description": "Action when sensor triggered",
+      "options": ["screen_toggle", "none"],
+      "defaultValue": "screen_toggle"
+    }
+  ],
   "entities": []
 }

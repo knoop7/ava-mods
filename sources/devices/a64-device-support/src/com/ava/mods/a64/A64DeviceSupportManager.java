@@ -9,6 +9,7 @@ import java.io.BufferedReader;
 import java.io.DataOutputStream;
 import java.io.File;
 import java.io.FileReader;
+import org.json.JSONObject;
 
 /**
  * A64 Device Support Manager
@@ -39,11 +40,25 @@ public class A64DeviceSupportManager {
     private Boolean cachedIsRootAvailable = null;
     
     private long mainButtonDownTime = 0;
-    private long menuButtonDownTime = 0;
     private Runnable longPressRunnable = null;
-    private Runnable menuLongPressRunnable = null;
     private boolean isScreenDimmed = false;
     private int savedBrightness = MAX_BRIGHTNESS;
+    
+    // Config keys
+    private static final String CONFIG_HOME_SHORT = "home_short_press";
+    private static final String CONFIG_HOME_LONG = "home_long_press";
+    private static final String CONFIG_INDUCTOR = "inductor_sensor";
+    
+    // Action values
+    private static final String ACTION_SCREEN_TOGGLE = "screen_toggle";
+    private static final String ACTION_VOICE_WAKE = "voice_wake";
+    private static final String ACTION_SERVICE_TOGGLE = "service_toggle";
+    private static final String ACTION_NONE = "none";
+    
+    // Cached config
+    private String homeShortAction = ACTION_SCREEN_TOGGLE;
+    private String homeLongAction = ACTION_VOICE_WAKE;
+    private String inductorAction = ACTION_SCREEN_TOGGLE;
 
     private A64DeviceSupportManager(Context context) {
         this.context = context.getApplicationContext();
@@ -59,6 +74,41 @@ public class A64DeviceSupportManager {
             }
         }
         return instance;
+    }
+
+    // ==================== Config Loading ====================
+
+    public void loadConfig(Context ctx) {
+        if (!isA64Device()) return;
+        
+        try {
+            File configFile = new File(ctx.getFilesDir(), "mod_configs/a64-device-support.json");
+            if (!configFile.exists()) return;
+            
+            StringBuilder sb = new StringBuilder();
+            BufferedReader reader = new BufferedReader(new FileReader(configFile));
+            String line;
+            while ((line = reader.readLine()) != null) {
+                sb.append(line);
+            }
+            reader.close();
+            
+            JSONObject config = new JSONObject(sb.toString());
+            homeShortAction = config.optString(CONFIG_HOME_SHORT, ACTION_SCREEN_TOGGLE);
+            homeLongAction = config.optString(CONFIG_HOME_LONG, ACTION_VOICE_WAKE);
+            inductorAction = config.optString(CONFIG_INDUCTOR, ACTION_SCREEN_TOGGLE);
+        } catch (Exception e) {
+            // Use defaults
+        }
+    }
+
+    public String getConfigValue(String key) {
+        switch (key) {
+            case CONFIG_HOME_SHORT: return homeShortAction;
+            case CONFIG_HOME_LONG: return homeLongAction;
+            case CONFIG_INDUCTOR: return inductorAction;
+            default: return "";
+        }
     }
 
     // ==================== Device Detection ====================
@@ -222,6 +272,8 @@ public class A64DeviceSupportManager {
             return false;
         }
         
+        loadConfig(ctx);
+        
         switch (keyCode) {
             case KeyEvent.KEYCODE_VOLUME_UP:
                 invokeAvaVolumeControl(ctx, true);
@@ -232,31 +284,19 @@ public class A64DeviceSupportManager {
                 return true;
                 
             case KeyEvent.KEYCODE_VOLUME_MUTE:
+            case KeyEvent.KEYCODE_MENU:
                 mainButtonDownTime = System.currentTimeMillis();
                 if (longPressRunnable != null) {
                     handler.removeCallbacks(longPressRunnable);
                 }
+                final Context finalCtx = ctx;
                 longPressRunnable = new Runnable() {
                     @Override
                     public void run() {
-                        toggleBrightness();
+                        executeAction(finalCtx, homeLongAction);
                     }
                 };
                 handler.postDelayed(longPressRunnable, LONG_PRESS_THRESHOLD);
-                return true;
-                
-            case KeyEvent.KEYCODE_MENU:
-                menuButtonDownTime = System.currentTimeMillis();
-                if (menuLongPressRunnable != null) {
-                    handler.removeCallbacks(menuLongPressRunnable);
-                }
-                menuLongPressRunnable = new Runnable() {
-                    @Override
-                    public void run() {
-                        toggleBrightness();
-                    }
-                };
-                handler.postDelayed(menuLongPressRunnable, LONG_PRESS_THRESHOLD);
                 return true;
                 
             default:
@@ -275,22 +315,17 @@ public class A64DeviceSupportManager {
                 return true;
                 
             case KeyEvent.KEYCODE_VOLUME_MUTE:
+            case KeyEvent.KEYCODE_MENU:
                 if (longPressRunnable != null) {
                     handler.removeCallbacks(longPressRunnable);
                     longPressRunnable = null;
                 }
                 long pressDuration = System.currentTimeMillis() - mainButtonDownTime;
                 mainButtonDownTime = 0;
-                return pressDuration < LONG_PRESS_THRESHOLD;
-                
-            case KeyEvent.KEYCODE_MENU:
-                if (menuLongPressRunnable != null) {
-                    handler.removeCallbacks(menuLongPressRunnable);
-                    menuLongPressRunnable = null;
+                if (pressDuration < LONG_PRESS_THRESHOLD) {
+                    executeAction(ctx, homeShortAction);
                 }
-                long menuPressDuration = System.currentTimeMillis() - menuButtonDownTime;
-                menuButtonDownTime = 0;
-                return menuPressDuration < LONG_PRESS_THRESHOLD;
+                return true;
                 
             default:
                 return false;
@@ -302,12 +337,58 @@ public class A64DeviceSupportManager {
             handler.removeCallbacks(longPressRunnable);
             longPressRunnable = null;
         }
-        if (menuLongPressRunnable != null) {
-            handler.removeCallbacks(menuLongPressRunnable);
-            menuLongPressRunnable = null;
-        }
         mainButtonDownTime = 0;
-        menuButtonDownTime = 0;
+    }
+
+    private void executeAction(Context ctx, String action) {
+        if (action == null || ACTION_NONE.equals(action)) {
+            return;
+        }
+        
+        switch (action) {
+            case ACTION_SCREEN_TOGGLE:
+                toggleBrightness();
+                break;
+            case ACTION_VOICE_WAKE:
+                invokeAvaVoiceWake(ctx);
+                break;
+            case ACTION_SERVICE_TOGGLE:
+                invokeAvaServiceToggle(ctx);
+                break;
+        }
+    }
+
+    private void invokeAvaVoiceWake(Context ctx) {
+        try {
+            Class<?> serviceClass = Class.forName("com.example.ava.services.VoiceSatelliteService");
+            java.lang.reflect.Method getInstanceMethod = serviceClass.getMethod("getInstance");
+            Object instance = getInstanceMethod.invoke(null);
+            if (instance != null) {
+                java.lang.reflect.Method wakeMethod = serviceClass.getMethod("triggerWakeWord");
+                wakeMethod.invoke(instance);
+            }
+        } catch (Exception e) {
+            // Fallback: send broadcast
+            try {
+                android.content.Intent intent = new android.content.Intent("com.example.ava.VOICE_WAKE");
+                ctx.sendBroadcast(intent);
+            } catch (Exception ignored) {}
+        }
+    }
+
+    private void invokeAvaServiceToggle(Context ctx) {
+        try {
+            Class<?> serviceClass = Class.forName("com.example.ava.services.VoiceSatelliteService");
+            java.lang.reflect.Method getInstanceMethod = serviceClass.getMethod("getInstance");
+            Object instance = getInstanceMethod.invoke(null);
+            if (instance != null) {
+                java.lang.reflect.Method stopMethod = serviceClass.getMethod("stopVoiceSatellite");
+                stopMethod.invoke(instance);
+            } else {
+                android.content.Intent intent = new android.content.Intent(ctx, serviceClass);
+                ctx.startService(intent);
+            }
+        } catch (Exception ignored) {}
     }
 
     // ==================== Screen Control ====================
