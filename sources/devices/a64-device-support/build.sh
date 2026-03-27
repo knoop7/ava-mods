@@ -5,17 +5,24 @@
 # Requirements: Android SDK, Java 11+
 # Usage: ./build.sh [version]  e.g. ./build.sh 1.0.3
 
+# Get script directory (absolute path)
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+
 ANDROID_SDK="${ANDROID_HOME:-$HOME/Library/Android/sdk}"
 ANDROID_JAR="$ANDROID_SDK/platforms/android-34/android.jar"
 D8_TOOL="$ANDROID_SDK/build-tools/34.0.0/d8"
 BUILD_DIR="build"
 OUTPUT_JAR="libs/a64-device-support.jar"
 MOD_ID="a64-device-support"
-MODS_DIR="../../mods/devices/$MOD_ID"
-STORE_JSON="../../store.json"
+MODS_DIR="$REPO_ROOT/mods/devices/$MOD_ID"
+STORE_JSON="$REPO_ROOT/store.json"
 
 # Version from argument
 NEW_VERSION="$1"
+
+# Change to script directory
+cd "$SCRIPT_DIR"
 
 # Check Android SDK
 if [ ! -f "$ANDROID_JAR" ]; then
