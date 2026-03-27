@@ -33,7 +33,7 @@
       "author": "Ava",
       "description": "Device compatibility hooks for Allwinner A64 chip devices (Ococci tablets, smart screens)",
       "path": "mods/devices/a64-device-support/",
-      "jar_hash": "6a9862fb740671ff3cd57b16a4adc19d"
+      "jar_hash": "e1a6aa876d117deff891d0ee5ae7a1d0"
     },
     {
       "id": "flashlight-mod",
