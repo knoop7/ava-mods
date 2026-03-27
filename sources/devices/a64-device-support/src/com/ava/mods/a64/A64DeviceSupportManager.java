@@ -217,12 +217,20 @@ public class A64DeviceSupportManager {
 
     // ==================== Key Handling ====================
 
-    public boolean onKeyDown(int keyCode, Object event) {
+    public boolean onKeyDown(Context ctx, int keyCode, Object event) {
         if (!isA64Device()) {
             return false;
         }
         
         switch (keyCode) {
+            case KeyEvent.KEYCODE_VOLUME_UP:
+                VolumeControlService.volumeUp(ctx);
+                return true;
+                
+            case KeyEvent.KEYCODE_VOLUME_DOWN:
+                VolumeControlService.volumeDown(ctx);
+                return true;
+                
             case KeyEvent.KEYCODE_VOLUME_MUTE:
                 mainButtonDownTime = System.currentTimeMillis();
                 if (longPressRunnable != null) {
@@ -256,12 +264,16 @@ public class A64DeviceSupportManager {
         }
     }
 
-    public boolean onKeyUp(int keyCode, Object event) {
+    public boolean onKeyUp(Context ctx, int keyCode, Object event) {
         if (!isA64Device()) {
             return false;
         }
         
         switch (keyCode) {
+            case KeyEvent.KEYCODE_VOLUME_UP:
+            case KeyEvent.KEYCODE_VOLUME_DOWN:
+                return true;
+                
             case KeyEvent.KEYCODE_VOLUME_MUTE:
                 if (longPressRunnable != null) {
                     handler.removeCallbacks(longPressRunnable);
