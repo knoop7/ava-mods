@@ -97,12 +97,17 @@ public class MimiClawManager {
         
         startAgentLoop();
         channelManager.startOutboundDispatcher();
-        cronService.ensureBuiltinHeartbeatJob(
-            AndroidChannel.NAME,
-            ContextBuilder.HEARTBEAT_CHAT_ID,
-            "HEARTBEAT_TICK: Read HEARTBEAT.md and return HEARTBEAT_OK if nothing needs proactive notification.",
-            BUILTIN_HEARTBEAT_INTERVAL_S
-        );
+        
+        // Only enable heartbeat if config allows (default: true)
+        boolean heartbeatEnabled = !"false".equals(getConfigValue("heartbeat_enabled", "true"));
+        if (heartbeatEnabled) {
+            cronService.ensureBuiltinHeartbeatJob(
+                AndroidChannel.NAME,
+                ContextBuilder.HEARTBEAT_CHAT_ID,
+                "HEARTBEAT_TICK: Read HEARTBEAT.md and return HEARTBEAT_OK if nothing needs proactive notification.",
+                BUILTIN_HEARTBEAT_INTERVAL_S
+            );
+        }
         cronService.start();
         loadWebConsolePrefs();
         refreshWebConsoleServer();
@@ -1007,6 +1012,45 @@ public class MimiClawManager {
     
     public String getTotalTokens() {
         return String.valueOf(llmProxy.getTotalTokens());
+    }
+
+    public String getHeartbeatStatus() {
+        // Check heartbeat enabled config
+        boolean heartbeatEnabled = !"false".equals(getConfigValue("heartbeat_enabled", "true"));
+        if (!heartbeatEnabled) {
+            return "Heartbeat disabled";
+        }
+        
+        // Check cron service status
+        if (cronService == null) {
+            return "Cron not initialized";
+        }
+        
+        // Get builtin heartbeat job status
+        java.util.List<com.ava.mods.mimiclaw.cron.CronService.CronJob> jobs = cronService.listJobs();
+        for (com.ava.mods.mimiclaw.cron.CronService.CronJob job : jobs) {
+            if (com.ava.mods.mimiclaw.cron.CronService.BUILTIN_HEARTBEAT_NAME.equals(job.name)) {
+                long intervalS = job.intervalS;
+                long lastRun = job.lastRun;
+                boolean enabled = job.enabled;
+                
+                if (!enabled) {
+                    return "Heartbeat paused";
+                }
+                
+                String intervalStr = intervalS >= 60 ? (intervalS / 60) + "min" : intervalS + "s";
+                if (lastRun > 0) {
+                    long nowS = System.currentTimeMillis() / 1000;
+                    long agoS = nowS - lastRun;
+                    String agoStr = agoS >= 60 ? (agoS / 60) + "min ago" : agoS + "s ago";
+                    return "Active | " + intervalStr + " | " + agoStr;
+                } else {
+                    return "Ready | " + intervalStr;
+                }
+            }
+        }
+        
+        return "Heartbeat not scheduled";
     }
 
     public boolean isWebConsolePasswordValid(String password) {
