@@ -29,7 +29,7 @@
     {
       "id": "a64-device-support",
       "name": "Allwinner A64 Custom",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "author": "Ava",
       "description": "Device compatibility hooks for Allwinner A64 chip devices (Ococci tablets, smart screens)",
       "path": "mods/devices/a64-device-support/",
