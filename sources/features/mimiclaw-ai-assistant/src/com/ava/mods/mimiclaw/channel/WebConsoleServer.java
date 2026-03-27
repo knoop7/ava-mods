@@ -177,7 +177,11 @@ public class WebConsoleServer {
                     return;
                 }
                 String mimeType = guessMimeType(filePath);
-                byte[] data = java.nio.file.Files.readAllBytes(file.toPath());
+                // 兼容 Android 7.1.1，不使用 java.nio.file.Files
+                java.io.FileInputStream fis = new java.io.FileInputStream(file);
+                byte[] data = new byte[(int) file.length()];
+                fis.read(data);
+                fis.close();
                 String fileName = file.getName();
                 String disposition = "attachment; filename=\"" + fileName.replace("\"", "\\\"") + "\"";
                 writeResponse(output, 200, mimeType, data, "Content-Disposition: " + disposition, null);

@@ -581,7 +581,18 @@ public class MimiClawManager {
         if (!configFile.exists()) {
             return new JSONObject();
         }
-        String content = new String(java.nio.file.Files.readAllBytes(configFile.toPath()), "UTF-8");
+        StringBuilder sb = new StringBuilder();
+        java.io.BufferedReader reader = null;
+        try {
+            reader = new java.io.BufferedReader(new java.io.FileReader(configFile));
+            String line;
+            while ((line = reader.readLine()) != null) {
+                sb.append(line);
+            }
+        } finally {
+            if (reader != null) reader.close();
+        }
+        String content = sb.toString();
         return content.trim().isEmpty() ? new JSONObject() : new JSONObject(content);
     }
 
@@ -844,8 +855,14 @@ public class MimiClawManager {
         try {
             java.io.File configFile = new java.io.File(context.getFilesDir(), "mod_configs/skill_config.json");
             if (configFile.exists()) {
-                String content = new String(java.nio.file.Files.readAllBytes(configFile.toPath()), "UTF-8");
-                return new JSONObject(content);
+                StringBuilder sb = new StringBuilder();
+                java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.FileReader(configFile));
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    sb.append(line);
+                }
+                reader.close();
+                return new JSONObject(sb.toString());
             }
         } catch (Exception e) {
             Log.w(TAG, "Failed to read skill config: " + e.getMessage());
@@ -861,8 +878,14 @@ public class MimiClawManager {
             
             JSONObject config = new JSONObject();
             if (configFile.exists()) {
-                String content = new String(java.nio.file.Files.readAllBytes(configFile.toPath()), "UTF-8");
-                config = new JSONObject(content);
+                StringBuilder sb = new StringBuilder();
+                java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.FileReader(configFile));
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    sb.append(line);
+                }
+                reader.close();
+                config = new JSONObject(sb.toString());
             }
             if (config.has(skillId) && config.optBoolean(skillId, enabled) == enabled) {
                 return;
