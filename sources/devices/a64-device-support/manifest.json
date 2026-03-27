@@ -1,12 +1,12 @@
 {
   "id": "a64-device-support",
   "name": "Allwinner A64 Custom",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "author": "Ava",
   "description": "Device compatibility hooks for Allwinner A64 chip devices (Ococci tablets, smart screens)",
   "icon": "mdi:chip",
   "libs": ["libs/a64-device-support.jar"],
-  "jar_hash": "d3e693a8db654ac1f80092fc2d0558b2",
+  "jar_hash": "cb3b96b6bd8bd73b8469586897034933",
   "manager": "com.ava.mods.a64.A64DeviceSupportManager",
   "entities": []
 }

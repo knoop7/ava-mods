@@ -217,18 +217,18 @@ public class A64DeviceSupportManager {
 
     // ==================== Key Handling ====================
 
-    public boolean onKeyDown(Context ctx, int keyCode, Object event) {
+    public boolean onKeyDown(Context ctx, int keyCode, android.view.KeyEvent event) {
         if (!isA64Device()) {
             return false;
         }
         
         switch (keyCode) {
             case KeyEvent.KEYCODE_VOLUME_UP:
-                VolumeControlService.volumeUp(ctx);
+                invokeAvaVolumeControl(ctx, true);
                 return true;
                 
             case KeyEvent.KEYCODE_VOLUME_DOWN:
-                VolumeControlService.volumeDown(ctx);
+                invokeAvaVolumeControl(ctx, false);
                 return true;
                 
             case KeyEvent.KEYCODE_VOLUME_MUTE:
@@ -264,7 +264,7 @@ public class A64DeviceSupportManager {
         }
     }
 
-    public boolean onKeyUp(Context ctx, int keyCode, Object event) {
+    public boolean onKeyUp(Context ctx, int keyCode, android.view.KeyEvent event) {
         if (!isA64Device()) {
             return false;
         }
@@ -523,5 +523,24 @@ public class A64DeviceSupportManager {
 
     public java.util.Set<String> getScannerQuirks(Context context) {
         return getScannerQuirks();
+    }
+
+    // ==================== Ava VolumeControlService Bridge ====================
+
+    private void invokeAvaVolumeControl(Context ctx, boolean isUp) {
+        try {
+            Class<?> volumeServiceClass = Class.forName("com.example.ava.services.VolumeControlService");
+            Class<?> companionClass = Class.forName("com.example.ava.services.VolumeControlService$Companion");
+            
+            java.lang.reflect.Field companionField = volumeServiceClass.getDeclaredField("Companion");
+            Object companion = companionField.get(null);
+            
+            String methodName = isUp ? "volumeUp" : "volumeDown";
+            java.lang.reflect.Method method = companionClass.getMethod(methodName, Context.class);
+            method.invoke(companion, ctx);
+        } catch (Exception e) {
+            // Fallback to direct audio control
+            adjustVolume(isUp);
+        }
     }
 }
