@@ -1027,22 +1027,20 @@ public class MimiClawManager {
         for (com.ava.mods.mimiclaw.cron.CronService.CronJob job : jobs) {
             if (com.ava.mods.mimiclaw.cron.CronService.BUILTIN_HEARTBEAT_NAME.equals(job.name)) {
                 long intervalS = job.intervalS;
-                long lastRun = job.lastRun;
+                long nextRun = job.nextRun;
                 boolean enabled = job.enabled;
                 
                 if (!enabled) {
-                    return "Heartbeat paused";
+                    return "Paused";
                 }
                 
-                String intervalStr = intervalS >= 60 ? (intervalS / 60) + "min" : intervalS + "s";
-                if (lastRun > 0) {
-                    long nowS = System.currentTimeMillis() / 1000;
-                    long agoS = nowS - lastRun;
-                    String agoStr = agoS >= 60 ? (agoS / 60) + "min ago" : agoS + "s ago";
-                    return "Active | " + intervalStr + " | " + agoStr;
-                } else {
-                    return "Ready | " + intervalStr;
+                long nowS = System.currentTimeMillis() / 1000;
+                long inS = nextRun - nowS;
+                if (inS <= 0) {
+                    return "Running...";
                 }
+                String inStr = inS >= 60 ? (inS / 60) + "m" : inS + "s";
+                return "Next: " + inStr;
             }
         }
         

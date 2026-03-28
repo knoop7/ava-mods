@@ -121,6 +121,7 @@ public class LlmProxy {
         
         JSONObject requestBody = new JSONObject();
         requestBody.put("model", model);
+        requestBody.put("stream", false);
         
         if (isOpenAiProtocol()) {
             requestBody.put("max_completion_tokens", maxTokens);
