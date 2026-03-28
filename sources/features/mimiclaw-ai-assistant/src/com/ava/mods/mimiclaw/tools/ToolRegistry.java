@@ -1767,7 +1767,7 @@ public class ToolRegistry {
         );
 
         addTool("ha_camera_snapshot",
-            "Capture a snapshot from a Home Assistant camera entity. Returns image for both user display and AI analysis.",
+            "Capture a snapshot from a Home Assistant camera entity. Returns: 1) Image displayed to user via <media-img> tag, 2) Base64 image data for AI analysis via <image_data> tag. After calling this tool, describe what you see in the image to the user.",
             "{\"type\":\"object\",\"properties\":{\"entity_id\":{\"type\":\"string\",\"description\":\"Camera entity ID (e.g. camera.front_door)\"}},\"required\":[\"entity_id\"]}",
             inputJson -> {
                 String[] config = getHaConfig();
@@ -1788,9 +1788,15 @@ public class ToolRegistry {
                     // For AI analysis: 650px, compressed (65%)
                     byte[] aiData = resizeAndCompressImage(rawData, 650, 65);
                     String base64Image = android.util.Base64.encodeToString(aiData, android.util.Base64.NO_WRAP);
-                    // Return: file path for user display + base64 for AI analysis
-                    return "<media-img>" + filePath + "</media-img>\n" +
-                           "<image_data>image/jpeg;base64," + base64Image + "</image_data>";
+                    // Return structured result:
+                    // - user_image: displayed separately to user
+                    // - image_data: for AI analysis (hidden from user)
+                    // - message: status text
+                    JSONObject result = new JSONObject();
+                    result.put("user_image", filePath);
+                    result.put("ai_image", "image/jpeg;base64," + base64Image);
+                    result.put("message", "Snapshot captured from " + entityId);
+                    return result.toString();
                 } catch (Exception e) {
                     return "Error: " + e.getMessage();
                 }
