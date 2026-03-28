@@ -1874,6 +1874,161 @@ public class ToolRegistry {
             }
         );
 
+        addTool("ha_conversation",
+            "Process natural language command via Home Assistant Conversation API. HA will interpret and execute the command.",
+            "{\"type\":\"object\",\"properties\":{\"text\":{\"type\":\"string\",\"description\":\"Natural language command (e.g. 'turn on living room light', 'what time is it')\"}},\"required\":[\"text\"]}",
+            inputJson -> {
+                String[] config = getHaConfig();
+                if (config == null) return "{\"ok\":false,\"error\":\"ha_not_configured\"}";
+                JSONObject input = new JSONObject(inputJson);
+                String text = input.optString("text", "").trim();
+                if (text.isEmpty()) return "Error: text is required";
+                try {
+                    JSONObject data = new JSONObject();
+                    data.put("text", text);
+                    String result = haApiCall("POST", "/api/conversation/process", data.toString(), config[0], config[1]);
+                    JSONObject resp = new JSONObject(result);
+                    JSONObject response = resp.optJSONObject("response");
+                    if (response != null) {
+                        JSONObject speech = response.optJSONObject("speech");
+                        if (speech != null) {
+                            String plain = speech.optString("plain", "");
+                            if (!plain.isEmpty()) {
+                                JSONObject plainObj = new JSONObject(plain);
+                                return plainObj.optString("speech", resp.toString());
+                            }
+                        }
+                    }
+                    return resp.toString();
+                } catch (Exception e) {
+                    return "Error: " + e.getMessage();
+                }
+            }
+        );
+
+        addTool("ha_create_automation",
+            "Create a new automation in Home Assistant. Requires user confirmation.",
+            "{\"type\":\"object\",\"properties\":{\"alias\":{\"type\":\"string\",\"description\":\"Automation name\"},\"description\":{\"type\":\"string\",\"description\":\"Optional description\"},\"trigger\":{\"type\":\"string\",\"description\":\"JSON array of triggers\"},\"condition\":{\"type\":\"string\",\"description\":\"Optional JSON array of conditions\"},\"action\":{\"type\":\"string\",\"description\":\"JSON array of actions\"},\"mode\":{\"type\":\"string\",\"description\":\"Mode: single, restart, queued, parallel (default: single)\"},\"confirm\":{\"type\":\"string\",\"description\":\"Must be USER_CONFIRMED\"}},\"required\":[\"alias\",\"trigger\",\"action\"]}",
+            inputJson -> {
+                JSONObject input = new JSONObject(inputJson);
+                String confirmation = requireUserConfirmation(input, "create automation");
+                if (confirmation != null) return confirmation;
+                String[] config = getHaConfig();
+                if (config == null) return "{\"ok\":false,\"error\":\"ha_not_configured\"}";
+                String alias = input.optString("alias", "").trim();
+                if (alias.isEmpty()) return "Error: alias is required";
+                try {
+                    JSONObject automation = new JSONObject();
+                    automation.put("alias", alias);
+                    automation.put("description", input.optString("description", ""));
+                    automation.put("trigger", new JSONArray(input.optString("trigger", "[]")));
+                    automation.put("condition", new JSONArray(input.optString("condition", "[]")));
+                    automation.put("action", new JSONArray(input.optString("action", "[]")));
+                    automation.put("mode", input.optString("mode", "single"));
+                    String result = haApiCall("POST", "/api/config/automation/config/entry", automation.toString(), config[0], config[1]);
+                    // Reload automation
+                    haApiCall("POST", "/api/services/automation/reload", "{}", config[0], config[1]);
+                    return "Automation '" + alias + "' created. " + result;
+                } catch (Exception e) {
+                    return "Error: " + e.getMessage();
+                }
+            }
+        );
+
+        addTool("ha_create_script",
+            "Create a new script in Home Assistant. Requires user confirmation.",
+            "{\"type\":\"object\",\"properties\":{\"alias\":{\"type\":\"string\",\"description\":\"Script name\"},\"sequence\":{\"type\":\"string\",\"description\":\"JSON array of actions\"},\"confirm\":{\"type\":\"string\",\"description\":\"Must be USER_CONFIRMED\"}},\"required\":[\"alias\",\"sequence\"]}",
+            inputJson -> {
+                JSONObject input = new JSONObject(inputJson);
+                String confirmation = requireUserConfirmation(input, "create script");
+                if (confirmation != null) return confirmation;
+                String[] config = getHaConfig();
+                if (config == null) return "{\"ok\":false,\"error\":\"ha_not_configured\"}";
+                String alias = input.optString("alias", "").trim();
+                if (alias.isEmpty()) return "Error: alias is required";
+                try {
+                    JSONObject script = new JSONObject();
+                    script.put("alias", alias);
+                    script.put("sequence", new JSONArray(input.optString("sequence", "[]")));
+                    String result = haApiCall("POST", "/api/config/script/config/entry", script.toString(), config[0], config[1]);
+                    // Reload script
+                    haApiCall("POST", "/api/services/script/reload", "{}", config[0], config[1]);
+                    return "Script '" + alias + "' created. " + result;
+                } catch (Exception e) {
+                    return "Error: " + e.getMessage();
+                }
+            }
+        );
+
+        addTool("ha_error_log",
+            "Get Home Assistant error log.",
+            "{\"type\":\"object\",\"properties\":{\"lines\":{\"type\":\"integer\",\"description\":\"Number of lines to return (default: 50, max: 200)\"}},\"required\":[]}",
+            inputJson -> {
+                String[] config = getHaConfig();
+                if (config == null) return "{\"ok\":false,\"error\":\"ha_not_configured\"}";
+                JSONObject input = new JSONObject(inputJson);
+                int lines = Math.min(input.optInt("lines", 50), 200);
+                try {
+                    String result = haApiCall("GET", "/api/error_log", null, config[0], config[1]);
+                    // Truncate to last N lines
+                    String[] allLines = result.split("\n");
+                    if (allLines.length > lines) {
+                        StringBuilder sb = new StringBuilder();
+                        for (int i = allLines.length - lines; i < allLines.length; i++) {
+                            sb.append(allLines[i]).append("\n");
+                        }
+                        return sb.toString().trim();
+                    }
+                    return result;
+                } catch (Exception e) {
+                    return "Error: " + e.getMessage();
+                }
+            }
+        );
+
+        addTool("ha_logbook",
+            "Get Home Assistant logbook entries.",
+            "{\"type\":\"object\",\"properties\":{\"entity_id\":{\"type\":\"string\",\"description\":\"Optional entity ID to filter\"},\"hours\":{\"type\":\"integer\",\"description\":\"Hours to look back (default: 24, max: 72)\"}},\"required\":[]}",
+            inputJson -> {
+                String[] config = getHaConfig();
+                if (config == null) return "{\"ok\":false,\"error\":\"ha_not_configured\"}";
+                JSONObject input = new JSONObject(inputJson);
+                String entityId = input.optString("entity_id", "").trim();
+                int hours = Math.min(input.optInt("hours", 24), 72);
+                try {
+                    // Calculate start time
+                    long startMs = System.currentTimeMillis() - (hours * 3600 * 1000L);
+                    java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss");
+                    sdf.setTimeZone(java.util.TimeZone.getTimeZone("UTC"));
+                    String startTime = sdf.format(new java.util.Date(startMs)) + "+00:00";
+                    String path = "/api/logbook/" + startTime;
+                    if (!entityId.isEmpty()) {
+                        path += "?entity=" + entityId;
+                    }
+                    String result = haApiCall("GET", path, null, config[0], config[1]);
+                    JSONArray entries = new JSONArray(result);
+                    StringBuilder sb = new StringBuilder();
+                    sb.append("Logbook (last ").append(hours).append("h):\n");
+                    int count = Math.min(entries.length(), 50);
+                    for (int i = entries.length() - count; i < entries.length(); i++) {
+                        JSONObject entry = entries.getJSONObject(i);
+                        String when = entry.optString("when", "");
+                        String name = entry.optString("name", "");
+                        String state = entry.optString("state", "");
+                        String message = entry.optString("message", "");
+                        if (when.length() > 19) when = when.substring(11, 19);
+                        sb.append("  ").append(when).append(" ").append(name);
+                        if (!state.isEmpty()) sb.append(": ").append(state);
+                        if (!message.isEmpty()) sb.append(" - ").append(message);
+                        sb.append("\n");
+                    }
+                    return sb.toString().trim();
+                } catch (Exception e) {
+                    return "Error: " + e.getMessage();
+                }
+            }
+        );
+
         addTool("ha_reload",
             "Reload Home Assistant configuration. Requires user confirmation.",
             "{\"type\":\"object\",\"properties\":{\"target\":{\"type\":\"string\",\"description\":\"What to reload: core, automation, script, scene, all (default: all)\"},\"confirm\":{\"type\":\"string\",\"description\":\"Must be USER_CONFIRMED\"}},\"required\":[]}",
