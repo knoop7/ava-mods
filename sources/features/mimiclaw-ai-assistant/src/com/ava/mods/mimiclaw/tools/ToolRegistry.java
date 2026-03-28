@@ -2302,18 +2302,45 @@ public class ToolRegistry {
             return null;
         }
         
-        // Compress if too large (> 500KB)
-        if (imageData.length > 500 * 1024) {
-            imageData = compressImageData(imageData, 80);
-        }
+        // Always resize and compress for optimal transfer
+        imageData = resizeAndCompressImage(imageData, 650, 65);
         
         return android.util.Base64.encodeToString(imageData, android.util.Base64.NO_WRAP);
     }
     
-    private byte[] compressImageData(byte[] data, int quality) {
+    private byte[] resizeAndCompressImage(byte[] data, int maxDimension, int quality) {
         try {
-            android.graphics.Bitmap bitmap = android.graphics.BitmapFactory.decodeByteArray(data, 0, data.length);
+            android.graphics.BitmapFactory.Options opts = new android.graphics.BitmapFactory.Options();
+            opts.inJustDecodeBounds = true;
+            android.graphics.BitmapFactory.decodeByteArray(data, 0, data.length, opts);
+            
+            int width = opts.outWidth;
+            int height = opts.outHeight;
+            int sampleSize = 1;
+            
+            // Calculate sample size to fit within maxDimension
+            while (width / sampleSize > maxDimension || height / sampleSize > maxDimension) {
+                sampleSize *= 2;
+            }
+            
+            opts.inJustDecodeBounds = false;
+            opts.inSampleSize = sampleSize;
+            
+            android.graphics.Bitmap bitmap = android.graphics.BitmapFactory.decodeByteArray(data, 0, data.length, opts);
             if (bitmap == null) return data;
+            
+            // Further scale if still too large
+            int w = bitmap.getWidth();
+            int h = bitmap.getHeight();
+            if (w > maxDimension || h > maxDimension) {
+                float scale = Math.min((float) maxDimension / w, (float) maxDimension / h);
+                int newW = Math.round(w * scale);
+                int newH = Math.round(h * scale);
+                android.graphics.Bitmap scaled = android.graphics.Bitmap.createScaledBitmap(bitmap, newW, newH, true);
+                bitmap.recycle();
+                bitmap = scaled;
+            }
+            
             java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
             bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, quality, out);
             bitmap.recycle();
