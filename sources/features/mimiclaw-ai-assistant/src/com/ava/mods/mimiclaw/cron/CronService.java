@@ -170,9 +170,13 @@ public class CronService {
 
     public synchronized void ensureBuiltinHeartbeatJob(String channel, String chatId, String message, long intervalS) {
         CronJob existing = findJobByName(BUILTIN_HEARTBEAT_NAME);
+        String defaultTitle = "Heartbeat";
+        String defaultDesc = "Every " + (intervalS >= 60 ? (intervalS / 60) + "m" : intervalS + "s");
         if (existing == null) {
             CronJob job = new CronJob();
             job.name = BUILTIN_HEARTBEAT_NAME;
+            job.title = defaultTitle;
+            job.description = defaultDesc;
             job.kind = KIND_EVERY;
             job.intervalS = intervalS;
             job.message = message;
@@ -182,8 +186,16 @@ public class CronService {
             addJobImmediate(job); // Run immediately on cold start
             return;
         }
-
+        // Update title/description if empty
         boolean changed = false;
+        if (existing.title == null || existing.title.isEmpty()) {
+            existing.title = defaultTitle;
+            changed = true;
+        }
+        if (existing.description == null || existing.description.isEmpty()) {
+            existing.description = defaultDesc;
+            changed = true;
+        }
         if (existing.kind != KIND_EVERY) {
             existing.kind = KIND_EVERY;
             changed = true;
