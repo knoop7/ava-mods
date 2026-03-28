@@ -26,6 +26,8 @@ public class CronService {
     public static class CronJob {
         public String id;
         public String name;
+        public String title;       // Short title (max 15 chars)
+        public String description; // Short description (max 15 chars)
         public int kind;
         public long intervalS;
         public long atEpoch;
@@ -294,6 +296,8 @@ public class CronService {
                 CronJob job = new CronJob();
                 job.id = obj.optString("id");
                 job.name = obj.optString("name");
+                job.title = obj.optString("title", "");
+                job.description = obj.optString("description", "");
                 job.message = obj.optString("message");
                 job.channel = obj.optString("channel", "system");
                 job.chatId = obj.optString("chat_id", "cron");
@@ -330,6 +334,8 @@ public class CronService {
                 JSONObject obj = new JSONObject();
                 obj.put("id", job.id);
                 obj.put("name", job.name);
+                obj.put("title", job.title != null ? job.title : "");
+                obj.put("description", job.description != null ? job.description : "");
                 obj.put("enabled", job.enabled);
                 obj.put("kind", job.kind == KIND_EVERY ? "every" : "at");
                 
