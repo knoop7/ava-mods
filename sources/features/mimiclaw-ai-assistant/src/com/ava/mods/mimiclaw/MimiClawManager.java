@@ -69,6 +69,7 @@ public class MimiClawManager {
         this.toolRegistry = ToolRegistry.getInstance();
         this.toolRegistry.init(context, memoryStore, cronService);
         this.toolRegistry.setSkillEnabledChecker(skillId -> isSkillEnabled(skillId));
+        this.toolRegistry.cleanupCameraSnapshots();
         
         this.channelManager = ChannelManager.getInstance();
         this.androidChannel = new AndroidChannel();

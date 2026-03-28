@@ -1777,12 +1777,19 @@ public class ToolRegistry {
                 if (entityId.isEmpty()) return "Error: entity_id is required";
                 if (!entityId.startsWith("camera.")) return "Error: entity_id must be a camera entity (camera.*)";
                 try {
-                    String base64Image = haCameraSnapshot(entityId, config[0], config[1]);
-                    if (base64Image == null || base64Image.isEmpty()) {
+                    byte[] rawData = haCameraSnapshotRaw(entityId, config[0], config[1]);
+                    if (rawData == null || rawData.length == 0) {
                         return "Error: Failed to capture snapshot from " + entityId;
                     }
-                    // Return image in format that both user can see and AI can analyze
-                    return "<media-img>data:image/jpeg;base64," + base64Image + "</media-img>\n" +
+                    // For user display: 700px, high quality (95%)
+                    byte[] displayData = resizeAndCompressImage(rawData, 700, 95);
+                    String fileName = "camera_" + System.currentTimeMillis() + ".jpg";
+                    String filePath = saveCameraSnapshot(displayData, fileName);
+                    // For AI analysis: 650px, compressed (65%)
+                    byte[] aiData = resizeAndCompressImage(rawData, 650, 65);
+                    String base64Image = android.util.Base64.encodeToString(aiData, android.util.Base64.NO_WRAP);
+                    // Return: file path for user display + base64 for AI analysis
+                    return "<media-img>" + filePath + "</media-img>\n" +
                            "<image_data>image/jpeg;base64," + base64Image + "</image_data>";
                 } catch (Exception e) {
                     return "Error: " + e.getMessage();
@@ -2262,7 +2269,7 @@ public class ToolRegistry {
         }
     }
     
-    private String haCameraSnapshot(String entityId, String baseUrl, String token) throws Exception {
+    private byte[] haCameraSnapshotRaw(String entityId, String baseUrl, String token) throws Exception {
         // Use camera proxy endpoint to get snapshot
         String path = "/api/camera_proxy/" + entityId;
         URL url = new URL(baseUrl + path);
@@ -2297,15 +2304,44 @@ public class ToolRegistry {
         is.close();
         conn.disconnect();
         
-        byte[] imageData = baos.toByteArray();
-        if (imageData.length == 0) {
-            return null;
+        return baos.toByteArray();
+    }
+    
+    private String saveCameraSnapshot(byte[] imageData, String fileName) throws Exception {
+        // Save to app's cache directory
+        File cacheDir = new File(context.getCacheDir(), "camera_snapshots");
+        if (!cacheDir.exists()) {
+            cacheDir.mkdirs();
         }
-        
-        // Always resize and compress for optimal transfer
-        imageData = resizeAndCompressImage(imageData, 650, 65);
-        
-        return android.util.Base64.encodeToString(imageData, android.util.Base64.NO_WRAP);
+        // Clean old snapshots (keep last 5)
+        File[] oldFiles = cacheDir.listFiles();
+        if (oldFiles != null && oldFiles.length > 5) {
+            java.util.Arrays.sort(oldFiles, (a, b) -> Long.compare(a.lastModified(), b.lastModified()));
+            for (int i = 0; i < oldFiles.length - 5; i++) {
+                oldFiles[i].delete();
+            }
+        }
+        File outFile = new File(cacheDir, fileName);
+        FileOutputStream fos = new FileOutputStream(outFile);
+        fos.write(imageData);
+        fos.close();
+        return outFile.getAbsolutePath();
+    }
+    
+    public void cleanupCameraSnapshots() {
+        try {
+            File cacheDir = new File(context.getCacheDir(), "camera_snapshots");
+            if (cacheDir.exists()) {
+                File[] files = cacheDir.listFiles();
+                if (files != null) {
+                    for (File f : files) {
+                        f.delete();
+                    }
+                }
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Failed to cleanup camera snapshots: " + e.getMessage());
+        }
     }
     
     private byte[] resizeAndCompressImage(byte[] data, int maxDimension, int quality) {
