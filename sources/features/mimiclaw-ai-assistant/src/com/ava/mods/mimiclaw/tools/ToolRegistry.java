@@ -1788,14 +1788,15 @@ public class ToolRegistry {
                     // For AI analysis: 650px, compressed (65%)
                     byte[] aiData = resizeAndCompressImage(rawData, 650, 65);
                     String base64Image = android.util.Base64.encodeToString(aiData, android.util.Base64.NO_WRAP);
-                    // Return structured result:
-                    // - user_image: displayed separately to user
-                    // - image_data: for AI analysis (hidden from user)
-                    // - message: status text
+                    // Return result for AI:
+                    // - ai_image: base64 for AI analysis
+                    // - display_path: file path AI should use in <media-img> tag when replying
+                    // AI should include <media-img>display_path</media-img> in its response to show image to user
                     JSONObject result = new JSONObject();
-                    result.put("user_image", filePath);
+                    result.put("status", "ok");
+                    result.put("display_path", filePath);
                     result.put("ai_image", "image/jpeg;base64," + base64Image);
-                    result.put("message", "Snapshot captured from " + entityId);
+                    result.put("hint", "Include <media-img>" + filePath + "</media-img> in your response to show the image to user");
                     return result.toString();
                 } catch (Exception e) {
                     return "Error: " + e.getMessage();
