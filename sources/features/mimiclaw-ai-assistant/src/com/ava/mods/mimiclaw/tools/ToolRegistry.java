@@ -2029,6 +2029,129 @@ public class ToolRegistry {
             }
         );
 
+        addTool("ha_notification",
+            "Manage persistent notifications in Home Assistant.",
+            "{\"type\":\"object\",\"properties\":{\"action\":{\"type\":\"string\",\"description\":\"Action: list, create, dismiss\"},\"message\":{\"type\":\"string\",\"description\":\"Notification message (for create)\"},\"title\":{\"type\":\"string\",\"description\":\"Notification title (for create)\"},\"notification_id\":{\"type\":\"string\",\"description\":\"Notification ID (for dismiss)\"}},\"required\":[\"action\"]}",
+            inputJson -> {
+                String[] config = getHaConfig();
+                if (config == null) return "{\"ok\":false,\"error\":\"ha_not_configured\"}";
+                JSONObject input = new JSONObject(inputJson);
+                String action = input.optString("action", "").trim().toLowerCase();
+                try {
+                    switch (action) {
+                        case "list":
+                            String states = haApiCall("GET", "/api/states", null, config[0], config[1]);
+                            JSONArray allStates = new JSONArray(states);
+                            StringBuilder sb = new StringBuilder("Persistent Notifications:\n");
+                            int count = 0;
+                            for (int i = 0; i < allStates.length(); i++) {
+                                JSONObject entity = allStates.getJSONObject(i);
+                                String entityId = entity.optString("entity_id", "");
+                                if (entityId.startsWith("persistent_notification.")) {
+                                    JSONObject attrs = entity.optJSONObject("attributes");
+                                    String title = attrs != null ? attrs.optString("title", "") : "";
+                                    String message = attrs != null ? attrs.optString("message", "") : "";
+                                    sb.append("  - ").append(entityId.replace("persistent_notification.", ""));
+                                    if (!title.isEmpty()) sb.append(": ").append(title);
+                                    if (!message.isEmpty()) sb.append(" - ").append(message.substring(0, Math.min(50, message.length())));
+                                    sb.append("\n");
+                                    count++;
+                                }
+                            }
+                            if (count == 0) sb.append("  (none)\n");
+                            return sb.toString().trim();
+                        case "create":
+                            String message = input.optString("message", "").trim();
+                            if (message.isEmpty()) return "Error: message is required";
+                            JSONObject data = new JSONObject();
+                            data.put("message", message);
+                            String title = input.optString("title", "").trim();
+                            if (!title.isEmpty()) data.put("title", title);
+                            String notifId = input.optString("notification_id", "").trim();
+                            if (!notifId.isEmpty()) data.put("notification_id", notifId);
+                            haApiCall("POST", "/api/services/persistent_notification/create", data.toString(), config[0], config[1]);
+                            return "Notification created";
+                        case "dismiss":
+                            String dismissId = input.optString("notification_id", "").trim();
+                            if (dismissId.isEmpty()) return "Error: notification_id is required";
+                            JSONObject dismissData = new JSONObject();
+                            dismissData.put("notification_id", dismissId);
+                            haApiCall("POST", "/api/services/persistent_notification/dismiss", dismissData.toString(), config[0], config[1]);
+                            return "Notification dismissed: " + dismissId;
+                        default:
+                            return "Error: action must be list, create, or dismiss";
+                    }
+                } catch (Exception e) {
+                    return "Error: " + e.getMessage();
+                }
+            }
+        );
+
+        addTool("ha_integration",
+            "Manage Home Assistant integrations.",
+            "{\"type\":\"object\",\"properties\":{\"action\":{\"type\":\"string\",\"description\":\"Action: list, get, reload, enable, disable\"},\"domain\":{\"type\":\"string\",\"description\":\"Optional domain filter (for list)\"},\"entry_id\":{\"type\":\"string\",\"description\":\"Config entry ID (for get/reload/enable/disable)\"},\"confirm\":{\"type\":\"string\",\"description\":\"Must be USER_CONFIRMED for reload/enable/disable\"}},\"required\":[\"action\"]}",
+            inputJson -> {
+                String[] config = getHaConfig();
+                if (config == null) return "{\"ok\":false,\"error\":\"ha_not_configured\"}";
+                JSONObject input = new JSONObject(inputJson);
+                String action = input.optString("action", "").trim().toLowerCase();
+                try {
+                    switch (action) {
+                        case "list":
+                            String domain = input.optString("domain", "").trim();
+                            String result = haApiCall("GET", "/api/config/config_entries/entry", null, config[0], config[1]);
+                            JSONArray entries = new JSONArray(result);
+                            StringBuilder sb = new StringBuilder("Integrations:\n");
+                            for (int i = 0; i < entries.length(); i++) {
+                                JSONObject entry = entries.getJSONObject(i);
+                                String entryDomain = entry.optString("domain", "");
+                                if (!domain.isEmpty() && !entryDomain.equals(domain)) continue;
+                                String entryId = entry.optString("entry_id", "");
+                                String title = entry.optString("title", "");
+                                String state = entry.optString("state", "");
+                                sb.append("  - ").append(entryDomain).append(": ").append(title);
+                                sb.append(" [").append(state).append("] (").append(entryId).append(")\n");
+                            }
+                            return sb.toString().trim();
+                        case "get":
+                            String getId = input.optString("entry_id", "").trim();
+                            if (getId.isEmpty()) return "Error: entry_id is required";
+                            String getResult = haApiCall("GET", "/api/config/config_entries/entry/" + getId, null, config[0], config[1]);
+                            return getResult;
+                        case "reload":
+                            String confirmation = requireUserConfirmation(input, "reload integration");
+                            if (confirmation != null) return confirmation;
+                            String reloadId = input.optString("entry_id", "").trim();
+                            if (reloadId.isEmpty()) return "Error: entry_id is required";
+                            haApiCall("POST", "/api/config/config_entries/entry/" + reloadId + "/reload", "{}", config[0], config[1]);
+                            return "Integration reloaded: " + reloadId;
+                        case "enable":
+                            String enableConf = requireUserConfirmation(input, "enable integration");
+                            if (enableConf != null) return enableConf;
+                            String enableId = input.optString("entry_id", "").trim();
+                            if (enableId.isEmpty()) return "Error: entry_id is required";
+                            JSONObject enableData = new JSONObject();
+                            enableData.put("disabled_by", JSONObject.NULL);
+                            haApiCall("PATCH", "/api/config/config_entries/entry/" + enableId, enableData.toString(), config[0], config[1]);
+                            return "Integration enabled: " + enableId;
+                        case "disable":
+                            String disableConf = requireUserConfirmation(input, "disable integration");
+                            if (disableConf != null) return disableConf;
+                            String disableId = input.optString("entry_id", "").trim();
+                            if (disableId.isEmpty()) return "Error: entry_id is required";
+                            JSONObject disableData = new JSONObject();
+                            disableData.put("disabled_by", "user");
+                            haApiCall("PATCH", "/api/config/config_entries/entry/" + disableId, disableData.toString(), config[0], config[1]);
+                            return "Integration disabled: " + disableId;
+                        default:
+                            return "Error: action must be list, get, reload, enable, or disable";
+                    }
+                } catch (Exception e) {
+                    return "Error: " + e.getMessage();
+                }
+            }
+        );
+
         addTool("ha_reload",
             "Reload Home Assistant configuration. Requires user confirmation.",
             "{\"type\":\"object\",\"properties\":{\"target\":{\"type\":\"string\",\"description\":\"What to reload: core, automation, script, scene, all (default: all)\"},\"confirm\":{\"type\":\"string\",\"description\":\"Must be USER_CONFIRMED\"}},\"required\":[]}",
