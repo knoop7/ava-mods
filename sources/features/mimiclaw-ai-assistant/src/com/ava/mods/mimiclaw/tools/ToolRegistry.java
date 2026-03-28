@@ -837,11 +837,15 @@ public class ToolRegistry {
         
         addTool("cron_add",
             "Schedule a recurring or one-shot task. The message will trigger an agent turn when the job fires.",
-            "{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\",\"description\":\"Short name for the job\"},\"schedule_type\":{\"type\":\"string\",\"description\":\"'every' for recurring interval or 'at' for one-shot at a unix timestamp\"},\"interval_s\":{\"type\":\"integer\",\"description\":\"Interval in seconds (required for 'every')\"},\"at_epoch\":{\"type\":\"integer\",\"description\":\"Unix timestamp to fire at (required for 'at')\"},\"message\":{\"type\":\"string\",\"description\":\"Message to inject when the job fires\"},\"channel\":{\"type\":\"string\",\"description\":\"Optional reply channel\"},\"chat_id\":{\"type\":\"string\",\"description\":\"Optional reply chat_id\"}},\"required\":[\"name\",\"schedule_type\",\"message\"]}",
+            "{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\",\"description\":\"Internal job name (no spaces)\"},\"title\":{\"type\":\"string\",\"description\":\"Display title (2-6 chars, e.g. 健康提醒)\"},\"description\":{\"type\":\"string\",\"description\":\"Short description with time info (max 22 chars, e.g. 每30分钟提醒喝水)\"},\"schedule_type\":{\"type\":\"string\",\"description\":\"'every' for recurring interval or 'at' for one-shot at a unix timestamp\"},\"interval_s\":{\"type\":\"integer\",\"description\":\"Interval in seconds (required for 'every')\"},\"at_epoch\":{\"type\":\"integer\",\"description\":\"Unix timestamp to fire at (required for 'at')\"},\"message\":{\"type\":\"string\",\"description\":\"Message to inject when the job fires\"},\"channel\":{\"type\":\"string\",\"description\":\"Optional reply channel\"},\"chat_id\":{\"type\":\"string\",\"description\":\"Optional reply chat_id\"}},\"required\":[\"name\",\"title\",\"description\",\"schedule_type\",\"message\"]}",
             inputJson -> {
                 JSONObject input = new JSONObject(inputJson);
                 CronService.CronJob job = new CronService.CronJob();
                 job.name = normalizeCronJobName(input.optString("name", ""));
+                String title = input.optString("title", "");
+                job.title = title.substring(0, Math.min(6, title.length()));
+                String desc = input.optString("description", "");
+                job.description = desc.substring(0, Math.min(22, desc.length()));
                 job.message = input.optString("message", "");
                 job.channel = input.optString("channel", currentChannel);
                 job.chatId = input.optString("chat_id", currentChatId);

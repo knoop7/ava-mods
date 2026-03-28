@@ -1346,6 +1346,8 @@ public class MimiClawManager {
                 JSONObject item = new JSONObject();
                 item.put("id", job.id != null ? job.id : "");
                 item.put("name", job.name != null ? job.name : "");
+                item.put("title", job.title != null ? job.title : "");
+                item.put("description", job.description != null ? job.description : "");
                 item.put("enabled", job.enabled);
                 item.put("kind", job.kind == com.ava.mods.mimiclaw.cron.CronService.KIND_EVERY ? "every" : "at");
                 item.put("interval_s", job.intervalS);
