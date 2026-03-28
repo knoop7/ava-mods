@@ -1374,7 +1374,10 @@ public class MimiClawManager {
         }
         String trimmed = content.trim();
         return trimmed.startsWith("[SYSTEM] Skill '")
-            || trimmed.startsWith(AI_BROWSER_EVENT_PREFIX);
+            || trimmed.startsWith(AI_BROWSER_EVENT_PREFIX)
+            || trimmed.contains("[timer]")
+            || trimmed.startsWith("HEARTBEAT_TICK:")
+            || trimmed.startsWith("CRON_TICK:");
     }
 
     private JSONArray mergedWebConsoleHistory(String resolvedChatId, int maxMessages) {
