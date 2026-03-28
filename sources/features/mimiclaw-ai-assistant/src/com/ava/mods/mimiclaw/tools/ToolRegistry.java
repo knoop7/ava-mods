@@ -1766,6 +1766,30 @@ public class ToolRegistry {
             }
         );
 
+        addTool("ha_camera_snapshot",
+            "Capture a snapshot from a Home Assistant camera entity. Returns image for both user display and AI analysis.",
+            "{\"type\":\"object\",\"properties\":{\"entity_id\":{\"type\":\"string\",\"description\":\"Camera entity ID (e.g. camera.front_door)\"}},\"required\":[\"entity_id\"]}",
+            inputJson -> {
+                String[] config = getHaConfig();
+                if (config == null) return "{\"ok\":false,\"error\":\"ha_not_configured\"}";
+                JSONObject input = new JSONObject(inputJson);
+                String entityId = input.optString("entity_id", "").trim();
+                if (entityId.isEmpty()) return "Error: entity_id is required";
+                if (!entityId.startsWith("camera.")) return "Error: entity_id must be a camera entity (camera.*)";
+                try {
+                    String base64Image = haCameraSnapshot(entityId, config[0], config[1]);
+                    if (base64Image == null || base64Image.isEmpty()) {
+                        return "Error: Failed to capture snapshot from " + entityId;
+                    }
+                    // Return image in format that both user can see and AI can analyze
+                    return "<media-img>data:image/jpeg;base64," + base64Image + "</media-img>\n" +
+                           "<image_data>image/jpeg;base64," + base64Image + "</image_data>";
+                } catch (Exception e) {
+                    return "Error: " + e.getMessage();
+                }
+            }
+        );
+
         addTool("ha_naming",
             "Manage entity name mappings. Map user-friendly names to Home Assistant entity IDs for natural language control.",
             "{\"type\":\"object\",\"properties\":{\"action\":{\"type\":\"string\",\"description\":\"Action: get, set, delete, list\"},\"name\":{\"type\":\"string\",\"description\":\"User-friendly name (e.g. 'living room light')\"},\"entity_id\":{\"type\":\"string\",\"description\":\"Entity ID (e.g. 'light.living_room') - required for set\"}},\"required\":[\"action\"]}",
@@ -2235,6 +2259,67 @@ public class ToolRegistry {
             memoryStore.writeFileByPath("ha_naming.json", mappings.toString());
         } catch (Exception e) {
             Log.e(TAG, "Failed to save HA naming mappings: " + e.getMessage());
+        }
+    }
+    
+    private String haCameraSnapshot(String entityId, String baseUrl, String token) throws Exception {
+        // Use camera proxy endpoint to get snapshot
+        String path = "/api/camera_proxy/" + entityId;
+        URL url = new URL(baseUrl + path);
+        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+        conn.setRequestMethod("GET");
+        conn.setRequestProperty("Authorization", "Bearer " + token);
+        conn.setConnectTimeout(10000);
+        conn.setReadTimeout(30000);
+        
+        int code = conn.getResponseCode();
+        if (code >= 400) {
+            InputStream errStream = conn.getErrorStream();
+            if (errStream != null) {
+                BufferedReader reader = new BufferedReader(new InputStreamReader(errStream, "UTF-8"));
+                StringBuilder sb = new StringBuilder();
+                String line;
+                while ((line = reader.readLine()) != null) sb.append(line);
+                reader.close();
+                throw new Exception("HTTP " + code + ": " + sb.toString());
+            }
+            throw new Exception("HTTP " + code);
+        }
+        
+        // Read binary image data
+        InputStream is = conn.getInputStream();
+        java.io.ByteArrayOutputStream baos = new java.io.ByteArrayOutputStream();
+        byte[] buffer = new byte[8192];
+        int len;
+        while ((len = is.read(buffer)) != -1) {
+            baos.write(buffer, 0, len);
+        }
+        is.close();
+        conn.disconnect();
+        
+        byte[] imageData = baos.toByteArray();
+        if (imageData.length == 0) {
+            return null;
+        }
+        
+        // Compress if too large (> 500KB)
+        if (imageData.length > 500 * 1024) {
+            imageData = compressImageData(imageData, 80);
+        }
+        
+        return android.util.Base64.encodeToString(imageData, android.util.Base64.NO_WRAP);
+    }
+    
+    private byte[] compressImageData(byte[] data, int quality) {
+        try {
+            android.graphics.Bitmap bitmap = android.graphics.BitmapFactory.decodeByteArray(data, 0, data.length);
+            if (bitmap == null) return data;
+            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+            bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, quality, out);
+            bitmap.recycle();
+            return out.toByteArray();
+        } catch (Exception e) {
+            return data;
         }
     }
     
