@@ -47,6 +47,10 @@ fi
 echo "Copying JAR..."
 cp "$ROOT_DIR/sources/features/mimiclaw-ai-assistant/libs/mimiclaw-manager.jar" "$ROOT_DIR/mods/features/mimiclaw-ai-assistant/libs/"
 
+# Copy manifest.json (full copy to ensure all config changes are deployed)
+echo "Copying manifest.json..."
+cp "$ROOT_DIR/sources/features/mimiclaw-ai-assistant/manifest.json" "$ROOT_DIR/mods/features/mimiclaw-ai-assistant/manifest.json"
+
 # Calculate JAR hash and update manifest + store.json
 JAR_HASH=$(md5 -q "$ROOT_DIR/mods/features/mimiclaw-ai-assistant/libs/mimiclaw-manager.jar")
 echo "JAR hash: $JAR_HASH"

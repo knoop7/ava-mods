@@ -1,8 +1,7 @@
 {
   "id": "mimiclaw-ai-assistant",
   "name": "OpenClaw(Mini)",
-  "version": "1.4.46",
-  "jar_hash": "0bd5104e3a91bdcf8fa7688de6dfd67f",
+  "version": "1.4.47",
   "author": "Ava",
   "description": "A Java-built Android AI assistant for device control, screenshots, UI actions, automation, diagnostics, messaging, and future skills.",
   "icon": "mdi:robot",
@@ -29,11 +28,20 @@
     },
     {
       "type": "text_sensor",
-      "id": "last_response",
+      "id": "ai_response",
+      "name": "AI Response",
+      "icon": "mdi:message-reply-text",
+      "category": "diagnostic",
+      "read": "getAiResponseForHass",
+      "enabledByConfig": "expose_ai_response"
+    },
+    {
+      "type": "text_sensor",
+      "id": "heartbeat_status",
       "name": "Heartbeat Status",
       "icon": "mdi:heart-pulse",
       "category": "diagnostic",
-      "read": "getLastResponse"
+      "read": "getHeartbeatStatus"
     },
     {
       "type": "text_sensor",
@@ -42,13 +50,6 @@
       "icon": "mdi:counter",
       "category": "diagnostic",
       "read": "getTotalTokens"
-    },
-    {
-      "type": "button",
-      "id": "send_message",
-      "name": "Send Message",
-      "icon": "mdi:send",
-      "press": "sendMessage"
     },
     {
       "type": "button",
@@ -112,10 +113,10 @@
       "label": "Max Tool Iterations",
       "description": "Set max tool rounds",
       "dialogHint": "More = slower",
-      "defaultValue": "10",
+      "defaultValue": "30",
       "min": 1,
-      "max": 20,
-      "step": 1
+      "max": 100,
+      "step": 5
     },
     {
       "type": "text",
@@ -159,11 +160,27 @@
     },
     {
       "type": "switch",
+      "key": "heartbeat_enabled",
+      "label": "Heartbeat",
+      "description": "Enable background heartbeat task",
+      "dialogHint": "Auto-run tasks on cold start",
+      "defaultValue": "true"
+    },
+    {
+      "type": "switch",
+      "key": "expose_ai_response",
+      "label": "Expose AI Response",
+      "description": "Expose last AI response to Home Assistant",
+      "dialogHint": "Default off for privacy",
+      "defaultValue": "false"
+    },
+    {
+      "type": "switch",
       "key": "web_console_enabled",
       "label": "Web Console",
       "description": "Enable local web console",
-      "dialogHint": "Default off",
-      "defaultValue": "false"
+      "dialogHint": "Access via browser",
+      "defaultValue": "true"
     },
     {
       "type": "text",
@@ -173,5 +190,6 @@
       "dialogHint": "Default: openclaw",
       "defaultValue": "openclaw"
     }
-  ]
+  ],
+  "jar_hash": "a1c7e8fda005857dd4174f3519c7f32a"
 }
