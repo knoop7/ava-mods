@@ -54,11 +54,11 @@
     {
       "id": "mimiclaw-ai-assistant",
       "name": "OpenClaw(Mini)",
-      "version": "1.4.45",
+      "version": "1.4.46",
       "author": "Ava",
       "description": "Java-built Android AI assistant for control, automation, screenshots, diagnostics, and expandable skills.",
       "path": "mods/features/mimiclaw-ai-assistant/",
-      "jar_hash": "77016c30f807aaa83e69b8718a1091f2"
+      "jar_hash": "0bd5104e3a91bdcf8fa7688de6dfd67f"
     },
     {
       "id": "qcom-audio-fix",

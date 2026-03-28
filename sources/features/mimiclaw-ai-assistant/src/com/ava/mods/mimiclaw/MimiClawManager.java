@@ -1448,10 +1448,6 @@ public class MimiClawManager {
         }
     }
     
-    public void sendMessage() {
-        sendMessage("Hello, how can I help you?");
-    }
-    
     public void sendMessage(String content) {
         lastResponse = "";
         lastError = "";
