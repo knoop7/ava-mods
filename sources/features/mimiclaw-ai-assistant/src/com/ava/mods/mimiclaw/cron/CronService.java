@@ -204,13 +204,12 @@ public class CronService {
             existing.chatId = chatId;
             changed = true;
         }
-        if (changed) {
-            long now = System.currentTimeMillis() / 1000;
-            if (existing.enabled) {
-                existing.nextRun = now + intervalS;
-            } else {
-                existing.nextRun = 0;
-            }
+        // On cold start, always run immediately if enabled
+        long now = System.currentTimeMillis() / 1000;
+        if (existing.enabled && (existing.nextRun <= now || changed)) {
+            existing.nextRun = now; // Run immediately
+            saveJobs();
+        } else if (changed) {
             saveJobs();
         }
     }
