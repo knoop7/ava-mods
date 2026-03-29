@@ -115,9 +115,9 @@ public class AgentLoop implements Runnable {
 
             String sessionKey = buildSessionKey(msg);
             toolRegistry.setCurrentContext(msg.channel, msg.chatId);
-            JSONArray rawHistory = sessionManager.getHistory(sessionKey, 100);
-            // Compress history to save tokens: ~32k token budget, keep last 10 messages uncompressed
-            JSONArray messages = sessionManager.compressHistory(rawHistory, 32000, 10);
+            JSONArray rawHistory = sessionManager.getHistory(sessionKey, 50);
+            // Compress history to save tokens: ~16k token budget, keep last 8 messages uncompressed
+            JSONArray messages = sessionManager.compressHistory(rawHistory, 16000, 8);
             boolean isFirstMessage = messages.length() == 0;
             String systemPrompt = buildSystemPrompt(msg, isFirstMessage);
             if (hiddenBrowserEvent) {

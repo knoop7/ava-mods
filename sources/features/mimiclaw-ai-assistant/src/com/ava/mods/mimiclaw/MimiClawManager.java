@@ -1280,7 +1280,7 @@ public class MimiClawManager {
             json.put("webConsoleError", webConsoleServer != null ? webConsoleServer.getLastError() : "");
             json.put("qqEnabled", qqChannel != null && qqChannel.isEnabled());
             json.put("telegramEnabled", telegramChannel != null && telegramChannel.isEnabled());
-            json.put("historyCount", getWebConsoleHistory(chatId, 200).length());
+            json.put("historyCount", getWebConsoleHistory(chatId, 50).length());
         } catch (Exception e) {
             Log.w(TAG, "Failed to build web console status", e);
         }

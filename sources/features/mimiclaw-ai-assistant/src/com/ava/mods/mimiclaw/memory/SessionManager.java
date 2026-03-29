@@ -158,8 +158,8 @@ public class SessionManager {
                     newMsg.put("content", content);
                 }
                 // Old non-tool content: truncate if very long
-                else if (content.length() > 4000) {
-                    content = content.substring(0, 3000) + "\n...[truncated " + (content.length() - 3000) + " chars]";
+                else if (content.length() > 2000) {
+                    content = content.substring(0, 1500) + "\n...[truncated]";
                     newMsg.put("content", content);
                 }
                 

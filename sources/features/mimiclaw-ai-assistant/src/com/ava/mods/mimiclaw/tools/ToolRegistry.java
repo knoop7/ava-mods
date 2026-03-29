@@ -1331,6 +1331,28 @@ public class ToolRegistry {
             }
         );
 
+        // ========== Self Update Tools ==========
+        addTool("check_update",
+            "Check for OpenClaw(Mini) mod updates from upstream repository.",
+            "{\"type\":\"object\",\"properties\":{},\"required\":[]}",
+            inputJson -> {
+                return checkForUpdate();
+            }
+        );
+
+        addTool("self_update",
+            "Download and install the latest OpenClaw(Mini) mod version using the app's built-in mod manager. Requires restart after update.",
+            "{\"type\":\"object\",\"properties\":{\"confirm\":{\"type\":\"boolean\",\"description\":\"Set to true to confirm update\"}},\"required\":[\"confirm\"]}",
+            inputJson -> {
+                JSONObject input = new JSONObject(inputJson);
+                boolean confirm = input.optBoolean("confirm", false);
+                if (!confirm) {
+                    return "Error: Please set confirm=true to proceed with update. This will download and install the latest version.";
+                }
+                return triggerModUpdate();
+            }
+        );
+
         // ========== Home Assistant Tools ==========
         // All ha_* tools belong to "homeassistant" skill
         
@@ -3746,6 +3768,175 @@ public class ToolRegistry {
             return result.toString().trim();
         } catch (Exception e) {
             return "Failed to get peer status: " + e.getMessage();
+        }
+    }
+
+    private static final String STORE_URL = "https://raw.githubusercontent.com/knoop7/ava-mods/main/store.json";
+    private static final String GITHUB_PROXY = "https://ghfast.top/";
+    private static final String MOD_ID = "mimiclaw-ai-assistant";
+
+    private String checkForUpdate() {
+        try {
+            String currentVersion = getModVersionFromManifest();
+            
+            // Fetch store.json
+            String storeJson = fetchUrl(STORE_URL + "?ts=" + System.currentTimeMillis());
+            if (storeJson == null) {
+                return "Failed to fetch mod store";
+            }
+            
+            JSONObject store = new JSONObject(storeJson);
+            String baseUrl = store.optString("baseUrl", "");
+            JSONArray mods = store.optJSONArray("mods");
+            
+            if (mods == null) {
+                return "Invalid store format";
+            }
+            
+            // Find our mod
+            JSONObject ourMod = null;
+            for (int i = 0; i < mods.length(); i++) {
+                JSONObject mod = mods.getJSONObject(i);
+                if (MOD_ID.equals(mod.optString("id"))) {
+                    ourMod = mod;
+                    break;
+                }
+            }
+            
+            if (ourMod == null) {
+                return "Mod not found in store: " + MOD_ID;
+            }
+            
+            String latestVersion = ourMod.optString("version", "");
+            String description = ourMod.optString("description", "");
+            String path = ourMod.optString("path", "");
+            
+            boolean hasUpdate = compareVersions(latestVersion, currentVersion) > 0;
+            
+            StringBuilder result = new StringBuilder();
+            result.append("Current version: ").append(currentVersion).append("\n");
+            result.append("Latest version: ").append(latestVersion).append("\n");
+            result.append("Description: ").append(description).append("\n\n");
+            
+            if (hasUpdate) {
+                result.append("UPDATE AVAILABLE!\n");
+                result.append("Use self_update tool with confirm=true to install.");
+            } else {
+                result.append("You are running the latest version.");
+            }
+            
+            return result.toString();
+        } catch (Exception e) {
+            return "Failed to check for updates: " + e.getMessage();
+        }
+    }
+    
+    private String fetchUrl(String urlStr) {
+        try {
+            java.net.URL url = new java.net.URL(urlStr);
+            java.net.HttpURLConnection conn = (java.net.HttpURLConnection) url.openConnection();
+            conn.setConnectTimeout(10000);
+            conn.setReadTimeout(10000);
+            conn.setRequestProperty("Cache-Control", "no-cache");
+            conn.setUseCaches(false);
+            
+            if (conn.getResponseCode() != 200) {
+                return null;
+            }
+            
+            java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.InputStreamReader(conn.getInputStream()));
+            StringBuilder sb = new StringBuilder();
+            String line;
+            while ((line = reader.readLine()) != null) {
+                sb.append(line);
+            }
+            reader.close();
+            return sb.toString();
+        } catch (Exception e) {
+            Log.w(TAG, "Failed to fetch URL: " + urlStr, e);
+            return null;
+        }
+    }
+
+    private int compareVersions(String v1, String v2) {
+        String[] parts1 = v1.split("\\.");
+        String[] parts2 = v2.split("\\.");
+        int len = Math.max(parts1.length, parts2.length);
+        for (int i = 0; i < len; i++) {
+            int p1 = i < parts1.length ? Integer.parseInt(parts1[i].replaceAll("[^0-9]", "")) : 0;
+            int p2 = i < parts2.length ? Integer.parseInt(parts2[i].replaceAll("[^0-9]", "")) : 0;
+            if (p1 != p2) return p1 - p2;
+        }
+        return 0;
+    }
+
+    private String triggerModUpdate() {
+        try {
+            String currentVersion = getModVersionFromManifest();
+            
+            // First check if update is available
+            String storeJson = fetchUrl(STORE_URL + "?ts=" + System.currentTimeMillis());
+            if (storeJson == null) {
+                return "Failed to fetch mod store";
+            }
+            
+            JSONObject store = new JSONObject(storeJson);
+            JSONArray mods = store.optJSONArray("mods");
+            
+            if (mods == null) {
+                return "Invalid store format";
+            }
+            
+            JSONObject ourMod = null;
+            for (int i = 0; i < mods.length(); i++) {
+                JSONObject mod = mods.getJSONObject(i);
+                if (MOD_ID.equals(mod.optString("id"))) {
+                    ourMod = mod;
+                    break;
+                }
+            }
+            
+            if (ourMod == null) {
+                return "Mod not found in store: " + MOD_ID;
+            }
+            
+            String latestVersion = ourMod.optString("version", "");
+            
+            if (compareVersions(latestVersion, currentVersion) <= 0) {
+                return "Already running the latest version: " + currentVersion;
+            }
+            
+            // Use reflection to call ModManager.downloadMod
+            Class<?> modManagerClass = Class.forName("com.example.ava.mods.ModManager");
+            java.lang.reflect.Method getInstanceMethod = modManagerClass.getMethod("getInstance", android.content.Context.class);
+            Object modManager = getInstanceMethod.invoke(null, context);
+            
+            // First refresh store
+            java.lang.reflect.Method refreshStoreMethod = modManagerClass.getMethod("refreshStore");
+            Object refreshResult = refreshStoreMethod.invoke(modManager);
+            
+            // Then download mod
+            java.lang.reflect.Method downloadModMethod = modManagerClass.getMethod("downloadMod", String.class);
+            Object downloadResult = downloadModMethod.invoke(modManager, MOD_ID);
+            
+            // Check result
+            if (downloadResult != null) {
+                java.lang.reflect.Method isSuccessMethod = downloadResult.getClass().getMethod("isSuccess");
+                boolean success = (Boolean) isSuccessMethod.invoke(downloadResult);
+                if (success) {
+                    return "Update successful! Version " + latestVersion + " installed.\n" +
+                           "Please restart the app to apply the update.";
+                } else {
+                    java.lang.reflect.Method exceptionOrNullMethod = downloadResult.getClass().getMethod("exceptionOrNull");
+                    Object exception = exceptionOrNullMethod.invoke(downloadResult);
+                    return "Update failed: " + (exception != null ? exception.toString() : "Unknown error");
+                }
+            }
+            
+            return "Update triggered. Please check the app for progress.";
+        } catch (Exception e) {
+            Log.e(TAG, "Trigger mod update failed", e);
+            return "Update failed: " + e.getMessage() + "\nTry updating manually from the app's mod store.";
         }
     }
 

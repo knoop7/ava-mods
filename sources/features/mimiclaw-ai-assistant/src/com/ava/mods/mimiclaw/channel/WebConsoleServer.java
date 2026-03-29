@@ -587,7 +587,7 @@ public class WebConsoleServer {
             if ("GET".equals(method) && "/api/history".equals(path)) {
                 JSONObject result = okJson()
                     .put("chatId", sessionId)
-                    .put("messages", manager.getWebConsoleHistory(sessionId, 200));
+                    .put("messages", manager.getWebConsoleHistory(sessionId, 50));
                 writeJson(output, 200, result, null);
                 return;
             }
@@ -741,7 +741,7 @@ public class WebConsoleServer {
         int lastMsgCount = 0;
         long lastPing = System.currentTimeMillis();
 
-        JSONArray initHistory = manager.getWebConsoleHistory(sessionId, 200);
+        JSONArray initHistory = manager.getWebConsoleHistory(sessionId, 50);
         for (int i = 0; i < initHistory.length(); i++) {
             JSONObject msg = initHistory.getJSONObject(i);
             writer.write("event: message\ndata: " + msg.toString() + "\n\n");
@@ -761,7 +761,7 @@ public class WebConsoleServer {
                         lastPing = System.currentTimeMillis();
                     }
 
-                    JSONArray history = manager.getWebConsoleHistory(sessionId, 200);
+                    JSONArray history = manager.getWebConsoleHistory(sessionId, 50);
                     int currentCount = history.length();
                     if (currentCount > lastMsgCount) {
                         for (int i = lastMsgCount; i < currentCount; i++) {
