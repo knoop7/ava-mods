@@ -3640,11 +3640,13 @@ public class ToolRegistry {
     }
 
     private String chatWithPeer(String ip, String password, String message, int timeoutSeconds) {
+        Log.d(TAG, "peer_chat START: ip=" + ip + ", timeout=" + timeoutSeconds + "s, msg=" + message.substring(0, Math.min(50, message.length())));
         try {
             java.net.URL url = new java.net.URL("http://" + ip + ":18789/api/peer/chat");
             java.net.HttpURLConnection conn = (java.net.HttpURLConnection) url.openConnection();
             conn.setConnectTimeout(5000);
             conn.setReadTimeout(timeoutSeconds * 1000);
+            Log.d(TAG, "peer_chat: connecting with readTimeout=" + (timeoutSeconds * 1000) + "ms");
             conn.setRequestMethod("POST");
             conn.setRequestProperty("Content-Type", "application/json");
             conn.setDoOutput(true);
@@ -3657,7 +3659,9 @@ public class ToolRegistry {
             os.write(body.toString().getBytes("UTF-8"));
             os.close();
             
+            Log.d(TAG, "peer_chat: waiting for response...");
             int code = conn.getResponseCode();
+            Log.d(TAG, "peer_chat: got response code=" + code);
             java.io.InputStream is = code >= 400 ? conn.getErrorStream() : conn.getInputStream();
             java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.InputStreamReader(is));
             StringBuilder sb = new StringBuilder();
@@ -3668,15 +3672,23 @@ public class ToolRegistry {
             reader.close();
             
             if (code == 401) {
+                Log.w(TAG, "peer_chat: auth failed");
                 return "Authentication failed. Wrong password for peer at " + ip;
             }
             if (code != 200) {
+                Log.w(TAG, "peer_chat: error code=" + code);
                 return "Peer returned error: HTTP " + code;
             }
             
             JSONObject resp = new JSONObject(sb.toString());
-            return "Peer response: " + resp.optString("response", "(no response)");
+            String peerResponse = resp.optString("response", "(no response)");
+            Log.d(TAG, "peer_chat END: response length=" + peerResponse.length());
+            return "Peer response: " + peerResponse;
+        } catch (java.net.SocketTimeoutException e) {
+            Log.w(TAG, "peer_chat TIMEOUT after " + timeoutSeconds + "s");
+            return "Peer chat timeout after " + timeoutSeconds + " seconds. The peer AI may still be processing. Try again with a longer timeout.";
         } catch (Exception e) {
+            Log.e(TAG, "peer_chat ERROR: " + e.getMessage());
             return "Failed to chat with peer: " + e.getMessage();
         }
     }

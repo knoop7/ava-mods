@@ -279,6 +279,8 @@ public class LlmProxy {
         Response resp = new Response();
         JSONObject root = new JSONObject(responseBody);
         
+        Log.d(TAG, "parseResponse: protocol=" + (isOpenAiProtocol() ? "openai" : "anthropic"));
+        
         if (isOpenAiProtocol()) {
             JSONArray choices = root.optJSONArray("choices");
             if (choices != null && choices.length() > 0) {
@@ -292,6 +294,7 @@ public class LlmProxy {
                     
                     JSONArray toolCalls = message.optJSONArray("tool_calls");
                     if (toolCalls != null) {
+                        Log.d(TAG, "parseResponse: found " + toolCalls.length() + " tool_calls");
                         for (int i = 0; i < toolCalls.length(); i++) {
                             JSONObject tc = toolCalls.getJSONObject(i);
                             String id = tc.optString("id");
@@ -299,6 +302,7 @@ public class LlmProxy {
                             if (func != null) {
                                 String name = func.optString("name");
                                 String args = func.optString("arguments", "{}");
+                                Log.d(TAG, "parseResponse: tool_call[" + i + "] = " + name);
                                 resp.calls.add(new ToolCall(id, name, args));
                             }
                         }
@@ -307,6 +311,7 @@ public class LlmProxy {
                         }
                     }
                 }
+                Log.d(TAG, "parseResponse: finish_reason=" + finishReason + ", toolUse=" + resp.toolUse + ", calls=" + resp.calls.size());
             }
         } else {
             String stopReason = root.optString("stop_reason");

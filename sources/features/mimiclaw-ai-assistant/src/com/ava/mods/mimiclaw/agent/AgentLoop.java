@@ -392,11 +392,18 @@ public class AgentLoop implements Runnable {
     private JSONArray executeTools(LlmProxy.Response resp, MessageBus.Message msg) throws Exception {
         JSONArray results = new JSONArray();
         
-        for (LlmProxy.ToolCall call : resp.calls) {
+        Log.d(TAG, "executeTools: " + resp.calls.size() + " tool calls to execute");
+        for (int i = 0; i < resp.calls.size(); i++) {
+            LlmProxy.ToolCall call = resp.calls.get(i);
             if (isCancelRequested(msg)) {
+                Log.d(TAG, "executeTools: cancelled at tool " + i);
                 break;
             }
+            Log.d(TAG, "executeTools: [" + (i+1) + "/" + resp.calls.size() + "] START " + call.name);
+            long startTime = System.currentTimeMillis();
             String output = toolRegistry.executeTool(call.name, call.input);
+            long elapsed = System.currentTimeMillis() - startTime;
+            Log.d(TAG, "executeTools: [" + (i+1) + "/" + resp.calls.size() + "] END " + call.name + " in " + elapsed + "ms, result: " + output.length() + " bytes");
             
             JSONObject resultBlock = new JSONObject();
             resultBlock.put("type", "tool_result");
@@ -404,10 +411,9 @@ public class AgentLoop implements Runnable {
             resultBlock.put("content", output);
             enrichToolResultBlock(call.name, output, resultBlock);
             results.put(resultBlock);
-            
-            Log.d(TAG, "Tool " + call.name + " result: " + output.length() + " bytes");
         }
         
+        Log.d(TAG, "executeTools: completed " + results.length() + " results");
         return results;
     }
 
