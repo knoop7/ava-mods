@@ -3448,49 +3448,43 @@ public class ToolRegistry {
         
         java.util.Map<String, JSONObject> discovered = new java.util.concurrent.ConcurrentHashMap<>();
         
-        // UDP broadcast discovery - fast!
+        // UDP broadcast discovery - use same socket for send and receive
         try {
             java.net.DatagramSocket socket = new java.net.DatagramSocket();
             socket.setBroadcast(true);
-            socket.setSoTimeout(50);
+            socket.setSoTimeout(100);
             
             // Send ping: OPENCLAW_PING:myIP:myDevice:myVersion
             String deviceName = android.os.Build.MODEL;
-            String msg = PEER_MAGIC + ":" + localIp + ":" + deviceName + ":1.4.65";
+            String msg = PEER_MAGIC + ":" + localIp + ":" + deviceName + ":1.4.67";
             byte[] data = msg.getBytes("UTF-8");
             
-            // Broadcast to 255.255.255.255
+            // Broadcast to subnet broadcast (e.g. 192.168.0.255) - more reliable
+            int lastDot = localIp.lastIndexOf('.');
+            if (lastDot > 0) {
+                String subnetBroadcast = localIp.substring(0, lastDot) + ".255";
+                java.net.DatagramPacket packet = new java.net.DatagramPacket(
+                    data, data.length,
+                    java.net.InetAddress.getByName(subnetBroadcast), PEER_UDP_PORT
+                );
+                socket.send(packet);
+            }
+            
+            // Also try 255.255.255.255
             java.net.DatagramPacket packet = new java.net.DatagramPacket(
                 data, data.length,
                 java.net.InetAddress.getByName("255.255.255.255"), PEER_UDP_PORT
             );
             socket.send(packet);
             
-            // Also broadcast to subnet broadcast (e.g. 192.168.0.255)
-            int lastDot = localIp.lastIndexOf('.');
-            if (lastDot > 0) {
-                String subnetBroadcast = localIp.substring(0, lastDot) + ".255";
-                packet = new java.net.DatagramPacket(
-                    data, data.length,
-                    java.net.InetAddress.getByName(subnetBroadcast), PEER_UDP_PORT
-                );
-                socket.send(packet);
-            }
-            socket.close();
-            
-            // Listen for responses
-            java.net.DatagramSocket listenSocket = new java.net.DatagramSocket(null);
-            listenSocket.setReuseAddress(true);
-            listenSocket.bind(new java.net.InetSocketAddress(PEER_UDP_PORT));
-            listenSocket.setSoTimeout(100);
-            
+            // Listen for responses on SAME socket
             byte[] buffer = new byte[256];
-            long endTime = System.currentTimeMillis() + 2000; // 2 second timeout
+            long endTime = System.currentTimeMillis() + 2000;
             
             while (System.currentTimeMillis() < endTime) {
                 try {
                     java.net.DatagramPacket recvPacket = new java.net.DatagramPacket(buffer, buffer.length);
-                    listenSocket.receive(recvPacket);
+                    socket.receive(recvPacket);
                     String response = new String(recvPacket.getData(), 0, recvPacket.getLength(), "UTF-8");
                     
                     // Parse: OPENCLAW_PONG:ip:device:version
@@ -3515,7 +3509,7 @@ public class ToolRegistry {
                     // Normal, continue
                 }
             }
-            listenSocket.close();
+            socket.close();
         } catch (Exception e) {
             Log.w(TAG, "UDP discovery failed: " + e.getMessage());
         }
