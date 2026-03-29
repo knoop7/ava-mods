@@ -81,13 +81,13 @@ public class WebConsoleServer {
             while (running) {
                 java.net.DatagramSocket sock = null;
                 try {
-                    // Force IPv4 - use DatagramChannel for more control
-                    java.nio.channels.DatagramChannel channel = java.nio.channels.DatagramChannel.open(java.net.StandardProtocolFamily.INET);
-                    channel.configureBlocking(true);
-                    channel.setOption(java.net.StandardSocketOptions.SO_REUSEADDR, true);
-                    channel.setOption(java.net.StandardSocketOptions.SO_BROADCAST, true);
-                    channel.bind(new java.net.InetSocketAddress(UDP_PORT));
-                    sock = channel.socket();
+                    // Force IPv4 - critical for UDP broadcast on Android
+                    java.net.Inet4Address ipv4Wildcard = (java.net.Inet4Address) java.net.Inet4Address.getByName("0.0.0.0");
+                    java.net.InetSocketAddress socketAddress = new java.net.InetSocketAddress(ipv4Wildcard, UDP_PORT);
+                    sock = new java.net.DatagramSocket(null); // Create unbound socket
+                    sock.setReuseAddress(true);
+                    sock.bind(socketAddress); // Bind to IPv4 wildcard
+                    sock.setBroadcast(true);
                     sock.setSoTimeout(5000);
                     udpSocket = sock;
                     
@@ -310,6 +310,62 @@ public class WebConsoleServer {
                 } else {
                     writeJson(output, 401, errorJson("invalid_password"), null);
                 }
+                return;
+            }
+
+            // Peer discovery endpoints - no web console auth required
+            if ("GET".equals(method) && "/api/peer/info".equals(path)) {
+                JSONObject info = new JSONObject();
+                info.put("type", "openclaw");
+                info.put("signature", "OPENCLAW_PEER_V1");
+                info.put("version", manager.getModVersion());
+                info.put("device", android.os.Build.MODEL);
+                info.put("manufacturer", android.os.Build.MANUFACTURER);
+                info.put("name", manager.getConfigValue("device_name", android.os.Build.MODEL));
+                info.put("android_version", android.os.Build.VERSION.RELEASE);
+                JSONObject capabilities = new JSONObject();
+                JSONObject skills = manager.getSkillConfig();
+                capabilities.put("skills", skills);
+                capabilities.put("has_root", manager.hasRootAccess());
+                capabilities.put("agent_status", manager.getAgentStatus());
+                info.put("capabilities", capabilities);
+                writeJson(output, 200, info, null);
+                return;
+            }
+
+            if ("POST".equals(method) && "/api/peer/chat".equals(path)) {
+                JSONObject json = parseJson(body);
+                String peerPassword = json.optString("password", "");
+                String configuredPassword = manager.getConfigValue("peer_password", "");
+                if (configuredPassword.isEmpty()) configuredPassword = "openclaw";
+                if (!configuredPassword.equals(peerPassword)) {
+                    writeJson(output, 401, new JSONObject().put("ok", false).put("error", "invalid_password"), null);
+                    return;
+                }
+                String message = json.optString("message", "").trim();
+                if (message.isEmpty()) {
+                    writeJson(output, 400, new JSONObject().put("ok", false).put("error", "message_required"), null);
+                    return;
+                }
+                String response = manager.processPeerMessage(message);
+                writeJson(output, 200, new JSONObject().put("ok", true).put("response", response), null);
+                return;
+            }
+
+            if ("POST".equals(method) && "/api/peer/status".equals(path)) {
+                JSONObject json = parseJson(body);
+                String peerPassword = json.optString("password", "");
+                String configuredPassword = manager.getConfigValue("peer_password", "");
+                if (configuredPassword.isEmpty()) configuredPassword = "openclaw";
+                if (!configuredPassword.equals(peerPassword)) {
+                    writeJson(output, 401, new JSONObject().put("ok", false).put("error", "invalid_password"), null);
+                    return;
+                }
+                JSONObject status = new JSONObject();
+                status.put("ok", true);
+                status.put("agent_status", manager.getAgentStatus());
+                status.put("skills", manager.getSkillConfig());
+                writeJson(output, 200, status, null);
                 return;
             }
 
@@ -562,67 +618,6 @@ public class WebConsoleServer {
 
             if ("GET".equals(method) && "/api/events".equals(path)) {
                 handleSSE(client, output, sessionId);
-                return;
-            }
-
-            // Peer discovery - no auth required for basic info
-            // Magic signature to identify OpenClaw devices
-            if ("GET".equals(method) && "/api/peer/info".equals(path)) {
-                JSONObject info = new JSONObject();
-                info.put("type", "openclaw");
-                info.put("signature", "OPENCLAW_PEER_V1");
-                info.put("version", manager.getModVersion());
-                info.put("device", android.os.Build.MODEL);
-                info.put("manufacturer", android.os.Build.MANUFACTURER);
-                info.put("name", manager.getConfigValue("device_name", android.os.Build.MODEL));
-                info.put("android_version", android.os.Build.VERSION.RELEASE);
-                // Expose capabilities
-                JSONObject capabilities = new JSONObject();
-                JSONObject skills = manager.getSkillConfig();
-                capabilities.put("skills", skills);
-                capabilities.put("has_root", manager.hasRootAccess());
-                capabilities.put("agent_status", manager.getAgentStatus());
-                info.put("capabilities", capabilities);
-                writeJson(output, 200, info, null);
-                return;
-            }
-
-            // Peer chat - requires peer password
-            if ("POST".equals(method) && "/api/peer/chat".equals(path)) {
-                JSONObject json = parseJson(body);
-                String peerPassword = json.optString("password", "");
-                String configuredPassword = manager.getConfigValue("peer_password", "");
-                if (configuredPassword.isEmpty()) configuredPassword = "openclaw";
-                if (!configuredPassword.equals(peerPassword)) {
-                    writeJson(output, 401, new JSONObject().put("ok", false).put("error", "invalid_password"), null);
-                    return;
-                }
-                String message = json.optString("message", "").trim();
-                if (message.isEmpty()) {
-                    writeJson(output, 400, new JSONObject().put("ok", false).put("error", "message_required"), null);
-                    return;
-                }
-                // Process as peer message
-                String response = manager.processPeerMessage(message);
-                writeJson(output, 200, new JSONObject().put("ok", true).put("response", response), null);
-                return;
-            }
-
-            // Peer status - requires peer password
-            if ("POST".equals(method) && "/api/peer/status".equals(path)) {
-                JSONObject json = parseJson(body);
-                String peerPassword = json.optString("password", "");
-                String configuredPassword = manager.getConfigValue("peer_password", "");
-                if (configuredPassword.isEmpty()) configuredPassword = "openclaw";
-                if (!configuredPassword.equals(peerPassword)) {
-                    writeJson(output, 401, new JSONObject().put("ok", false).put("error", "invalid_password"), null);
-                    return;
-                }
-                JSONObject status = new JSONObject();
-                status.put("ok", true);
-                status.put("agent_status", manager.getAgentStatus());
-                status.put("skills", manager.getSkillConfig());
-                writeJson(output, 200, status, null);
                 return;
             }
 
