@@ -78,53 +78,66 @@ public class WebConsoleServer {
     
     private void startUdpResponder() {
         udpThread = new Thread(() -> {
-            try {
-                // Simple constructor - most compatible with Android 7+
-                udpSocket = new java.net.DatagramSocket(UDP_PORT);
-                udpSocket.setBroadcast(true);
-                byte[] buffer = new byte[256];
-                Log.i(TAG, "UDP responder started on port " + UDP_PORT);
-                
-                while (running && udpSocket != null && !udpSocket.isClosed()) {
-                    try {
-                        java.net.DatagramPacket packet = new java.net.DatagramPacket(buffer, buffer.length);
-                        udpSocket.receive(packet);
-                        String data = new String(packet.getData(), 0, packet.getLength(), "UTF-8");
-                        
-                        // Respond to PING with PONG
-                        // Format: OPENCLAW_PING:senderIp:replyPort:device:version
-                        if (data.startsWith(PEER_MAGIC + ":")) {
-                            String[] parts = data.split(":");
-                            int replyPort = packet.getPort(); // default to sender port
-                            if (parts.length >= 3) {
-                                try {
-                                    replyPort = Integer.parseInt(parts[2]);
-                                } catch (Exception ignored) {}
+            while (running) {
+                java.net.DatagramSocket sock = null;
+                try {
+                    // Bind to IPv4 explicitly - critical for Android 7 UDP broadcast
+                    sock = new java.net.DatagramSocket(null);
+                    sock.setReuseAddress(true);
+                    sock.bind(new java.net.InetSocketAddress(java.net.InetAddress.getByName("0.0.0.0"), UDP_PORT));
+                    sock.setBroadcast(true);
+                    sock.setSoTimeout(5000);
+                    udpSocket = sock;
+                    byte[] buffer = new byte[256];
+                    Log.i(TAG, "UDP responder listening on port " + UDP_PORT);
+                    
+                    while (running && sock != null && !sock.isClosed()) {
+                        try {
+                            java.net.DatagramPacket packet = new java.net.DatagramPacket(buffer, buffer.length);
+                            sock.receive(packet);
+                            String data = new String(packet.getData(), 0, packet.getLength(), "UTF-8");
+                            
+                            if (data.startsWith(PEER_MAGIC + ":")) {
+                                String[] parts = data.split(":");
+                                int replyPort = packet.getPort();
+                                if (parts.length >= 3) {
+                                    try { replyPort = Integer.parseInt(parts[2]); } catch (Exception ignored) {}
+                                }
+                                
+                                String localIp = getLocalIp();
+                                String deviceName = android.os.Build.MODEL;
+                                String response = PEER_RESPONSE + ":" + localIp + ":" + deviceName + ":" + manager.getModVersion();
+                                byte[] responseData = response.getBytes("UTF-8");
+                                
+                                Log.d(TAG, "UDP PING from " + packet.getAddress().getHostAddress() + " -> PONG:" + replyPort);
+                                
+                                java.net.DatagramPacket responsePacket = new java.net.DatagramPacket(
+                                    responseData, responseData.length,
+                                    packet.getAddress(), replyPort
+                                );
+                                sock.send(responsePacket);
                             }
-                            
-                            String localIp = getLocalIp();
-                            String deviceName = android.os.Build.MODEL;
-                            String response = PEER_RESPONSE + ":" + localIp + ":" + deviceName + ":" + manager.getModVersion();
-                            byte[] responseData = response.getBytes("UTF-8");
-                            
-                            Log.d(TAG, "UDP PING from " + packet.getAddress().getHostAddress() + " -> PONG to port " + replyPort);
-                            
-                            // Reply to the specified port
-                            java.net.DatagramPacket responsePacket = new java.net.DatagramPacket(
-                                responseData, responseData.length,
-                                packet.getAddress(), replyPort
-                            );
-                            udpSocket.send(responsePacket);
+                        } catch (java.net.SocketTimeoutException e) {
+                            // Normal timeout, continue loop
+                        } catch (Exception e) {
+                            if (running) {
+                                Log.w(TAG, "UDP recv error: " + e.getMessage());
+                                break; // Exit inner loop to recreate socket
+                            }
                         }
-                    } catch (java.net.SocketTimeoutException e) {
-                        // Normal
-                    } catch (Exception e) {
-                        if (running) Log.w(TAG, "UDP error", e);
                     }
+                } catch (Exception e) {
+                    Log.w(TAG, "UDP socket error: " + e.getMessage());
+                } finally {
+                    if (sock != null) try { sock.close(); } catch (Exception ignored) {}
                 }
-            } catch (Exception e) {
-                Log.w(TAG, "UDP responder failed: " + e.getMessage());
+                
+                // Wait before retry if still running
+                if (running) {
+                    try { Thread.sleep(2000); } catch (Exception ignored) {}
+                }
             }
+            Log.i(TAG, "UDP responder stopped");
         }, "OpenClawUdpResponder");
         udpThread.start();
     }
