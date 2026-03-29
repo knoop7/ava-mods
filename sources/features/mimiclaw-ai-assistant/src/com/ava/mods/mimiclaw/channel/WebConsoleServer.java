@@ -460,7 +460,16 @@ public class WebConsoleServer {
                 info.put("signature", "OPENCLAW_PEER_V1");
                 info.put("version", manager.getModVersion());
                 info.put("device", android.os.Build.MODEL);
+                info.put("manufacturer", android.os.Build.MANUFACTURER);
                 info.put("name", manager.getConfigValue("device_name", android.os.Build.MODEL));
+                info.put("android_version", android.os.Build.VERSION.RELEASE);
+                // Expose capabilities
+                JSONObject capabilities = new JSONObject();
+                JSONObject skills = manager.getSkillConfig();
+                capabilities.put("skills", skills);
+                capabilities.put("has_root", manager.hasRootAccess());
+                capabilities.put("agent_status", manager.getAgentStatus());
+                info.put("capabilities", capabilities);
                 writeJson(output, 200, info, null);
                 return;
             }

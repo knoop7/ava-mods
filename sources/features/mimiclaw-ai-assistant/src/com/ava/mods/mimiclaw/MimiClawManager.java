@@ -375,7 +375,11 @@ public class MimiClawManager {
     }
 
     public String getModVersion() {
-        return "1.4.62";
+        return "1.4.64";
+    }
+
+    public boolean hasRootAccess() {
+        return toolRegistry != null && toolRegistry.hasRootAccess();
     }
 
     public String processPeerMessage(String message) {

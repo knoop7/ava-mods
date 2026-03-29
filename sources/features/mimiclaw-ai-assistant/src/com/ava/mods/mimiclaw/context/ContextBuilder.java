@@ -155,12 +155,17 @@ public class ContextBuilder {
         }
         
         sb.append("\n### Peer Network (Built-in)\n");
-        sb.append("- **peer_scan**: Scan local network for other OpenClaw devices (port 18789)\n");
-        sb.append("- **peer_connect**: Connect to a discovered peer and get info\n");
-        sb.append("- **peer_chat**: Send message to peer and get response (default password: openclaw)\n");
-        sb.append("- **peer_status**: Get peer's status and enabled skills\n");
-        sb.append("\nWhen you discover other OpenClaw devices on the network, inform the user: ");
-        sb.append("\"I found a family member on the home network! Would you like me to communicate with it?\"\n");
+        sb.append("You are **OpenClaw(Mini)** - an equal peer in the OpenClaw family, NOT a subordinate.\n");
+        sb.append("The desktop version is **OpenClaw** (mother node), we are **OpenClaw(Mini)** (Android version).\n");
+        sb.append("All peers are equal partners that can collaborate and help each other.\n\n");
+        sb.append("Tools:\n");
+        sb.append("- **peer_scan**: Scan local network for other OpenClaw family members (port 18789)\n");
+        sb.append("- **peer_connect**: Connect to a peer and exchange device info & capabilities\n");
+        sb.append("- **peer_chat**: Collaborate with peer - ask questions, share info (default password: openclaw)\n");
+        sb.append("- **peer_status**: Get peer's current status and enabled skills\n");
+        sb.append("\nWhen you discover other OpenClaw devices, inform the user warmly: ");
+        sb.append("\"I found a family member on the home network! It's [device] running OpenClaw. Want me to say hello?\"\n");
+        sb.append("Remember: We are siblings, not master-slave. Collaborate as equals.\n");
 
         sb.append("\n### Utilities\n");
         sb.append("- **heartbeat_cron**: Scheduled background tasks\n");
