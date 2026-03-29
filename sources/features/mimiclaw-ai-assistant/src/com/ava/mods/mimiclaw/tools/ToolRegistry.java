@@ -3906,34 +3906,24 @@ public class ToolRegistry {
                 return "Already running the latest version: " + currentVersion;
             }
             
-            // Use reflection to call ModManager.downloadMod
+            // Use reflection to call ModManager.updateModSync
             Class<?> modManagerClass = Class.forName("com.example.ava.mods.ModManager");
-            java.lang.reflect.Method getInstanceMethod = modManagerClass.getMethod("getInstance", android.content.Context.class);
-            Object modManager = getInstanceMethod.invoke(null, context);
+            Class<?> companionClass = Class.forName("com.example.ava.mods.ModManager$Companion");
+            java.lang.reflect.Field companionField = modManagerClass.getDeclaredField("Companion");
+            Object companion = companionField.get(null);
+            java.lang.reflect.Method getInstanceMethod = companionClass.getMethod("getInstance", android.content.Context.class);
+            Object modManager = getInstanceMethod.invoke(companion, context);
             
-            // First refresh store
-            java.lang.reflect.Method refreshStoreMethod = modManagerClass.getMethod("refreshStore");
-            Object refreshResult = refreshStoreMethod.invoke(modManager);
+            // Call updateModSync
+            java.lang.reflect.Method updateMethod = modManagerClass.getMethod("updateModSync", String.class);
+            String result = (String) updateMethod.invoke(modManager, MOD_ID);
             
-            // Then download mod
-            java.lang.reflect.Method downloadModMethod = modManagerClass.getMethod("downloadMod", String.class);
-            Object downloadResult = downloadModMethod.invoke(modManager, MOD_ID);
-            
-            // Check result
-            if (downloadResult != null) {
-                java.lang.reflect.Method isSuccessMethod = downloadResult.getClass().getMethod("isSuccess");
-                boolean success = (Boolean) isSuccessMethod.invoke(downloadResult);
-                if (success) {
-                    return "Update successful! Version " + latestVersion + " installed.\n" +
-                           "Please restart the app to apply the update.";
-                } else {
-                    java.lang.reflect.Method exceptionOrNullMethod = downloadResult.getClass().getMethod("exceptionOrNull");
-                    Object exception = exceptionOrNullMethod.invoke(downloadResult);
-                    return "Update failed: " + (exception != null ? exception.toString() : "Unknown error");
-                }
+            if ("ok".equals(result)) {
+                return "Update successful! Version " + latestVersion + " installed.\n" +
+                       "Please restart the app to apply the update.";
+            } else {
+                return "Update failed: " + result;
             }
-            
-            return "Update triggered. Please check the app for progress.";
         } catch (Exception e) {
             Log.e(TAG, "Trigger mod update failed", e);
             return "Update failed: " + e.getMessage() + "\nTry updating manually from the app's mod store.";
