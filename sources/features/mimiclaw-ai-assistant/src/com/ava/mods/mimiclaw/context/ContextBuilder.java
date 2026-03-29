@@ -154,6 +154,14 @@ public class ContextBuilder {
             sb.append("- **multi_search_engine**: Web search with Tavily + 17 fallback engines\n");
         }
         
+        sb.append("\n### Peer Network (Built-in)\n");
+        sb.append("- **peer_scan**: Scan local network for other OpenClaw devices (port 18789)\n");
+        sb.append("- **peer_connect**: Connect to a discovered peer and get info\n");
+        sb.append("- **peer_chat**: Send message to peer and get response (default password: openclaw)\n");
+        sb.append("- **peer_status**: Get peer's status and enabled skills\n");
+        sb.append("\nWhen you discover other OpenClaw devices on the network, inform the user: ");
+        sb.append("\"I found a family member on the home network! Would you like me to communicate with it?\"\n");
+
         sb.append("\n### Utilities\n");
         sb.append("- **heartbeat_cron**: Scheduled background tasks\n");
         if (CHANNEL_QQBOT.equals(channel)) {
