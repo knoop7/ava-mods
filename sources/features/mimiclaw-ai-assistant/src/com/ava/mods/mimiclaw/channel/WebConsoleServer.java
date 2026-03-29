@@ -40,6 +40,13 @@ public class WebConsoleServer {
     private volatile Thread serverThread;
     private volatile String lastError = "";
     
+    // UDP discovery
+    private static final int UDP_PORT = 18790;
+    private static final String PEER_MAGIC = "OPENCLAW_PING";
+    private static final String PEER_RESPONSE = "OPENCLAW_PONG";
+    private volatile java.net.DatagramSocket udpSocket;
+    private volatile Thread udpThread;
+    
 
     public WebConsoleServer(MimiClawManager manager) {
         this.manager = manager;
@@ -59,6 +66,9 @@ public class WebConsoleServer {
             serverThread = new Thread(this::acceptLoop, "OpenClawWebConsole");
             serverThread.start();
             Log.i(TAG, "Web console listening on 0.0.0.0:" + PORT);
+            
+            // Start UDP discovery responder
+            startUdpResponder();
         } catch (Exception e) {
             running = false;
             lastError = e.getClass().getSimpleName() + ": " + e.getMessage();
@@ -66,9 +76,83 @@ public class WebConsoleServer {
         }
     }
     
+    private void startUdpResponder() {
+        udpThread = new Thread(() -> {
+            try {
+                udpSocket = new java.net.DatagramSocket(null);
+                udpSocket.setReuseAddress(true);
+                udpSocket.bind(new java.net.InetSocketAddress(UDP_PORT));
+                udpSocket.setBroadcast(true);
+                byte[] buffer = new byte[256];
+                Log.i(TAG, "UDP discovery responder on port " + UDP_PORT);
+                
+                while (running && udpSocket != null && !udpSocket.isClosed()) {
+                    try {
+                        java.net.DatagramPacket packet = new java.net.DatagramPacket(buffer, buffer.length);
+                        udpSocket.receive(packet);
+                        String data = new String(packet.getData(), 0, packet.getLength(), "UTF-8");
+                        
+                        // Respond to PING with PONG
+                        if (data.startsWith(PEER_MAGIC + ":")) {
+                            String localIp = getLocalIp();
+                            String deviceName = android.os.Build.MODEL;
+                            String response = PEER_RESPONSE + ":" + localIp + ":" + deviceName + ":" + manager.getModVersion();
+                            byte[] responseData = response.getBytes("UTF-8");
+                            
+                            java.net.DatagramPacket responsePacket = new java.net.DatagramPacket(
+                                responseData, responseData.length,
+                                packet.getAddress(), packet.getPort()
+                            );
+                            udpSocket.send(responsePacket);
+                        }
+                    } catch (java.net.SocketTimeoutException e) {
+                        // Normal
+                    } catch (Exception e) {
+                        if (running) Log.w(TAG, "UDP error", e);
+                    }
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "UDP responder failed: " + e.getMessage());
+            }
+        }, "OpenClawUdpResponder");
+        udpThread.start();
+    }
+    
+    private String getLocalIp() {
+        try {
+            java.util.Enumeration<java.net.NetworkInterface> interfaces = java.net.NetworkInterface.getNetworkInterfaces();
+            while (interfaces.hasMoreElements()) {
+                java.net.NetworkInterface ni = interfaces.nextElement();
+                if (ni.isLoopback() || !ni.isUp()) continue;
+                java.util.Enumeration<java.net.InetAddress> addresses = ni.getInetAddresses();
+                while (addresses.hasMoreElements()) {
+                    java.net.InetAddress addr = addresses.nextElement();
+                    if (addr instanceof java.net.Inet4Address) {
+                        String ip = addr.getHostAddress();
+                        if (ip.startsWith("192.168.") || ip.startsWith("10.") || ip.startsWith("172.")) {
+                            return ip;
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {}
+        return "";
+    }
+    
     public synchronized void stop() {
         running = false;
         sessions.clear();
+        
+        // Stop UDP responder
+        if (udpSocket != null) {
+            try { udpSocket.close(); } catch (Exception ignored) {}
+            udpSocket = null;
+        }
+        if (udpThread != null) {
+            udpThread.interrupt();
+            udpThread = null;
+        }
+        
         if (serverSocket != null) {
             try {
                 serverSocket.close();

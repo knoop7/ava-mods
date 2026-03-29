@@ -3411,7 +3411,11 @@ public class ToolRegistry {
     }
     
     // ========== Peer Discovery Implementation ==========
-    // Uses HTTP scan on port 18789 to find OpenClaw peers via /api/peer/info
+    // Uses UDP broadcast for fast discovery, then HTTP for full info
+    
+    private static final int PEER_UDP_PORT = 18790;
+    private static final String PEER_MAGIC = "OPENCLAW_PING";
+    private static final String PEER_RESPONSE = "OPENCLAW_PONG";
 
     private String getLocalIp() {
         try {
@@ -3442,46 +3446,102 @@ public class ToolRegistry {
             return "Error: Could not detect local IP. Check network connection.";
         }
         
-        // Determine subnet to scan
-        String subnetPrefix = subnet;
-        if (subnetPrefix.isEmpty()) {
+        java.util.Map<String, JSONObject> discovered = new java.util.concurrent.ConcurrentHashMap<>();
+        
+        // UDP broadcast discovery - fast!
+        try {
+            java.net.DatagramSocket socket = new java.net.DatagramSocket();
+            socket.setBroadcast(true);
+            socket.setSoTimeout(50);
+            
+            // Send ping: OPENCLAW_PING:myIP:myDevice:myVersion
+            String deviceName = android.os.Build.MODEL;
+            String msg = PEER_MAGIC + ":" + localIp + ":" + deviceName + ":1.4.65";
+            byte[] data = msg.getBytes("UTF-8");
+            
+            // Broadcast to 255.255.255.255
+            java.net.DatagramPacket packet = new java.net.DatagramPacket(
+                data, data.length,
+                java.net.InetAddress.getByName("255.255.255.255"), PEER_UDP_PORT
+            );
+            socket.send(packet);
+            
+            // Also broadcast to subnet broadcast (e.g. 192.168.0.255)
             int lastDot = localIp.lastIndexOf('.');
             if (lastDot > 0) {
-                subnetPrefix = localIp.substring(0, lastDot);
-            } else {
-                return "Error: Could not determine subnet from IP: " + localIp;
+                String subnetBroadcast = localIp.substring(0, lastDot) + ".255";
+                packet = new java.net.DatagramPacket(
+                    data, data.length,
+                    java.net.InetAddress.getByName(subnetBroadcast), PEER_UDP_PORT
+                );
+                socket.send(packet);
             }
-        }
-        
-        JSONArray peers = new JSONArray();
-        java.util.concurrent.ExecutorService executor = java.util.concurrent.Executors.newFixedThreadPool(30);
-        java.util.List<java.util.concurrent.Future<JSONObject>> futures = new java.util.ArrayList<>();
-        
-        // Scan all IPs in subnet
-        for (int i = 1; i <= 254; i++) {
-            final String ip = subnetPrefix + "." + i;
-            if (ip.equals(localIp)) continue;
-            futures.add(executor.submit(() -> probePeer(ip)));
-        }
-        
-        // Collect results with timeout
-        for (java.util.concurrent.Future<JSONObject> future : futures) {
-            try {
-                JSONObject peer = future.get(800, java.util.concurrent.TimeUnit.MILLISECONDS);
-                if (peer != null) {
-                    peers.put(peer);
+            socket.close();
+            
+            // Listen for responses
+            java.net.DatagramSocket listenSocket = new java.net.DatagramSocket(null);
+            listenSocket.setReuseAddress(true);
+            listenSocket.bind(new java.net.InetSocketAddress(PEER_UDP_PORT));
+            listenSocket.setSoTimeout(100);
+            
+            byte[] buffer = new byte[256];
+            long endTime = System.currentTimeMillis() + 2000; // 2 second timeout
+            
+            while (System.currentTimeMillis() < endTime) {
+                try {
+                    java.net.DatagramPacket recvPacket = new java.net.DatagramPacket(buffer, buffer.length);
+                    listenSocket.receive(recvPacket);
+                    String response = new String(recvPacket.getData(), 0, recvPacket.getLength(), "UTF-8");
+                    
+                    // Parse: OPENCLAW_PONG:ip:device:version
+                    if (response.startsWith(PEER_RESPONSE + ":")) {
+                        String[] parts = response.split(":");
+                        if (parts.length >= 4) {
+                            String peerIp = parts[1];
+                            String peerDevice = parts[2];
+                            String peerVersion = parts[3];
+                            
+                            if (!peerIp.equals(localIp) && !discovered.containsKey(peerIp)) {
+                                JSONObject peer = new JSONObject();
+                                peer.put("ip", peerIp);
+                                peer.put("device", peerDevice);
+                                peer.put("version", peerVersion);
+                                peer.put("source", "udp");
+                                discovered.put(peerIp, peer);
+                            }
+                        }
+                    }
+                } catch (java.net.SocketTimeoutException e) {
+                    // Normal, continue
                 }
-            } catch (Exception ignored) {}
+            }
+            listenSocket.close();
+        } catch (Exception e) {
+            Log.w(TAG, "UDP discovery failed: " + e.getMessage());
         }
-        executor.shutdown();
+        
+        // Get full info via HTTP for discovered peers
+        JSONArray peers = new JSONArray();
+        for (JSONObject peer : discovered.values()) {
+            String ip = peer.optString("ip");
+            JSONObject fullInfo = probePeer(ip);
+            if (fullInfo != null) {
+                // Merge full info
+                java.util.Iterator<String> keys = fullInfo.keys();
+                while (keys.hasNext()) {
+                    String key = keys.next();
+                    try { peer.put(key, fullInfo.get(key)); } catch (Exception ignored) {}
+                }
+            }
+            peers.put(peer);
+        }
         
         // Build result
         StringBuilder sb = new StringBuilder();
-        sb.append("My IP: ").append(localIp).append("\n");
-        sb.append("Scanned: ").append(subnetPrefix).append(".1-254\n\n");
+        sb.append("My IP: ").append(localIp).append("\n\n");
         
         if (peers.length() == 0) {
-            sb.append("No OpenClaw family members found.\n");
+            sb.append("No OpenClaw family members found via UDP broadcast.\n");
             sb.append("Make sure other devices are running Ava with OpenClaw(Mini) mod.");
             return sb.toString();
         }
