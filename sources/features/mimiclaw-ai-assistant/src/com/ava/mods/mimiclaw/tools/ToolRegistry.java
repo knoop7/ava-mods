@@ -3411,112 +3411,63 @@ public class ToolRegistry {
     }
     
     // ========== Peer Discovery Implementation ==========
-    
-    private java.util.List<String> getAllLocalIps() {
-        java.util.List<String> ips = new java.util.ArrayList<>();
-        
-        // Method 1: Use shell command (most reliable on Android)
-        try {
-            Process process = Runtime.getRuntime().exec("ip addr show");
-            java.io.BufferedReader reader = new java.io.BufferedReader(
-                new java.io.InputStreamReader(process.getInputStream()));
-            String line;
-            while ((line = reader.readLine()) != null) {
-                // Look for "inet 192.168.x.x/24" patterns
-                line = line.trim();
-                if (line.startsWith("inet ") && !line.contains("127.0.0.1")) {
-                    String[] parts = line.split("\\s+");
-                    if (parts.length >= 2) {
-                        String ipWithMask = parts[1];
-                        String ip = ipWithMask.contains("/") ? ipWithMask.split("/")[0] : ipWithMask;
-                        if (ip.startsWith("192.168.") || ip.startsWith("10.") || 
-                            (ip.startsWith("172.") && ip.matches("172\\.(1[6-9]|2[0-9]|3[0-1])\\..*"))) {
-                            if (!ips.contains(ip)) ips.add(ip);
-                        }
-                    }
-                }
-            }
-            reader.close();
-            process.waitFor();
-        } catch (Exception e) {
-            Log.w(TAG, "ip addr failed", e);
-        }
-        
-        // Method 2: Fallback to Java API
-        if (ips.isEmpty()) {
-            try {
-                java.util.Enumeration<java.net.NetworkInterface> interfaces = java.net.NetworkInterface.getNetworkInterfaces();
-                while (interfaces.hasMoreElements()) {
-                    java.net.NetworkInterface ni = interfaces.nextElement();
-                    if (ni.isLoopback() || !ni.isUp()) continue;
-                    String name = ni.getName().toLowerCase();
-                    if (name.contains("dummy") || name.contains("rmnet")) continue;
-                    java.util.Enumeration<java.net.InetAddress> addresses = ni.getInetAddresses();
-                    while (addresses.hasMoreElements()) {
-                        java.net.InetAddress addr = addresses.nextElement();
-                        if (addr instanceof java.net.Inet4Address) {
-                            String ip = addr.getHostAddress();
-                            if (ip.startsWith("192.168.") || ip.startsWith("10.") || 
-                                (ip.startsWith("172.") && ip.matches("172\\.(1[6-9]|2[0-9]|3[0-1])\\..*"))) {
-                                if (!ips.contains(ip)) ips.add(ip);
-                            }
-                        }
-                    }
-                }
-            } catch (Exception e) {
-                Log.w(TAG, "NetworkInterface failed", e);
-            }
-        }
-        
-        return ips;
-    }
+    // Uses HTTP scan on port 18789 to find OpenClaw peers via /api/peer/info
 
     private String getLocalIp() {
-        java.util.List<String> ips = getAllLocalIps();
-        return ips.isEmpty() ? "" : ips.get(0);
+        try {
+            java.util.Enumeration<java.net.NetworkInterface> interfaces = java.net.NetworkInterface.getNetworkInterfaces();
+            while (interfaces.hasMoreElements()) {
+                java.net.NetworkInterface ni = interfaces.nextElement();
+                if (ni.isLoopback() || !ni.isUp()) continue;
+                java.util.Enumeration<java.net.InetAddress> addresses = ni.getInetAddresses();
+                while (addresses.hasMoreElements()) {
+                    java.net.InetAddress addr = addresses.nextElement();
+                    if (addr instanceof java.net.Inet4Address) {
+                        String ip = addr.getHostAddress();
+                        if (ip.startsWith("192.168.") || ip.startsWith("10.") || ip.startsWith("172.")) {
+                            return ip;
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Failed to get local IP", e);
+        }
+        return "";
     }
 
     private String scanForPeers(String subnet) {
-        java.util.List<String> localIps = getAllLocalIps();
-        java.util.Set<String> subnetsToScan = new java.util.HashSet<>();
-        
-        // If subnet provided, use it
-        if (!subnet.isEmpty()) {
-            subnetsToScan.add(subnet);
-        } else {
-            // Auto-detect all subnets from local IPs
-            for (String ip : localIps) {
-                int lastDot = ip.lastIndexOf('.');
-                if (lastDot > 0) {
-                    subnetsToScan.add(ip.substring(0, lastDot));
-                }
-            }
+        String localIp = getLocalIp();
+        if (localIp.isEmpty()) {
+            return "Error: Could not detect local IP. Check network connection.";
         }
         
-        if (subnetsToScan.isEmpty()) {
-            return "Error: Could not detect local network. Please specify subnet manually.";
+        // Determine subnet to scan
+        String subnetPrefix = subnet;
+        if (subnetPrefix.isEmpty()) {
+            int lastDot = localIp.lastIndexOf('.');
+            if (lastDot > 0) {
+                subnetPrefix = localIp.substring(0, lastDot);
+            } else {
+                return "Error: Could not determine subnet from IP: " + localIp;
+            }
         }
         
         JSONArray peers = new JSONArray();
         java.util.concurrent.ExecutorService executor = java.util.concurrent.Executors.newFixedThreadPool(30);
         java.util.List<java.util.concurrent.Future<JSONObject>> futures = new java.util.ArrayList<>();
         
-        StringBuilder scannedSubnets = new StringBuilder();
-        for (String s : subnetsToScan) {
-            if (scannedSubnets.length() > 0) scannedSubnets.append(", ");
-            scannedSubnets.append(s).append(".x");
-            
-            for (int i = 1; i <= 254; i++) {
-                final String ip = s + "." + i;
-                // Skip our own IPs
-                if (localIps.contains(ip)) continue;
-                futures.add(executor.submit(() -> probePeer(ip)));
-            }
+        // Scan all IPs in subnet
+        for (int i = 1; i <= 254; i++) {
+            final String ip = subnetPrefix + "." + i;
+            if (ip.equals(localIp)) continue;
+            futures.add(executor.submit(() -> probePeer(ip)));
         }
         
+        // Collect results with timeout
         for (java.util.concurrent.Future<JSONObject> future : futures) {
             try {
-                JSONObject peer = future.get(2, java.util.concurrent.TimeUnit.SECONDS);
+                JSONObject peer = future.get(800, java.util.concurrent.TimeUnit.MILLISECONDS);
                 if (peer != null) {
                     peers.put(peer);
                 }
@@ -3524,12 +3475,14 @@ public class ToolRegistry {
         }
         executor.shutdown();
         
+        // Build result
         StringBuilder sb = new StringBuilder();
-        sb.append("Scanned: ").append(scannedSubnets).append("\n");
-        sb.append("My IPs: ").append(String.join(", ", localIps)).append("\n\n");
+        sb.append("My IP: ").append(localIp).append("\n");
+        sb.append("Scanned: ").append(subnetPrefix).append(".1-254\n\n");
         
         if (peers.length() == 0) {
-            sb.append("No OpenClaw family members found on the network.");
+            sb.append("No OpenClaw family members found.\n");
+            sb.append("Make sure other devices are running Ava with OpenClaw(Mini) mod.");
             return sb.toString();
         }
         
@@ -3537,8 +3490,7 @@ public class ToolRegistry {
         for (int i = 0; i < peers.length(); i++) {
             JSONObject peer = peers.optJSONObject(i);
             sb.append("  - ").append(peer.optString("ip"));
-            sb.append(" | ").append(peer.optString("manufacturer", "")).append(" ").append(peer.optString("device", "unknown"));
-            sb.append(" | ").append(peer.optString("name", ""));
+            sb.append(" | ").append(peer.optString("device", "unknown"));
             sb.append(" | v").append(peer.optString("version", "?"));
             JSONObject caps = peer.optJSONObject("capabilities");
             if (caps != null) {

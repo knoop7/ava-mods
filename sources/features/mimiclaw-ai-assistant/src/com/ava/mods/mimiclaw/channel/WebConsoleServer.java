@@ -39,6 +39,7 @@ public class WebConsoleServer {
     private volatile ServerSocket serverSocket;
     private volatile Thread serverThread;
     private volatile String lastError = "";
+    
 
     public WebConsoleServer(MimiClawManager manager) {
         this.manager = manager;
@@ -64,7 +65,7 @@ public class WebConsoleServer {
             Log.e(TAG, "Web console failed to start", e);
         }
     }
-
+    
     public synchronized void stop() {
         running = false;
         sessions.clear();
