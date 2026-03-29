@@ -374,6 +374,21 @@ public class MimiClawManager {
         }
     }
 
+    public String getModVersion() {
+        return "1.4.62";
+    }
+
+    public String processPeerMessage(String message) {
+        // Process message from peer device - simple Q&A without full agent loop
+        try {
+            // Use LLM to generate a quick response
+            String systemPrompt = "You are a helpful AI assistant running on a peer device. Answer briefly and helpfully.";
+            return llmProxy.quickChat(systemPrompt, message);
+        } catch (Exception e) {
+            return "Error processing message: " + e.getMessage();
+        }
+    }
+
     public JSONObject getProviderProfilesPayload() {
         try {
             JSONObject config = ensureProviderProfiles(readProfilesConfig(), readMainConfig());

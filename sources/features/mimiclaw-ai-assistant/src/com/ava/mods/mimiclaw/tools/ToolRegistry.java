@@ -1277,6 +1277,57 @@ public class ToolRegistry {
             }
         );
 
+        // ========== Peer Discovery Tools ==========
+        // Discover and communicate with other OpenClaw devices on the network
+
+        addTool("peer_scan",
+            "Scan local network for other OpenClaw devices on port 18789. Returns list of discovered peers.",
+            "{\"type\":\"object\",\"properties\":{\"subnet\":{\"type\":\"string\",\"description\":\"Subnet to scan (e.g. 192.168.1). If not provided, auto-detect from device IP.\"}},\"required\":[]}",
+            inputJson -> {
+                JSONObject input = new JSONObject(inputJson);
+                String subnet = input.optString("subnet", "").trim();
+                return scanForPeers(subnet);
+            }
+        );
+
+        addTool("peer_connect",
+            "Connect to a discovered OpenClaw peer device and get its info.",
+            "{\"type\":\"object\",\"properties\":{\"ip\":{\"type\":\"string\",\"description\":\"IP address of the peer device\"},\"password\":{\"type\":\"string\",\"description\":\"Peer password (default: openclaw)\"}},\"required\":[\"ip\"]}",
+            inputJson -> {
+                JSONObject input = new JSONObject(inputJson);
+                String ip = input.optString("ip", "").trim();
+                String password = input.optString("password", "openclaw");
+                if (ip.isEmpty()) return "Error: ip is required";
+                return connectToPeer(ip, password);
+            }
+        );
+
+        addTool("peer_chat",
+            "Send a message to a connected OpenClaw peer and get response.",
+            "{\"type\":\"object\",\"properties\":{\"ip\":{\"type\":\"string\",\"description\":\"IP address of the peer device\"},\"message\":{\"type\":\"string\",\"description\":\"Message to send to the peer\"},\"password\":{\"type\":\"string\",\"description\":\"Peer password (default: openclaw)\"}},\"required\":[\"ip\",\"message\"]}",
+            inputJson -> {
+                JSONObject input = new JSONObject(inputJson);
+                String ip = input.optString("ip", "").trim();
+                String message = input.optString("message", "").trim();
+                String password = input.optString("password", "openclaw");
+                if (ip.isEmpty()) return "Error: ip is required";
+                if (message.isEmpty()) return "Error: message is required";
+                return chatWithPeer(ip, password, message);
+            }
+        );
+
+        addTool("peer_status",
+            "Get status and capabilities of a connected OpenClaw peer.",
+            "{\"type\":\"object\",\"properties\":{\"ip\":{\"type\":\"string\",\"description\":\"IP address of the peer device\"},\"password\":{\"type\":\"string\",\"description\":\"Peer password (default: openclaw)\"}},\"required\":[\"ip\"]}",
+            inputJson -> {
+                JSONObject input = new JSONObject(inputJson);
+                String ip = input.optString("ip", "").trim();
+                String password = input.optString("password", "openclaw");
+                if (ip.isEmpty()) return "Error: ip is required";
+                return getPeerStatus(ip, password);
+            }
+        );
+
         // ========== Home Assistant Tools ==========
         // All ha_* tools belong to "homeassistant" skill
         
@@ -1954,32 +2005,6 @@ public class ToolRegistry {
                     // Reload script
                     haApiCall("POST", "/api/services/script/reload", "{}", config[0], config[1]);
                     return "Script '" + alias + "' created. " + result;
-                } catch (Exception e) {
-                    return "Error: " + e.getMessage();
-                }
-            }
-        );
-
-        addTool("ha_error_log",
-            "Get Home Assistant error log.",
-            "{\"type\":\"object\",\"properties\":{\"lines\":{\"type\":\"integer\",\"description\":\"Number of lines to return (default: 50, max: 200)\"}},\"required\":[]}",
-            inputJson -> {
-                String[] config = getHaConfig();
-                if (config == null) return "{\"ok\":false,\"error\":\"ha_not_configured\"}";
-                JSONObject input = new JSONObject(inputJson);
-                int lines = Math.min(input.optInt("lines", 50), 200);
-                try {
-                    String result = haApiCall("GET", "/api/error_log", null, config[0], config[1]);
-                    // Truncate to last N lines
-                    String[] allLines = result.split("\n");
-                    if (allLines.length > lines) {
-                        StringBuilder sb = new StringBuilder();
-                        for (int i = allLines.length - lines; i < allLines.length; i++) {
-                            sb.append(allLines[i]).append("\n");
-                        }
-                        return sb.toString().trim();
-                    }
-                    return result;
                 } catch (Exception e) {
                     return "Error: " + e.getMessage();
                 }
@@ -3381,6 +3406,257 @@ public class ToolRegistry {
         return false;
     }
     
+    // ========== Peer Discovery Implementation ==========
+    
+    private String getLocalSubnet() {
+        try {
+            java.util.Enumeration<java.net.NetworkInterface> interfaces = java.net.NetworkInterface.getNetworkInterfaces();
+            while (interfaces.hasMoreElements()) {
+                java.net.NetworkInterface ni = interfaces.nextElement();
+                if (ni.isLoopback() || !ni.isUp()) continue;
+                java.util.Enumeration<java.net.InetAddress> addresses = ni.getInetAddresses();
+                while (addresses.hasMoreElements()) {
+                    java.net.InetAddress addr = addresses.nextElement();
+                    if (addr instanceof java.net.Inet4Address) {
+                        String ip = addr.getHostAddress();
+                        if (ip.startsWith("192.168.") || ip.startsWith("10.") || ip.startsWith("172.")) {
+                            int lastDot = ip.lastIndexOf('.');
+                            return ip.substring(0, lastDot);
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Failed to get local subnet", e);
+        }
+        return "192.168.1";
+    }
+
+    private String getLocalIp() {
+        try {
+            java.util.Enumeration<java.net.NetworkInterface> interfaces = java.net.NetworkInterface.getNetworkInterfaces();
+            while (interfaces.hasMoreElements()) {
+                java.net.NetworkInterface ni = interfaces.nextElement();
+                if (ni.isLoopback() || !ni.isUp()) continue;
+                java.util.Enumeration<java.net.InetAddress> addresses = ni.getInetAddresses();
+                while (addresses.hasMoreElements()) {
+                    java.net.InetAddress addr = addresses.nextElement();
+                    if (addr instanceof java.net.Inet4Address) {
+                        String ip = addr.getHostAddress();
+                        if (ip.startsWith("192.168.") || ip.startsWith("10.") || ip.startsWith("172.")) {
+                            return ip;
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Failed to get local IP", e);
+        }
+        return "";
+    }
+
+    private String scanForPeers(String subnet) {
+        if (subnet.isEmpty()) {
+            subnet = getLocalSubnet();
+        }
+        String localIp = getLocalIp();
+        JSONArray peers = new JSONArray();
+        java.util.concurrent.ExecutorService executor = java.util.concurrent.Executors.newFixedThreadPool(20);
+        java.util.List<java.util.concurrent.Future<JSONObject>> futures = new java.util.ArrayList<>();
+        
+        for (int i = 1; i <= 254; i++) {
+            final String ip = subnet + "." + i;
+            if (ip.equals(localIp)) continue;
+            futures.add(executor.submit(() -> probePeer(ip)));
+        }
+        
+        for (java.util.concurrent.Future<JSONObject> future : futures) {
+            try {
+                JSONObject peer = future.get(3, java.util.concurrent.TimeUnit.SECONDS);
+                if (peer != null) {
+                    peers.put(peer);
+                }
+            } catch (Exception ignored) {}
+        }
+        executor.shutdown();
+        
+        if (peers.length() == 0) {
+            return "No OpenClaw peers found on subnet " + subnet + ".x";
+        }
+        
+        StringBuilder sb = new StringBuilder();
+        sb.append("Found ").append(peers.length()).append(" OpenClaw peer(s):\n");
+        for (int i = 0; i < peers.length(); i++) {
+            JSONObject peer = peers.optJSONObject(i);
+            sb.append("  - ").append(peer.optString("ip"));
+            sb.append(" (").append(peer.optString("name", "unknown")).append(")");
+            sb.append(" v").append(peer.optString("version", "?"));
+            sb.append("\n");
+        }
+        return sb.toString().trim();
+    }
+
+    private static final String PEER_SIGNATURE = "OPENCLAW_PEER_V1";
+
+    private JSONObject probePeer(String ip) {
+        try {
+            java.net.URL url = new java.net.URL("http://" + ip + ":18789/api/peer/info");
+            java.net.HttpURLConnection conn = (java.net.HttpURLConnection) url.openConnection();
+            conn.setConnectTimeout(500);
+            conn.setReadTimeout(1000);
+            conn.setRequestMethod("GET");
+            
+            if (conn.getResponseCode() == 200) {
+                java.io.InputStream is = conn.getInputStream();
+                java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.InputStreamReader(is));
+                StringBuilder sb = new StringBuilder();
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    sb.append(line);
+                }
+                reader.close();
+                JSONObject info = new JSONObject(sb.toString());
+                // Must have both type=openclaw AND correct signature
+                if ("openclaw".equals(info.optString("type")) && 
+                    PEER_SIGNATURE.equals(info.optString("signature"))) {
+                    info.put("ip", ip);
+                    return info;
+                }
+            }
+        } catch (Exception ignored) {}
+        return null;
+    }
+
+    private String connectToPeer(String ip, String password) {
+        try {
+            java.net.URL url = new java.net.URL("http://" + ip + ":18789/api/peer/info");
+            java.net.HttpURLConnection conn = (java.net.HttpURLConnection) url.openConnection();
+            conn.setConnectTimeout(3000);
+            conn.setReadTimeout(5000);
+            conn.setRequestMethod("GET");
+            
+            if (conn.getResponseCode() == 200) {
+                java.io.InputStream is = conn.getInputStream();
+                java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.InputStreamReader(is));
+                StringBuilder sb = new StringBuilder();
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    sb.append(line);
+                }
+                reader.close();
+                JSONObject info = new JSONObject(sb.toString());
+                if ("openclaw".equals(info.optString("type"))) {
+                    return "Connected to OpenClaw peer at " + ip + "\n" +
+                           "  Device: " + info.optString("device", "unknown") + "\n" +
+                           "  Name: " + info.optString("name", "unknown") + "\n" +
+                           "  Version: " + info.optString("version", "unknown");
+                }
+                return "Device at " + ip + " is not an OpenClaw peer";
+            }
+            return "Failed to connect: HTTP " + conn.getResponseCode();
+        } catch (Exception e) {
+            return "Failed to connect to " + ip + ": " + e.getMessage();
+        }
+    }
+
+    private String chatWithPeer(String ip, String password, String message) {
+        try {
+            java.net.URL url = new java.net.URL("http://" + ip + ":18789/api/peer/chat");
+            java.net.HttpURLConnection conn = (java.net.HttpURLConnection) url.openConnection();
+            conn.setConnectTimeout(5000);
+            conn.setReadTimeout(30000);
+            conn.setRequestMethod("POST");
+            conn.setRequestProperty("Content-Type", "application/json");
+            conn.setDoOutput(true);
+            
+            JSONObject body = new JSONObject();
+            body.put("password", password);
+            body.put("message", message);
+            
+            java.io.OutputStream os = conn.getOutputStream();
+            os.write(body.toString().getBytes("UTF-8"));
+            os.close();
+            
+            int code = conn.getResponseCode();
+            java.io.InputStream is = code >= 400 ? conn.getErrorStream() : conn.getInputStream();
+            java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.InputStreamReader(is));
+            StringBuilder sb = new StringBuilder();
+            String line;
+            while ((line = reader.readLine()) != null) {
+                sb.append(line);
+            }
+            reader.close();
+            
+            if (code == 401) {
+                return "Authentication failed. Wrong password for peer at " + ip;
+            }
+            if (code != 200) {
+                return "Peer returned error: HTTP " + code;
+            }
+            
+            JSONObject resp = new JSONObject(sb.toString());
+            return "Peer response: " + resp.optString("response", "(no response)");
+        } catch (Exception e) {
+            return "Failed to chat with peer: " + e.getMessage();
+        }
+    }
+
+    private String getPeerStatus(String ip, String password) {
+        try {
+            java.net.URL url = new java.net.URL("http://" + ip + ":18789/api/peer/status");
+            java.net.HttpURLConnection conn = (java.net.HttpURLConnection) url.openConnection();
+            conn.setConnectTimeout(5000);
+            conn.setReadTimeout(10000);
+            conn.setRequestMethod("POST");
+            conn.setRequestProperty("Content-Type", "application/json");
+            conn.setDoOutput(true);
+            
+            JSONObject body = new JSONObject();
+            body.put("password", password);
+            
+            java.io.OutputStream os = conn.getOutputStream();
+            os.write(body.toString().getBytes("UTF-8"));
+            os.close();
+            
+            int code = conn.getResponseCode();
+            java.io.InputStream is = code >= 400 ? conn.getErrorStream() : conn.getInputStream();
+            java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.InputStreamReader(is));
+            StringBuilder sb = new StringBuilder();
+            String line;
+            while ((line = reader.readLine()) != null) {
+                sb.append(line);
+            }
+            reader.close();
+            
+            if (code == 401) {
+                return "Authentication failed. Wrong password for peer at " + ip;
+            }
+            if (code != 200) {
+                return "Peer returned error: HTTP " + code;
+            }
+            
+            JSONObject resp = new JSONObject(sb.toString());
+            StringBuilder result = new StringBuilder();
+            result.append("Peer status at ").append(ip).append(":\n");
+            result.append("  Agent: ").append(resp.optString("agent_status", "unknown")).append("\n");
+            JSONObject skills = resp.optJSONObject("skills");
+            if (skills != null && skills.length() > 0) {
+                result.append("  Skills: ");
+                java.util.Iterator<String> keys = skills.keys();
+                while (keys.hasNext()) {
+                    String key = keys.next();
+                    if (skills.optBoolean(key, false)) {
+                        result.append(key).append(" ");
+                    }
+                }
+                result.append("\n");
+            }
+            return result.toString().trim();
+        } catch (Exception e) {
+            return "Failed to get peer status: " + e.getMessage();
+        }
+    }
+
     private void buildToolsJson() {
         toolsJson = new JSONArray();
         

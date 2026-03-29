@@ -114,6 +114,19 @@ public class LlmProxy {
         }
     }
     
+    public String quickChat(String systemPrompt, String userMessage) throws Exception {
+        if (apiKey == null || apiKey.isEmpty()) {
+            throw new IllegalStateException("API key not set");
+        }
+        JSONArray messages = new JSONArray();
+        JSONObject userMsg = new JSONObject();
+        userMsg.put("role", "user");
+        userMsg.put("content", userMessage);
+        messages.put(userMsg);
+        Response response = chatWithTools(systemPrompt, messages, null);
+        return response.text != null ? response.text : "";
+    }
+
     public Response chatWithTools(String systemPrompt, JSONArray messages, JSONArray tools) throws Exception {
         if (apiKey == null || apiKey.isEmpty()) {
             throw new IllegalStateException("API key not set");

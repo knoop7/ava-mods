@@ -452,6 +452,56 @@ public class WebConsoleServer {
                 return;
             }
 
+            // Peer discovery - no auth required for basic info
+            // Magic signature to identify OpenClaw devices
+            if ("GET".equals(method) && "/api/peer/info".equals(path)) {
+                JSONObject info = new JSONObject();
+                info.put("type", "openclaw");
+                info.put("signature", "OPENCLAW_PEER_V1");
+                info.put("version", manager.getModVersion());
+                info.put("device", android.os.Build.MODEL);
+                info.put("name", manager.getConfigValue("device_name", android.os.Build.MODEL));
+                writeJson(output, 200, info, null);
+                return;
+            }
+
+            // Peer chat - requires peer password
+            if ("POST".equals(method) && "/api/peer/chat".equals(path)) {
+                JSONObject json = parseJson(body);
+                String peerPassword = json.optString("password", "");
+                String configuredPassword = manager.getConfigValue("peer_password", "openclaw");
+                if (!configuredPassword.equals(peerPassword)) {
+                    writeJson(output, 401, new JSONObject().put("ok", false).put("error", "invalid_password"), null);
+                    return;
+                }
+                String message = json.optString("message", "").trim();
+                if (message.isEmpty()) {
+                    writeJson(output, 400, new JSONObject().put("ok", false).put("error", "message_required"), null);
+                    return;
+                }
+                // Process as peer message
+                String response = manager.processPeerMessage(message);
+                writeJson(output, 200, new JSONObject().put("ok", true).put("response", response), null);
+                return;
+            }
+
+            // Peer status - requires peer password
+            if ("POST".equals(method) && "/api/peer/status".equals(path)) {
+                JSONObject json = parseJson(body);
+                String peerPassword = json.optString("password", "");
+                String configuredPassword = manager.getConfigValue("peer_password", "openclaw");
+                if (!configuredPassword.equals(peerPassword)) {
+                    writeJson(output, 401, new JSONObject().put("ok", false).put("error", "invalid_password"), null);
+                    return;
+                }
+                JSONObject status = new JSONObject();
+                status.put("ok", true);
+                status.put("agent_status", manager.getAgentStatus());
+                status.put("skills", manager.getSkillConfig());
+                writeJson(output, 200, status, null);
+                return;
+            }
+
             writePlain(output, 404, "Not Found");
         } catch (SocketTimeoutException e) {
             Log.d(TAG, "Client read timeout");
