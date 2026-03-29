@@ -133,9 +133,16 @@ public class AgentLoop implements Runnable {
                 sessionManager.appendMessage(sessionKey, "user", msg.content);
             }
             
+            // Check if user wants to continue peer communication
+            String userContent = hiddenBrowserEvent ? stripHiddenBrowserEventPrefix(msg.content) : msg.content;
+            if (shouldForcePeerChat(messages, userContent)) {
+                userContent = "[SYSTEM: User wants to communicate with peer. You MUST call peer_chat tool with timeout=60. Do NOT respond without calling peer_chat first.]\n\n" + userContent;
+                Log.d(TAG, "Injected peer_chat force directive");
+            }
+            
             JSONObject userMsg = new JSONObject();
             userMsg.put("role", "user");
-            userMsg.put("content", hiddenBrowserEvent ? stripHiddenBrowserEventPrefix(msg.content) : msg.content);
+            userMsg.put("content", userContent);
             messages.put(userMsg);
             
             JSONArray tools = toolRegistry.getToolsJson();
@@ -464,6 +471,50 @@ public class AgentLoop implements Runnable {
         boolean channelMatch = cancelChannel == null || cancelChannel.equals(msg.channel);
         boolean chatMatch = cancelChatId == null || cancelChatId.equals(msg.chatId);
         return channelMatch && chatMatch;
+    }
+
+    private boolean shouldForcePeerChat(JSONArray messages, String userContent) {
+        // Check if recent history has peer_chat activity
+        boolean hasPeerContext = false;
+        try {
+            for (int i = Math.max(0, messages.length() - 10); i < messages.length(); i++) {
+                JSONObject m = messages.optJSONObject(i);
+                if (m == null) continue;
+                String content = m.optString("content", "");
+                if (content.contains("peer_chat") || content.contains("Peer response:") || content.contains("peer_scan")) {
+                    hasPeerContext = true;
+                    break;
+                }
+                // Also check array content
+                JSONArray arr = m.optJSONArray("content");
+                if (arr != null) {
+                    for (int j = 0; j < arr.length(); j++) {
+                        JSONObject block = arr.optJSONObject(j);
+                        if (block != null) {
+                            String blockContent = block.toString();
+                            if (blockContent.contains("peer_chat") || blockContent.contains("Peer response:")) {
+                                hasPeerContext = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Error checking peer context", e);
+        }
+        
+        if (!hasPeerContext) return false;
+        
+        // Check if user message suggests continuing peer communication
+        String lower = userContent.toLowerCase();
+        String[] peerKeywords = {"问问他", "跟他说", "告诉他", "让他", "问他", "再问", "继续问", "多问", "ask him", "tell him", "ask peer", "talk to"};
+        for (String kw : peerKeywords) {
+            if (lower.contains(kw)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private void clearActiveIfMatch(MessageBus.Message msg) {

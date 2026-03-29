@@ -166,6 +166,7 @@ public class ContextBuilder {
         sb.append("\nWhen you discover other OpenClaw devices, inform the user warmly: ");
         sb.append("\"I found a family member on the home network! It's [device] running OpenClaw. Want me to say hello?\"\n");
         sb.append("Remember: We are siblings, not master-slave. Collaborate as equals.\n");
+        sb.append("**CRITICAL**: When user asks you to communicate with a peer, you MUST use peer_chat tool. Do NOT make up responses - always call peer_chat and wait for the actual response from the peer device.\n");
 
         sb.append("\n### Utilities\n");
         sb.append("- **heartbeat_cron**: Scheduled background tasks\n");
