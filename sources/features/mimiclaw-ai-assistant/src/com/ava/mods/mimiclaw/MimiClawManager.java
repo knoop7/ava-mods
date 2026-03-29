@@ -42,6 +42,7 @@ public class MimiClawManager {
     private MemoryStore memoryStore;
     private CronService cronService;
     private ToolRegistry toolRegistry;
+    private ContextBuilder contextBuilder;
     private ChannelManager channelManager;
     private AndroidChannel androidChannel;
     private QQChannel qqChannel;
@@ -70,6 +71,9 @@ public class MimiClawManager {
         this.toolRegistry.init(context, memoryStore, cronService);
         this.toolRegistry.setSkillEnabledChecker(skillId -> isSkillEnabled(skillId));
         this.toolRegistry.cleanupCameraSnapshots();
+        
+        this.contextBuilder = new ContextBuilder(memoryStore, new com.ava.mods.mimiclaw.skills.SkillLoader(context));
+        this.contextBuilder.setSkillEnabledChecker(skillId -> isSkillEnabled(skillId));
         
         this.channelManager = ChannelManager.getInstance();
         this.androidChannel = new AndroidChannel();
@@ -396,13 +400,70 @@ public class MimiClawManager {
     }
 
     public String processPeerMessage(String message) {
-        // Process message from peer device - simple Q&A without full agent loop
+        // Process message from peer device - use full system prompt and tools
         try {
-            // Use LLM to generate a quick response
-            String systemPrompt = "You are a helpful AI assistant running on a peer device. Answer briefly and helpfully.";
-            return llmProxy.quickChat(systemPrompt, message);
+            // Build full system prompt with context
+            String systemPrompt = contextBuilder.buildSystemPrompt("peer", "peer_chat");
+            
+            // Create message array
+            JSONArray messages = new JSONArray();
+            JSONObject userMsg = new JSONObject();
+            userMsg.put("role", "user");
+            userMsg.put("content", "[From peer device] " + message);
+            messages.put(userMsg);
+            
+            // Get tools
+            JSONArray tools = toolRegistry.getToolsJson();
+            
+            // Call LLM with tools
+            LlmProxy.Response resp = llmProxy.chatWithTools(systemPrompt, messages, tools);
+            
+            // If tool use, execute tools and get final response
+            int iteration = 0;
+            int maxIterations = 5; // Limit iterations for peer messages
+            while (resp.toolUse && iteration < maxIterations) {
+                Log.d(TAG, "Peer message tool iteration " + (iteration + 1));
+                
+                // Execute tools
+                StringBuilder toolResults = new StringBuilder();
+                for (LlmProxy.ToolCall call : resp.calls) {
+                    String output = toolRegistry.executeTool(call.name, call.input);
+                    toolResults.append("[").append(call.name).append("] ").append(output).append("\n");
+                    
+                    // Add tool result to messages
+                    JSONObject asstMsg = new JSONObject();
+                    asstMsg.put("role", "assistant");
+                    JSONArray content = new JSONArray();
+                    JSONObject toolUseBlock = new JSONObject();
+                    toolUseBlock.put("type", "tool_use");
+                    toolUseBlock.put("id", call.id);
+                    toolUseBlock.put("name", call.name);
+                    toolUseBlock.put("input", new JSONObject(call.input));
+                    content.put(toolUseBlock);
+                    asstMsg.put("content", content);
+                    messages.put(asstMsg);
+                    
+                    JSONObject resultMsg = new JSONObject();
+                    resultMsg.put("role", "user");
+                    JSONArray resultContent = new JSONArray();
+                    JSONObject resultBlock = new JSONObject();
+                    resultBlock.put("type", "tool_result");
+                    resultBlock.put("tool_use_id", call.id);
+                    resultBlock.put("content", output);
+                    resultContent.put(resultBlock);
+                    resultMsg.put("content", resultContent);
+                    messages.put(resultMsg);
+                }
+                
+                // Call LLM again
+                resp = llmProxy.chatWithTools(systemPrompt, messages, tools);
+                iteration++;
+            }
+            
+            return resp.text != null && !resp.text.isEmpty() ? resp.text : "(no response)";
         } catch (Exception e) {
-            return "Error processing message: " + e.getMessage();
+            Log.e(TAG, "Error processing peer message", e);
+            return "Error: " + e.getMessage();
         }
     }
 
