@@ -93,15 +93,25 @@ public class WebConsoleServer {
                         String data = new String(packet.getData(), 0, packet.getLength(), "UTF-8");
                         
                         // Respond to PING with PONG
+                        // Format: OPENCLAW_PING:senderIp:replyPort:device:version
                         if (data.startsWith(PEER_MAGIC + ":")) {
+                            String[] parts = data.split(":");
+                            int replyPort = packet.getPort(); // default to sender port
+                            if (parts.length >= 3) {
+                                try {
+                                    replyPort = Integer.parseInt(parts[2]);
+                                } catch (Exception ignored) {}
+                            }
+                            
                             String localIp = getLocalIp();
                             String deviceName = android.os.Build.MODEL;
                             String response = PEER_RESPONSE + ":" + localIp + ":" + deviceName + ":" + manager.getModVersion();
                             byte[] responseData = response.getBytes("UTF-8");
                             
+                            // Reply to the specified port
                             java.net.DatagramPacket responsePacket = new java.net.DatagramPacket(
                                 responseData, responseData.length,
-                                packet.getAddress(), packet.getPort()
+                                packet.getAddress(), replyPort
                             );
                             udpSocket.send(responsePacket);
                         }
@@ -563,7 +573,8 @@ public class WebConsoleServer {
             if ("POST".equals(method) && "/api/peer/chat".equals(path)) {
                 JSONObject json = parseJson(body);
                 String peerPassword = json.optString("password", "");
-                String configuredPassword = manager.getConfigValue("peer_password", "openclaw");
+                String configuredPassword = manager.getConfigValue("peer_password", "");
+                if (configuredPassword.isEmpty()) configuredPassword = "openclaw";
                 if (!configuredPassword.equals(peerPassword)) {
                     writeJson(output, 401, new JSONObject().put("ok", false).put("error", "invalid_password"), null);
                     return;
@@ -583,7 +594,8 @@ public class WebConsoleServer {
             if ("POST".equals(method) && "/api/peer/status".equals(path)) {
                 JSONObject json = parseJson(body);
                 String peerPassword = json.optString("password", "");
-                String configuredPassword = manager.getConfigValue("peer_password", "openclaw");
+                String configuredPassword = manager.getConfigValue("peer_password", "");
+                if (configuredPassword.isEmpty()) configuredPassword = "openclaw";
                 if (!configuredPassword.equals(peerPassword)) {
                     writeJson(output, 401, new JSONObject().put("ok", false).put("error", "invalid_password"), null);
                     return;

@@ -3448,44 +3448,49 @@ public class ToolRegistry {
         
         java.util.Map<String, JSONObject> discovered = new java.util.concurrent.ConcurrentHashMap<>();
         
-        // UDP broadcast discovery - use same socket for send and receive
+        // UDP multicast discovery - compatible with Android 7-14
+        java.net.DatagramSocket sendSocket = null;
+        java.net.DatagramSocket recvSocket = null;
         try {
-            java.net.DatagramSocket socket = new java.net.DatagramSocket();
-            socket.setBroadcast(true);
-            socket.setSoTimeout(100);
+            // Create separate sockets for send and receive (more compatible)
+            sendSocket = new java.net.DatagramSocket();
+            sendSocket.setBroadcast(true);
             
-            // Send ping: OPENCLAW_PING:myIP:myDevice:myVersion
+            // Bind receive socket to specific port
+            recvSocket = new java.net.DatagramSocket(PEER_UDP_PORT + 1);
+            recvSocket.setSoTimeout(200);
+            
+            // Build ping message
             String deviceName = android.os.Build.MODEL;
-            String msg = PEER_MAGIC + ":" + localIp + ":" + deviceName + ":1.4.67";
+            int recvPort = recvSocket.getLocalPort();
+            String msg = PEER_MAGIC + ":" + localIp + ":" + recvPort + ":" + deviceName + ":1.4.68";
             byte[] data = msg.getBytes("UTF-8");
             
-            // Broadcast to subnet broadcast (e.g. 192.168.0.255) - more reliable
+            // Send to subnet broadcast
             int lastDot = localIp.lastIndexOf('.');
             if (lastDot > 0) {
                 String subnetBroadcast = localIp.substring(0, lastDot) + ".255";
-                java.net.DatagramPacket packet = new java.net.DatagramPacket(
-                    data, data.length,
-                    java.net.InetAddress.getByName(subnetBroadcast), PEER_UDP_PORT
-                );
-                socket.send(packet);
+                java.net.InetAddress broadcastAddr = java.net.InetAddress.getByName(subnetBroadcast);
+                sendSocket.send(new java.net.DatagramPacket(data, data.length, broadcastAddr, PEER_UDP_PORT));
             }
             
-            // Also try 255.255.255.255
-            java.net.DatagramPacket packet = new java.net.DatagramPacket(
-                data, data.length,
-                java.net.InetAddress.getByName("255.255.255.255"), PEER_UDP_PORT
-            );
-            socket.send(packet);
+            // Also send to 255.255.255.255
+            java.net.InetAddress globalBroadcast = java.net.InetAddress.getByName("255.255.255.255");
+            sendSocket.send(new java.net.DatagramPacket(data, data.length, globalBroadcast, PEER_UDP_PORT));
             
-            // Listen for responses on SAME socket
+            sendSocket.close();
+            sendSocket = null;
+            
+            // Listen for responses
             byte[] buffer = new byte[256];
-            long endTime = System.currentTimeMillis() + 2000;
+            long endTime = System.currentTimeMillis() + 2500;
             
             while (System.currentTimeMillis() < endTime) {
                 try {
                     java.net.DatagramPacket recvPacket = new java.net.DatagramPacket(buffer, buffer.length);
-                    socket.receive(recvPacket);
+                    recvSocket.receive(recvPacket);
                     String response = new String(recvPacket.getData(), 0, recvPacket.getLength(), "UTF-8");
+                    String senderIp = recvPacket.getAddress().getHostAddress();
                     
                     // Parse: OPENCLAW_PONG:ip:device:version
                     if (response.startsWith(PEER_RESPONSE + ":")) {
@@ -3494,6 +3499,11 @@ public class ToolRegistry {
                             String peerIp = parts[1];
                             String peerDevice = parts[2];
                             String peerVersion = parts[3];
+                            
+                            // Use sender IP if reported IP is different (NAT case)
+                            if (!senderIp.equals(peerIp) && !senderIp.equals("0.0.0.0")) {
+                                peerIp = senderIp;
+                            }
                             
                             if (!peerIp.equals(localIp) && !discovered.containsKey(peerIp)) {
                                 JSONObject peer = new JSONObject();
@@ -3509,9 +3519,11 @@ public class ToolRegistry {
                     // Normal, continue
                 }
             }
-            socket.close();
         } catch (Exception e) {
-            Log.w(TAG, "UDP discovery failed: " + e.getMessage());
+            Log.w(TAG, "UDP discovery: " + e.getMessage());
+        } finally {
+            if (sendSocket != null) try { sendSocket.close(); } catch (Exception ignored) {}
+            if (recvSocket != null) try { recvSocket.close(); } catch (Exception ignored) {}
         }
         
         // Get full info via HTTP for discovered peers
