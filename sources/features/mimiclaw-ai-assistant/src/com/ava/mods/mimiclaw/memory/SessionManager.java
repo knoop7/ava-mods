@@ -244,7 +244,9 @@ public class SessionManager {
         if (toolName == null) return 500;
         // High-value tools: more space
         if (toolName.contains("read_file") || toolName.contains("web_search") || 
-            toolName.contains("web_fetch") || toolName.contains("ui_tree")) {
+            toolName.contains("web_fetch") || toolName.contains("ui_tree") ||
+            toolName.contains("peer_chat") || toolName.contains("peer_scan") ||
+            toolName.contains("peer_connect") || toolName.contains("peer_status")) {
             return 1500;
         }
         // Medium-value tools
@@ -266,6 +268,9 @@ public class SessionManager {
         if (content.contains("file_content")) return "read_file";
         if (content.contains("search_results")) return "web_search";
         if (content.contains("ui_tree")) return "ui_tree";
+        if (content.contains("Peer response:")) return "peer_chat";
+        if (content.contains("OpenClaw family")) return "peer_scan";
+        if (content.contains("connected to peer")) return "peer_connect";
         return "";
     }
 
