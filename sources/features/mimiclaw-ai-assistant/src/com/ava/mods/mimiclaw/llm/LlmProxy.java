@@ -453,6 +453,29 @@ public class LlmProxy {
             
             if (content instanceof String) {
                 String contentStr = (String) content;
+                // Skip tool role with string content (it's from session history, will be handled via JSONArray content)
+                if ("tool".equals(role)) {
+                    // Try to parse as JSONArray and extract tool_results
+                    try {
+                        JSONArray toolResults = new JSONArray(contentStr);
+                        for (int j = 0; j < toolResults.length(); j++) {
+                            JSONObject block = toolResults.getJSONObject(j);
+                            if ("tool_result".equals(block.optString("type"))) {
+                                String toolUseId = block.optString("tool_use_id");
+                                if (validToolCallIds.contains(toolUseId)) {
+                                    JSONObject tm = new JSONObject();
+                                    tm.put("role", "tool");
+                                    tm.put("tool_call_id", toolUseId);
+                                    tm.put("content", block.optString("content", ""));
+                                    result.put(tm);
+                                }
+                            }
+                        }
+                    } catch (Exception e) {
+                        // Not valid JSON, skip
+                    }
+                    continue;
+                }
                 JSONObject m = new JSONObject();
                 m.put("role", role);
                 if ("user".equals(role) && contentStr.contains("<image_data>")) {

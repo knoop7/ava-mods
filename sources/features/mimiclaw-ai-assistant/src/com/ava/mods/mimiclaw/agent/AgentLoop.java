@@ -185,9 +185,9 @@ public class AgentLoop implements Runnable {
                 resultMsg.put("content", toolResults);
                 messages.put(resultMsg);
                 
-                // Save tool_result to history for webconsole
+                // Save tool_result to history for webconsole (use "tool" role to avoid showing in user bubble)
                 if ("webconsole".equals(msg.channel) && !hiddenBrowserEvent) {
-                    sessionManager.appendMessage(sessionKey, "user", toolResults.toString());
+                    sessionManager.appendMessage(sessionKey, "tool", toolResults.toString());
                 }
                 
                 iteration++;
