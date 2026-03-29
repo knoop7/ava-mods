@@ -79,12 +79,11 @@ public class WebConsoleServer {
     private void startUdpResponder() {
         udpThread = new Thread(() -> {
             try {
-                udpSocket = new java.net.DatagramSocket(null);
-                udpSocket.setReuseAddress(true);
-                udpSocket.bind(new java.net.InetSocketAddress(UDP_PORT));
+                // Simple constructor - most compatible with Android 7+
+                udpSocket = new java.net.DatagramSocket(UDP_PORT);
                 udpSocket.setBroadcast(true);
                 byte[] buffer = new byte[256];
-                Log.i(TAG, "UDP discovery responder on port " + UDP_PORT);
+                Log.i(TAG, "UDP responder started on port " + UDP_PORT);
                 
                 while (running && udpSocket != null && !udpSocket.isClosed()) {
                     try {
@@ -107,6 +106,8 @@ public class WebConsoleServer {
                             String deviceName = android.os.Build.MODEL;
                             String response = PEER_RESPONSE + ":" + localIp + ":" + deviceName + ":" + manager.getModVersion();
                             byte[] responseData = response.getBytes("UTF-8");
+                            
+                            Log.d(TAG, "UDP PING from " + packet.getAddress().getHostAddress() + " -> PONG to port " + replyPort);
                             
                             // Reply to the specified port
                             java.net.DatagramPacket responsePacket = new java.net.DatagramPacket(
