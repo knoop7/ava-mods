@@ -58,7 +58,7 @@
       "author": "Ava",
       "description": "Java-built Android AI assistant for control, automation, screenshots, diagnostics, and expandable skills.",
       "path": "mods/features/mimiclaw-ai-assistant/",
-      "jar_hash": "ff88e3e9fbebe697814c993f043027d0"
+      "jar_hash": "815fd2cfc97ea7745695da8907ecceda"
     },
     {
       "id": "qcom-audio-fix",
