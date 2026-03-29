@@ -1303,16 +1303,19 @@ public class ToolRegistry {
         );
 
         addTool("peer_chat",
-            "Send a message to a connected OpenClaw peer and get response.",
-            "{\"type\":\"object\",\"properties\":{\"ip\":{\"type\":\"string\",\"description\":\"IP address of the peer device\"},\"message\":{\"type\":\"string\",\"description\":\"Message to send to the peer\"},\"password\":{\"type\":\"string\",\"description\":\"Peer password (default: openclaw)\"}},\"required\":[\"ip\",\"message\"]}",
+            "Send a message to a connected OpenClaw peer and wait for AI response. IMPORTANT: Set timeout=60 or higher for complex questions as peer AI needs time to think. This is a blocking call that waits for the peer's response.",
+            "{\"type\":\"object\",\"properties\":{\"ip\":{\"type\":\"string\",\"description\":\"IP address of the peer device\"},\"message\":{\"type\":\"string\",\"description\":\"Message to send to the peer\"},\"password\":{\"type\":\"string\",\"description\":\"Peer password (default: openclaw)\"},\"timeout\":{\"type\":\"integer\",\"description\":\"Timeout in seconds. Set 60+ for complex questions. Default: 15, max: 120\"}},\"required\":[\"ip\",\"message\"]}",
             inputJson -> {
                 JSONObject input = new JSONObject(inputJson);
                 String ip = input.optString("ip", "").trim();
                 String message = input.optString("message", "").trim();
                 String password = input.optString("password", "openclaw");
+                int timeout = input.optInt("timeout", 15);
+                if (timeout < 3) timeout = 3;
+                if (timeout > 120) timeout = 120;
                 if (ip.isEmpty()) return "Error: ip is required";
                 if (message.isEmpty()) return "Error: message is required";
-                return chatWithPeer(ip, password, message);
+                return chatWithPeer(ip, password, message, timeout);
             }
         );
 
@@ -3417,6 +3420,23 @@ public class ToolRegistry {
     private static final String PEER_MAGIC = "OPENCLAW_PING";
     private static final String PEER_RESPONSE = "OPENCLAW_PONG";
 
+    private String getModVersionFromManifest() {
+        try {
+            java.io.File manifestFile = new java.io.File(context.getFilesDir(), "mods/mimiclaw-ai-assistant/manifest.json");
+            if (manifestFile.exists()) {
+                java.io.FileInputStream fis = new java.io.FileInputStream(manifestFile);
+                byte[] data = new byte[(int) manifestFile.length()];
+                fis.read(data);
+                fis.close();
+                JSONObject manifest = new JSONObject(new String(data, "UTF-8"));
+                return manifest.optString("version", "unknown");
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Failed to read mod version: " + e.getMessage());
+        }
+        return "unknown";
+    }
+
     private String getLocalIp() {
         try {
             java.util.Enumeration<java.net.NetworkInterface> interfaces = java.net.NetworkInterface.getNetworkInterfaces();
@@ -3456,7 +3476,8 @@ public class ToolRegistry {
             socket.setSoTimeout(150);
             
             String deviceName = android.os.Build.MODEL;
-            String msg = PEER_MAGIC + ":" + localIp + ":" + socket.getLocalPort() + ":" + deviceName + ":1.4.69";
+            String version = getModVersionFromManifest();
+            String msg = PEER_MAGIC + ":" + localIp + ":" + socket.getLocalPort() + ":" + deviceName + ":" + version;
             byte[] data = msg.getBytes("UTF-8");
             
             // Send to subnet broadcast only (more reliable on Android 7)
@@ -3618,12 +3639,12 @@ public class ToolRegistry {
         }
     }
 
-    private String chatWithPeer(String ip, String password, String message) {
+    private String chatWithPeer(String ip, String password, String message, int timeoutSeconds) {
         try {
             java.net.URL url = new java.net.URL("http://" + ip + ":18789/api/peer/chat");
             java.net.HttpURLConnection conn = (java.net.HttpURLConnection) url.openConnection();
             conn.setConnectTimeout(5000);
-            conn.setReadTimeout(30000);
+            conn.setReadTimeout(timeoutSeconds * 1000);
             conn.setRequestMethod("POST");
             conn.setRequestProperty("Content-Type", "application/json");
             conn.setDoOutput(true);

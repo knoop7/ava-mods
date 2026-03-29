@@ -161,7 +161,7 @@ public class ContextBuilder {
         sb.append("Tools:\n");
         sb.append("- **peer_scan**: Scan local network for other OpenClaw family members (port 18789)\n");
         sb.append("- **peer_connect**: Connect to a peer and exchange device info & capabilities\n");
-        sb.append("- **peer_chat**: Collaborate with peer - ask questions, share info (default password: openclaw)\n");
+        sb.append("- **peer_chat**: Send message to peer and WAIT for AI response. **IMPORTANT: Always set timeout=60 or higher** because peer AI needs time to think. This is a blocking call.\n");
         sb.append("- **peer_status**: Get peer's current status and enabled skills\n");
         sb.append("\nWhen you discover other OpenClaw devices, inform the user warmly: ");
         sb.append("\"I found a family member on the home network! It's [device] running OpenClaw. Want me to say hello?\"\n");

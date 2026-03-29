@@ -375,7 +375,20 @@ public class MimiClawManager {
     }
 
     public String getModVersion() {
-        return "1.4.64";
+        try {
+            java.io.File manifestFile = new java.io.File(context.getFilesDir(), "mods/mimiclaw-ai-assistant/manifest.json");
+            if (manifestFile.exists()) {
+                java.io.FileInputStream fis = new java.io.FileInputStream(manifestFile);
+                byte[] data = new byte[(int) manifestFile.length()];
+                fis.read(data);
+                fis.close();
+                JSONObject manifest = new JSONObject(new String(data, "UTF-8"));
+                return manifest.optString("version", "unknown");
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Failed to read mod version: " + e.getMessage());
+        }
+        return "unknown";
     }
 
     public boolean hasRootAccess() {
