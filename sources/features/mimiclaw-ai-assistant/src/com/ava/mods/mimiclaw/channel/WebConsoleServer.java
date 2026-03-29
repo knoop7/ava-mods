@@ -81,13 +81,21 @@ public class WebConsoleServer {
             while (running) {
                 java.net.DatagramSocket sock = null;
                 try {
-                    // Bind to IPv4 explicitly - critical for Android 7 UDP broadcast
+                    // Force IPv4 - critical for Android 7 UDP broadcast
+                    // Method 1: Set system property to prefer IPv4
+                    System.setProperty("java.net.preferIPv4Stack", "true");
+                    
+                    // Method 2: Bind to specific IPv4 address
                     sock = new java.net.DatagramSocket(null);
                     sock.setReuseAddress(true);
-                    sock.bind(new java.net.InetSocketAddress(java.net.InetAddress.getByName("0.0.0.0"), UDP_PORT));
+                    java.net.InetSocketAddress addr = new java.net.InetSocketAddress("0.0.0.0", UDP_PORT);
+                    sock.bind(addr);
                     sock.setBroadcast(true);
                     sock.setSoTimeout(5000);
                     udpSocket = sock;
+                    
+                    // Log actual bound address
+                    Log.i(TAG, "UDP bound to: " + sock.getLocalAddress() + ":" + sock.getLocalPort());
                     byte[] buffer = new byte[256];
                     Log.i(TAG, "UDP responder listening on port " + UDP_PORT);
                     
