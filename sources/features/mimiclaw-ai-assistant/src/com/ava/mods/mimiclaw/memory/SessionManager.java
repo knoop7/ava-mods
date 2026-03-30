@@ -144,27 +144,43 @@ public class SessionManager {
                 JSONObject msg = history.getJSONObject(i);
                 JSONObject newMsg = new JSONObject(msg.toString());
                 
-                // Smart compress based on message age
-                String content = newMsg.optString("content", "");
                 boolean isRecentMsg = i >= compressThreshold;
                 
-                // Recent messages: keep intact for proper UI rendering
+                // Recent messages: keep intact for proper UI rendering and tool continuity
                 if (isRecentMsg) {
                     // No compression for recent messages
-                }
-                // Old tool results: smart compress
-                else if (content.startsWith("[{") || content.startsWith("[")) {
-                    content = smartCompressToolResults(content, false);
-                    newMsg.put("content", content);
-                }
-                // Old non-tool content: truncate if very long
-                else if (content.length() > 2000) {
-                    content = content.substring(0, 1500) + "\n...[truncated]";
-                    newMsg.put("content", content);
+                    Object contentObj = newMsg.opt("content");
+                    totalChars += contentObj != null ? contentObj.toString().length() : 0;
+                    compressed.put(newMsg);
+                    continue;
                 }
                 
-                String finalContent = newMsg.optString("content", "");
-                totalChars += finalContent.length();
+                // Handle content - could be String or JSONArray
+                Object contentObj = newMsg.opt("content");
+                int contentLen = 0;
+                
+                if (contentObj instanceof JSONArray) {
+                    // Content is JSONArray (tool_use or tool_result blocks)
+                    JSONArray contentArr = (JSONArray) contentObj;
+                    JSONArray compressedArr = compressContentArray(contentArr);
+                    newMsg.put("content", compressedArr);
+                    contentLen = compressedArr.toString().length();
+                } else if (contentObj instanceof String) {
+                    String content = (String) contentObj;
+                    // Old tool results stored as string: smart compress
+                    if (content.startsWith("[{") || content.startsWith("[")) {
+                        content = smartCompressToolResults(content, false);
+                        newMsg.put("content", content);
+                    }
+                    // Old non-tool content: truncate if very long
+                    else if (content.length() > 2000) {
+                        content = content.substring(0, 1500) + "\n...[truncated]";
+                        newMsg.put("content", content);
+                    }
+                    contentLen = content.length();
+                }
+                
+                totalChars += contentLen;
                 
                 // If we're over budget, start dropping oldest messages
                 if (totalChars > maxChars && compressed.length() > recentKeepCount) {
@@ -184,6 +200,63 @@ public class SessionManager {
         } catch (Exception e) {
             Log.e(TAG, "Failed to compress history", e);
             return history;
+        }
+    }
+
+    /**
+     * Compress content array (tool_use or tool_result blocks).
+     * Preserves tool_use structure completely, compresses tool_result content.
+     */
+    private JSONArray compressContentArray(JSONArray contentArr) {
+        try {
+            JSONArray compressed = new JSONArray();
+            for (int i = 0; i < contentArr.length(); i++) {
+                JSONObject block = contentArr.getJSONObject(i);
+                String type = block.optString("type", "");
+                
+                if ("tool_use".equals(type)) {
+                    // Keep tool_use intact - critical for AI to understand tool calls
+                    compressed.put(block);
+                } else if ("tool_result".equals(type)) {
+                    // Compress tool_result content
+                    JSONObject newBlock = new JSONObject();
+                    newBlock.put("type", "tool_result");
+                    newBlock.put("tool_use_id", block.optString("tool_use_id", ""));
+                    
+                    String content = block.optString("content", "");
+                    String toolName = extractToolName(content);
+                    int maxLen = getMaxLenForTool(toolName);
+                    
+                    if (content.length() > maxLen) {
+                        String extracted = extractKeyInfo(content, toolName);
+                        if (extracted.length() < content.length() / 2) {
+                            content = extracted;
+                        } else {
+                            content = content.substring(0, maxLen - 50) + "\n...[" + (content.length() - maxLen + 50) + " chars omitted]";
+                        }
+                    }
+                    newBlock.put("content", content);
+                    compressed.put(newBlock);
+                } else if ("text".equals(type)) {
+                    // Compress text blocks if too long
+                    String text = block.optString("text", "");
+                    if (text.length() > 1500) {
+                        JSONObject newBlock = new JSONObject();
+                        newBlock.put("type", "text");
+                        newBlock.put("text", text.substring(0, 1200) + "\n...[truncated]");
+                        compressed.put(newBlock);
+                    } else {
+                        compressed.put(block);
+                    }
+                } else {
+                    // Keep other types intact
+                    compressed.put(block);
+                }
+            }
+            return compressed;
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to compress content array", e);
+            return contentArr;
         }
     }
 
