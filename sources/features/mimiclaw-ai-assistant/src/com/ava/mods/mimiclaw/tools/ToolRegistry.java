@@ -16,6 +16,7 @@ import android.util.Log;
 import com.ava.mods.mimiclaw.memory.MemoryStore;
 import com.ava.mods.mimiclaw.cron.CronService;
 import com.ava.mods.mimiclaw.skills.SkillLoader;
+import com.ava.mods.mimiclaw.task.TaskTree;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import java.io.*;
@@ -130,6 +131,7 @@ public class ToolRegistry {
     private MemoryStore memoryStore;
     private CronService cronService;
     private SkillLoader skillLoader;
+    private TaskTree taskTree;
     private String tavilyKey = "";
     private String currentChannel = "android";
     private String currentChatId = "default";
@@ -176,6 +178,7 @@ public class ToolRegistry {
         this.memoryStore = memoryStore;
         this.cronService = cronService;
         this.skillLoader = new SkillLoader(context);
+        this.taskTree = new TaskTree(context);
         registerBuiltinTools();
         buildToolsJson();
     }
@@ -240,6 +243,10 @@ public class ToolRegistry {
             return toolsJson; // Fallback to cached
         }
         return filtered;
+    }
+    
+    public TaskTree getTaskTree() {
+        return taskTree;
     }
     
     private void registerBuiltinTools() {
@@ -1337,6 +1344,126 @@ public class ToolRegistry {
             "{\"type\":\"object\",\"properties\":{},\"required\":[]}",
             inputJson -> {
                 return checkForUpdate();
+            }
+        );
+
+        // ========== Task Tree Tools ==========
+        
+        addTool("task_create",
+            "Create a task list from JSON. Tasks will be executed in order. Use this to set up a structured workflow.",
+            "{\"type\":\"object\",\"properties\":{\"todos\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\"},\"content\":{\"type\":\"string\"},\"activeForm\":{\"type\":\"string\"},\"priority\":{\"type\":\"string\"}},\"required\":[\"content\"]}}},\"required\":[\"todos\"]}",
+            inputJson -> {
+                return taskTree.createTasksFromJson(inputJson);
+            }
+        );
+        
+        addTool("task_get_next",
+            "Get the next pending task to execute. Returns null if all tasks are done.",
+            "{\"type\":\"object\",\"properties\":{},\"required\":[]}",
+            inputJson -> {
+                JSONObject task = taskTree.getNextTask();
+                if (task == null) {
+                    return "No pending tasks. All done!";
+                }
+                return task.toString(2);
+            }
+        );
+        
+        addTool("task_get_current",
+            "Get the currently in-progress task.",
+            "{\"type\":\"object\",\"properties\":{},\"required\":[]}",
+            inputJson -> {
+                JSONObject task = taskTree.getCurrentTask();
+                if (task == null) {
+                    JSONObject next = taskTree.getNextTask();
+                    if (next != null) {
+                        return "No task in progress. Next pending: " + next.optString("content");
+                    }
+                    return "No tasks in progress or pending.";
+                }
+                return task.toString(2);
+            }
+        );
+        
+        addTool("task_start",
+            "Mark a task as in_progress. Usually called automatically by task_auto_progress.",
+            "{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\",\"description\":\"Task ID to start\"}},\"required\":[\"id\"]}",
+            inputJson -> {
+                JSONObject input = new JSONObject(inputJson);
+                String id = input.optString("id", "").trim();
+                if (id.isEmpty()) {
+                    return "Error: Task ID is required";
+                }
+                return taskTree.startTask(id);
+            }
+        );
+        
+        addTool("task_complete",
+            "Mark a task as completed. Call this after successfully finishing a task.",
+            "{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\",\"description\":\"Task ID to complete\"}},\"required\":[\"id\"]}",
+            inputJson -> {
+                JSONObject input = new JSONObject(inputJson);
+                String id = input.optString("id", "").trim();
+                if (id.isEmpty()) {
+                    JSONObject current = taskTree.getCurrentTask();
+                    if (current != null) {
+                        id = current.optString("id");
+                    } else {
+                        return "Error: No task in progress. Provide task ID or start a task first.";
+                    }
+                }
+                return taskTree.completeTask(id);
+            }
+        );
+        
+        addTool("task_fail",
+            "Mark a task as failed with a reason.",
+            "{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\",\"description\":\"Task ID\"},\"reason\":{\"type\":\"string\",\"description\":\"Failure reason\"}},\"required\":[\"id\",\"reason\"]}",
+            inputJson -> {
+                JSONObject input = new JSONObject(inputJson);
+                String id = input.optString("id", "").trim();
+                String reason = input.optString("reason", "Unknown");
+                if (id.isEmpty()) {
+                    JSONObject current = taskTree.getCurrentTask();
+                    if (current != null) {
+                        id = current.optString("id");
+                    } else {
+                        return "Error: No task in progress. Provide task ID.";
+                    }
+                }
+                return taskTree.failTask(id, reason);
+            }
+        );
+        
+        addTool("task_list",
+            "List all tasks with their status.",
+            "{\"type\":\"object\",\"properties\":{},\"required\":[]}",
+            inputJson -> {
+                return taskTree.listTasks();
+            }
+        );
+        
+        addTool("task_status",
+            "Get task status summary in JSON format.",
+            "{\"type\":\"object\",\"properties\":{},\"required\":[]}",
+            inputJson -> {
+                return taskTree.getStatusSummary();
+            }
+        );
+        
+        addTool("task_auto_progress",
+            "Automatically progress to the next task. If a task is in progress, returns its info. If no task is in progress, starts the next pending task. Use this to drive sequential task execution.",
+            "{\"type\":\"object\",\"properties\":{},\"required\":[]}",
+            inputJson -> {
+                return taskTree.autoProgress();
+            }
+        );
+        
+        addTool("task_clear",
+            "Clear all tasks.",
+            "{\"type\":\"object\",\"properties\":{},\"required\":[]}",
+            inputJson -> {
+                return taskTree.clearTasks();
             }
         );
 

@@ -20,6 +20,7 @@ import com.ava.mods.mimiclaw.channel.AndroidChannel;
 import com.ava.mods.mimiclaw.channel.QQChannel;
 import com.ava.mods.mimiclaw.channel.TelegramChannel;
 import com.ava.mods.mimiclaw.channel.WebConsoleServer;
+import com.ava.mods.mimiclaw.task.TaskTree;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -1281,8 +1282,43 @@ public class MimiClawManager {
             json.put("qqEnabled", qqChannel != null && qqChannel.isEnabled());
             json.put("telegramEnabled", telegramChannel != null && telegramChannel.isEnabled());
             json.put("historyCount", getWebConsoleHistory(chatId, 50).length());
+            json.put("taskTree", getTaskTreeStatus());
         } catch (Exception e) {
             Log.w(TAG, "Failed to build web console status", e);
+        }
+        return json;
+    }
+    
+    public JSONObject getTaskTreeStatus() {
+        JSONObject json = new JSONObject();
+        try {
+            TaskTree taskTree = toolRegistry.getTaskTree();
+            if (taskTree == null) {
+                json.put("error", "not_initialized");
+                return json;
+            }
+            JSONArray todos = taskTree.getTasksJson();
+            int pending = 0, inProgress = 0, completed = 0, failed = 0;
+            if (todos != null) {
+                for (int i = 0; i < todos.length(); i++) {
+                    JSONObject task = todos.getJSONObject(i);
+                    String status = task.optString("status", "pending");
+                    switch (status) {
+                        case "pending": pending++; break;
+                        case "in_progress": inProgress++; break;
+                        case "completed": completed++; break;
+                        case "failed": failed++; break;
+                    }
+                }
+            }
+            json.put("total", todos != null ? todos.length() : 0);
+            json.put("pending", pending);
+            json.put("in_progress", inProgress);
+            json.put("completed", completed);
+            json.put("failed", failed);
+            json.put("todos", todos != null ? todos : new JSONArray());
+        } catch (Exception e) {
+            Log.w(TAG, "Failed to get task tree status", e);
         }
         return json;
     }
