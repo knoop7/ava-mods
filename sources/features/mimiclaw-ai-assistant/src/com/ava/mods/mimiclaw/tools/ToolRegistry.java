@@ -4034,8 +4034,10 @@ public class ToolRegistry {
             }
             
             // Use reflection to call ModManager.updateModSync
-            Class<?> modManagerClass = Class.forName("com.example.ava.mods.ModManager");
-            Class<?> companionClass = Class.forName("com.example.ava.mods.ModManager$Companion");
+            // Must use host ClassLoader to access main app classes
+            ClassLoader hostLoader = context.getClassLoader();
+            Class<?> modManagerClass = Class.forName("com.example.ava.mods.ModManager", false, hostLoader);
+            Class<?> companionClass = Class.forName("com.example.ava.mods.ModManager$Companion", false, hostLoader);
             java.lang.reflect.Field companionField = modManagerClass.getDeclaredField("Companion");
             Object companion = companionField.get(null);
             java.lang.reflect.Method getInstanceMethod = companionClass.getMethod("getInstance", android.content.Context.class);
