@@ -4034,8 +4034,12 @@ public class ToolRegistry {
             }
             
             // Use reflection to call ModManager.updateModSync
-            // Must use host ClassLoader to access main app classes
-            ClassLoader hostLoader = context.getClassLoader();
+            // Must use host ClassLoader (parent of mod's DexClassLoader) to access main app classes
+            ClassLoader modLoader = this.getClass().getClassLoader();
+            ClassLoader hostLoader = modLoader != null ? modLoader.getParent() : context.getClassLoader();
+            if (hostLoader == null) {
+                hostLoader = context.getClassLoader();
+            }
             Class<?> modManagerClass = Class.forName("com.example.ava.mods.ModManager", false, hostLoader);
             Class<?> companionClass = Class.forName("com.example.ava.mods.ModManager$Companion", false, hostLoader);
             java.lang.reflect.Field companionField = modManagerClass.getDeclaredField("Companion");
