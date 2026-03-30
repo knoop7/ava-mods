@@ -4048,15 +4048,20 @@ public class ToolRegistry {
             String result = (String) updateMethod.invoke(modManager, MOD_ID);
             
             if ("ok".equals(result)) {
-                // 自动重启mod以应用更新
+                // Reload mod to apply update
                 try {
-                    java.lang.reflect.Method reloadMethod = modManagerClass.getMethod("reloadMod", String.class);
-                    reloadMethod.invoke(modManager, MOD_ID);
-                    return "Update successful! Version " + latestVersion + " installed and mod reloaded.";
+                    java.lang.reflect.Method reloadMethod = modManagerClass.getMethod("reloadModSync", String.class);
+                    String reloadResult = (String) reloadMethod.invoke(modManager, MOD_ID);
+                    if ("ok".equals(reloadResult)) {
+                        return "Update successful! Version " + latestVersion + " installed and reloaded.";
+                    } else {
+                        return "Update successful! Version " + latestVersion + " installed.\n" +
+                               "Reload failed: " + reloadResult + "\nPlease restart the app.";
+                    }
                 } catch (Exception reloadEx) {
-                    Log.w(TAG, "Auto-reload after update failed, manual restart required", reloadEx);
+                    Log.w(TAG, "Auto-reload after update failed", reloadEx);
                     return "Update successful! Version " + latestVersion + " installed.\n" +
-                           "Please restart the app to apply the update (auto-reload failed).";
+                           "Please restart the app to apply the update.";
                 }
             } else {
                 return "Update failed: " + result;
