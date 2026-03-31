@@ -132,6 +132,10 @@ public class MimiClawManager {
         }
         return instance;
     }
+
+    public Context getContext() {
+        return context;
+    }
     
     public void applyConfig(String key, String value) {
         if (key == null || value == null) {

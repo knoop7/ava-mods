@@ -3,6 +3,7 @@ package com.ava.mods.mimiclaw.channel;
 import android.util.Log;
 import com.ava.mods.mimiclaw.BuildInfo;
 import com.ava.mods.mimiclaw.MimiClawManager;
+import com.ava.mods.mimiclaw.speech.NativeSpeechRecognizer;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -47,9 +48,15 @@ public class WebConsoleServer {
     private volatile java.net.DatagramSocket udpSocket;
     private volatile Thread udpThread;
     
+    // Native speech recognition
+    private NativeSpeechRecognizer speechRecognizer;
+    private volatile String lastSpeechResult = "";
+    private volatile String lastSpeechError = "";
+    private volatile boolean speechListening = false;
 
     public WebConsoleServer(MimiClawManager manager) {
         this.manager = manager;
+        this.speechRecognizer = new NativeSpeechRecognizer(manager.getContext());
     }
 
     public synchronized void start() {
@@ -504,6 +511,60 @@ public class WebConsoleServer {
                 return;
             }
 
+            if ("POST".equals(method) && "/api/speech/start".equals(path)) {
+                if (speechRecognizer == null || !speechRecognizer.isAvailable()) {
+                    writeJson(output, 200, errorJson("Speech recognition not available"), null);
+                    return;
+                }
+                lastSpeechResult = "";
+                lastSpeechError = "";
+                speechListening = true;
+                speechRecognizer.startListening(new NativeSpeechRecognizer.SpeechCallback() {
+                    @Override
+                    public void onPartialResult(String text) {
+                        lastSpeechResult = text;
+                        broadcastSpeechEvent("partial", text, null);
+                    }
+                    @Override
+                    public void onFinalResult(String text) {
+                        lastSpeechResult = text;
+                        speechListening = false;
+                        broadcastSpeechEvent("final", text, null);
+                    }
+                    @Override
+                    public void onError(String error) {
+                        lastSpeechError = error;
+                        speechListening = false;
+                        broadcastSpeechEvent("error", null, error);
+                    }
+                    @Override
+                    public void onReady() {
+                        broadcastSpeechEvent("ready", null, null);
+                    }
+                });
+                writeJson(output, 200, okJson().put("listening", true), null);
+                return;
+            }
+
+            if ("POST".equals(method) && "/api/speech/stop".equals(path)) {
+                if (speechRecognizer != null) {
+                    speechRecognizer.stopListening();
+                }
+                speechListening = false;
+                writeJson(output, 200, okJson().put("result", lastSpeechResult), null);
+                return;
+            }
+
+            if ("GET".equals(method) && "/api/speech/status".equals(path)) {
+                boolean available = speechRecognizer != null && speechRecognizer.isAvailable();
+                writeJson(output, 200, okJson()
+                    .put("available", available)
+                    .put("listening", speechListening)
+                    .put("result", lastSpeechResult)
+                    .put("error", lastSpeechError), null);
+                return;
+            }
+
             if ("GET".equals(method) && "/api/config".equals(path)) {
                 JSONObject profiles = manager.getProviderProfilesPayload();
                 JSONObject result = okJson()
@@ -806,6 +867,30 @@ public class WebConsoleServer {
             }
         }
         Log.i(TAG, "Broadcasted skill change: " + skillId + " -> " + enabled);
+    }
+
+    private void broadcastSpeechEvent(String type, String text, String error) {
+        try {
+            JSONObject data = new JSONObject();
+            data.put("type", type);
+            if (text != null) data.put("text", text);
+            if (error != null) data.put("error", error);
+            String eventData = data.toString();
+            synchronized (sseClients) {
+                java.util.Iterator<BufferedWriter> it = sseClients.iterator();
+                while (it.hasNext()) {
+                    BufferedWriter writer = it.next();
+                    try {
+                        writer.write("event: speech\ndata: " + eventData + "\n\n");
+                        writer.flush();
+                    } catch (Exception e) {
+                        it.remove();
+                    }
+                }
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to broadcast speech event", e);
+        }
     }
 
     private boolean isSessionValid(String sessionId) {
@@ -1342,7 +1427,7 @@ public class WebConsoleServer {
             + ".ghostBtn svg{width:16px;height:16px;}"
             + ".chatShell{flex:1;min-height:0;border-radius:18px;}"
             + ".composerWrap{padding:10px 12px;}"
-            + ".metaRow{padding:0 12px 4px;}"
+            + ".metaRow{padding:6px 12px 0 24px;}"
             + ".meta{padding:0;line-height:1;}"
             + ".footer{display:none;}"
             + ".installHint{left:12px;right:12px;top:calc(8px + env(safe-area-inset-top,0px));}"
@@ -1466,18 +1551,21 @@ public class WebConsoleServer {
             + "function setComposerBusy(busy){window.__openclawBusy=!!busy;renderSendButton();renderMicButton();}"
             + "function syncBusyFromStatus(status){if(window.__stoppingRequest&&!isTerminalStatus(status))return;setComposerBusy(isBusyStatus(status));}"
             + "function sendOrStop(event){if(isSendButtonBusy()){stopChat();}else{sendChat();}}"
-            + "let voiceRecognition=null;let voicePermissionReady=false;let voiceFinalTranscript='';window.__voiceRecording=false;window.__sendingRequest=false;window.__stoppingRequest=false;let micLongPress=false;let micPressTimer=null;window.__voiceSendOnEnd=false;let voiceToastShown=false;"
+            + "let voiceRecognition=null;let voicePermissionReady=false;let voiceFinalTranscript='';window.__voiceRecording=false;window.__sendingRequest=false;window.__stoppingRequest=false;let micLongPress=false;let micPressTimer=null;window.__voiceSendOnEnd=false;let voiceToastShown=false;let useNativeSpeech=false;let nativeSpeechAvailable=null;"
             + "function getSpeechLang(){return 'zh-CN';}"
+            + "async function checkNativeSpeech(){if(nativeSpeechAvailable!==null)return nativeSpeechAvailable;try{const r=await fetch(apiUrl('/api/speech/status'),{credentials:'include',headers:apiHeaders()});const j=await r.json();nativeSpeechAvailable=j.ok&&j.available;return nativeSpeechAvailable;}catch(e){nativeSpeechAvailable=false;return false;}}"
             + "async function ensureMicPermission(){if(voicePermissionReady)return true;try{if(navigator.permissions&&navigator.permissions.query){const result=await navigator.permissions.query({name:'microphone'});if(result&&result.state==='granted'){voicePermissionReady=true;return true;}}}catch(e){}try{if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia)return false;const stream=await navigator.mediaDevices.getUserMedia({audio:true});(stream.getTracks?stream.getTracks():[]).forEach(track=>{try{track.stop();}catch(e){}});voicePermissionReady=true;return true;}catch(e){console.error('mic permission error',e);return false;}}"
-            + "function ensureVoiceRecognition(){if(voiceRecognition)return voiceRecognition;const SpeechRecognition=window.SpeechRecognition||window.webkitSpeechRecognition;if(!SpeechRecognition)return null;const recognition=new SpeechRecognition();recognition.lang=getSpeechLang();recognition.continuous=true;recognition.interimResults=true;recognition.maxAlternatives=1;recognition.onresult=function(event){const input=document.getElementById('message');let live='';for(let i=0;i<event.results.length;i++){const result=event.results[i];const text=((result&&result[0]&&result[0].transcript)||'').trim();if(text){live+=(live?' ':'')+text;}}if(input&&live){input.value=live;input.dispatchEvent(new Event('input',{bubbles:true}));}};recognition.onerror=function(e){if(e.error==='aborted')return;console.error('speech error',e.error);window.__voiceSendOnEnd=false;window.__voiceRecording=false;renderMicButton();loadStatus();};recognition.onend=function(){if(!window.__voiceRecording)return;window.__voiceRecording=false;renderMicButton();const shouldSend=window.__voiceSendOnEnd;window.__voiceSendOnEnd=false;if(shouldSend){const input=document.getElementById('message');if(input&&input.value.trim()){setTimeout(()=>sendChat(),50);}else{loadStatus();}}else{loadStatus();}};voiceRecognition=recognition;return recognition;}"
-            + "window.toggleVoiceRecording=async function(){if(window.__voiceRecording){stopVoiceRecording();return;}if(isSendButtonBusy()){setChatStatus('Wait for AI',{plain:true,className:'st-warn'});return;}setChatStatus('Preparing mic',{plain:true});const granted=await ensureMicPermission();if(!granted){setChatStatus('Mic denied',{plain:true,className:'st-err'});return;}const recognition=ensureVoiceRecognition();if(!recognition){setChatStatus('Voice unsupported',{plain:true,className:'st-err'});return;}voiceFinalTranscript='';window.__voiceRecording=true;renderMicButton();setChatStatus('Listening...',{plain:true});try{recognition.start();}catch(e){window.__voiceRecording=false;renderMicButton();setChatStatus('Voice unavailable',{plain:true,className:'st-err'});}};"
-            + "function stopVoiceRecording(sendAfter){if(voiceRecognition&&window.__voiceRecording){window.__voiceSendOnEnd=!!sendAfter;try{voiceRecognition.stop();}catch(e){window.__voiceRecording=false;renderMicButton();if(sendAfter){const input=document.getElementById('message');if(input&&input.value.trim())sendChat();}}}else{window.__voiceRecording=false;renderMicButton();loadStatus();}}"
+            + "function ensureVoiceRecognition(){if(voiceRecognition)return voiceRecognition;const SpeechRecognition=window.SpeechRecognition||window.webkitSpeechRecognition;if(!SpeechRecognition){console.warn('SpeechRecognition API not available');return null;}const recognition=new SpeechRecognition();recognition.lang=getSpeechLang();recognition.continuous=true;recognition.interimResults=true;recognition.maxAlternatives=1;recognition.onresult=function(event){const input=document.getElementById('message');let live='';for(let i=0;i<event.results.length;i++){const result=event.results[i];const text=((result&&result[0]&&result[0].transcript)||'').trim();if(text){live+=(live?' ':'')+text;}}if(input&&live){input.value=live;input.dispatchEvent(new Event('input',{bubbles:true}));}};recognition.onerror=function(e){if(e.error==='aborted')return;console.error('speech error',e.error);let errMsg='Voice error';if(e.error==='network'){errMsg='Network required for voice';}else if(e.error==='not-allowed'){errMsg='Mic permission denied';}else if(e.error==='no-speech'){errMsg='No speech detected';}else if(e.error==='audio-capture'){errMsg='Mic not available';}else if(e.error==='service-not-allowed'){errMsg='Voice service blocked';}setChatStatus(errMsg,{plain:true,className:'st-err'});window.__voiceSendOnEnd=false;window.__voiceRecording=false;renderMicButton();setTimeout(loadStatus,2000);};recognition.onend=function(){if(!window.__voiceRecording)return;window.__voiceRecording=false;renderMicButton();const shouldSend=window.__voiceSendOnEnd;window.__voiceSendOnEnd=false;if(shouldSend){const input=document.getElementById('message');if(input&&input.value.trim()){setTimeout(()=>sendChat(),50);}else{loadStatus();}}else{loadStatus();}};voiceRecognition=recognition;return recognition;}"
+            + "window.toggleVoiceRecording=async function(){if(window.__voiceRecording){stopVoiceRecording();return;}if(isSendButtonBusy()){setChatStatus('Wait for AI',{plain:true,className:'st-warn'});return;}setChatStatus('Preparing...',{plain:true});const hasNative=await checkNativeSpeech();if(hasNative){useNativeSpeech=true;await startNativeSpeech();return;}const granted=await ensureMicPermission();if(!granted){setChatStatus('Mic denied',{plain:true,className:'st-err'});return;}const recognition=ensureVoiceRecognition();if(!recognition){setChatStatus('Voice unsupported',{plain:true,className:'st-err'});return;}useNativeSpeech=false;voiceFinalTranscript='';window.__voiceRecording=true;renderMicButton();setChatStatus('Listening...',{plain:true});try{recognition.start();}catch(e){window.__voiceRecording=false;renderMicButton();setChatStatus('Voice unavailable',{plain:true,className:'st-err'});}};"
+            + "async function startNativeSpeech(){try{const r=await fetch(apiUrl('/api/speech/start'),{method:'POST',credentials:'include',headers:apiHeaders()});const j=await r.json();if(j.ok){window.__voiceRecording=true;renderMicButton();setChatStatus('Listening...',{plain:true});}else{setChatStatus(j.error||'Voice error',{plain:true,className:'st-err'});}}catch(e){setChatStatus('Voice error',{plain:true,className:'st-err'});}}"
+            + "async function stopNativeSpeech(sendAfter){try{const r=await fetch(apiUrl('/api/speech/stop'),{method:'POST',credentials:'include',headers:apiHeaders()});const j=await r.json();window.__voiceRecording=false;renderMicButton();if(j.ok&&j.result){const input=document.getElementById('message');if(input){input.value=j.result;input.dispatchEvent(new Event('input',{bubbles:true}));}}if(sendAfter){const input=document.getElementById('message');if(input&&input.value.trim())sendChat();else loadStatus();}else{loadStatus();}}catch(e){window.__voiceRecording=false;renderMicButton();loadStatus();}}"
+            + "function stopVoiceRecording(sendAfter){if(useNativeSpeech&&window.__voiceRecording){stopNativeSpeech(sendAfter);return;}if(voiceRecognition&&window.__voiceRecording){window.__voiceSendOnEnd=!!sendAfter;try{voiceRecognition.stop();}catch(e){window.__voiceRecording=false;renderMicButton();if(sendAfter){const input=document.getElementById('message');if(input&&input.value.trim())sendChat();}}}else{window.__voiceRecording=false;renderMicButton();loadStatus();}}"
             + "function showToast(msg){let t=document.getElementById('voiceToast');if(!t){t=document.createElement('div');t.id='voiceToast';t.style.cssText='position:fixed;bottom:180px;left:50%;transform:translateX(-50%);background:var(--text);color:var(--bg);padding:8px 16px;border-radius:20px;font-size:13px;opacity:0;transition:opacity .2s;z-index:9999;pointer-events:none;';document.body.appendChild(t);}t.textContent=msg;t.style.opacity='1';clearTimeout(t._timer);t._timer=setTimeout(()=>{t.style.opacity='0';},1500);}"
             + "let micPressActive=false;"
             + "function setupMicLongPress(){const btn=document.getElementById('micBtn');if(!btn)return;btn.addEventListener('mousedown',micPressStart);btn.addEventListener('touchstart',e=>{e.preventDefault();micPressStart(e);},{passive:false});document.addEventListener('mouseup',globalMicRelease);document.addEventListener('touchend',globalMicRelease,{passive:true});}"
             + "function micPressStart(e){if(isSendButtonBusy()||window.__voiceRecording)return;micPressActive=true;micLongPress=false;if(micPressTimer)clearTimeout(micPressTimer);micPressTimer=setTimeout(()=>{micPressTimer=null;if(!micPressActive)return;micLongPress=true;if(!voiceToastShown){showToast('Release to send');voiceToastShown=true;}startVoiceForLongPress();},400);}"
             + "function globalMicRelease(e){if(!micPressActive&&!micLongPress&&!micPressTimer)return;if(micPressTimer){clearTimeout(micPressTimer);micPressTimer=null;micPressActive=false;micLongPress=false;return;}if(micLongPress&&window.__voiceRecording){stopVoiceRecording(true);}micPressActive=false;micLongPress=false;}"
-            + "async function startVoiceForLongPress(){if(window.__voiceRecording||isSendButtonBusy())return;const granted=await ensureMicPermission();if(!granted){showToast('Mic denied');return;}const recognition=ensureVoiceRecognition();if(!recognition){showToast('Voice unsupported');return;}window.__voiceRecording=true;renderMicButton();setChatStatus('Listening...',{plain:true});try{recognition.start();}catch(e){window.__voiceRecording=false;renderMicButton();}}"
+            + "async function startVoiceForLongPress(){if(window.__voiceRecording||isSendButtonBusy())return;const hasNative=await checkNativeSpeech();if(hasNative){useNativeSpeech=true;await startNativeSpeech();return;}const granted=await ensureMicPermission();if(!granted){showToast('Mic denied');return;}const recognition=ensureVoiceRecognition();if(!recognition){showToast('Voice unsupported');return;}useNativeSpeech=false;window.__voiceRecording=true;renderMicButton();setChatStatus('Listening...',{plain:true});try{recognition.start();}catch(e){window.__voiceRecording=false;renderMicButton();}}"
             + "let pendingFiles=[];const svgX='<svg width=\"10\" height=\"10\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.5\"><path d=\"M18 6 6 18\"/><path d=\"m6 6 12 12\"/></svg>';"
             + "function handleFiles(files){for(let i=0;i<files.length;i++){const f=files[i];if(f.size>10*1024*1024){alert('File too large (max 10MB)');continue;}pendingFiles.push(f);}renderAttachPreview();document.getElementById('fileInput').value='';}"
             + "function setupDragDrop(){const c=document.querySelector('.composer');if(!c)return;c.addEventListener('dragover',e=>{e.preventDefault();e.stopPropagation();c.classList.add('dragover');});c.addEventListener('dragleave',e=>{e.preventDefault();e.stopPropagation();c.classList.remove('dragover');});c.addEventListener('drop',e=>{e.preventDefault();e.stopPropagation();c.classList.remove('dragover');if(e.dataTransfer&&e.dataTransfer.files&&e.dataTransfer.files.length>0){handleFiles(e.dataTransfer.files);}});}"
@@ -1497,7 +1585,7 @@ public class WebConsoleServer {
             + "function flashCardStatus(id,text){const el=document.getElementById(id);if(!el)return;el.textContent=text||'';if(id==='apiStatus'||id==='skillStatus'||id==='cronStatus'||id==='passwordStatus'){setTimeout(()=>{if(el.textContent===text)el.textContent='';},1500);}}"
             + "async function updatePassword(){try{const r=await fetch(apiUrl('/api/password'),{method:'POST',headers:apiHeaders({'Content-Type':'application/json'}),body:JSON.stringify({currentPassword:document.getElementById('currentPassword').value,newPassword:document.getElementById('newPassword').value})});const j=await r.json();flashCardStatus('passwordStatus',j.ok?'Updated':(j.error||'Failed'));if(j.ok){document.getElementById('currentPassword').value='';document.getElementById('newPassword').value='';}}catch(e){flashCardStatus('passwordStatus','Error');}}"
             + "function updateStatusIndicator(s){const el=document.getElementById('chatStatus');if(!el)return;const p=String(s||'').split(': ');const c=p[0]||'idle';const cls={idle:'st-ok',processing:'st-ai',thinking:'st-ai',llm_request:'st-ai',tool_use:'st-warn',responding:'st-ok',error:'st-err'};const stCls=cls[c]||(c.includes('error')?'st-err':'st-ok');const spin=(c==='processing'||c==='thinking'||c==='llm_request'||c==='tool_use')?' spin':'';el.className='statusDot '+stCls+spin;}"
-            + "let es=null,esRetry=0,lastPong=0;function connectSSE(){if(es){try{es.close();}catch(x){}}es=new EventSource(apiUrl('/api/events'),{withCredentials:true});lastPong=Date.now();es.addEventListener('status',e=>{setChatStatus(e.data||'');syncBusyFromStatus(e.data||'');esRetry=0;lastPong=Date.now();queueStatusRefresh(80);});es.addEventListener('message',e=>{lastPong=Date.now();try{const d=JSON.parse(e.data);if(d.content&&d.role!=='user'){addBubble(d.content,'bot',false,d.timestamp||'');}queueStatusRefresh(120);}catch(x){}});es.addEventListener('skill_change',e=>{lastPong=Date.now();try{JSON.parse(e.data);loadSkillControl();queueStatusRefresh(120);}catch(x){}});es.onerror=e=>{if(es){es.close();es=null;}queueStatusRefresh(200);esRetry++;setTimeout(connectSSE,Math.min(esRetry*500,5000));};es.onopen=()=>{esRetry=0;lastPong=Date.now();queueStatusRefresh(50);}}setInterval(()=>{if(es&&Date.now()-lastPong>15000){es.close();es=null;connectSSE();}},5000);"
+            + "let es=null,esRetry=0,lastPong=0;function connectSSE(){if(es){try{es.close();}catch(x){}}es=new EventSource(apiUrl('/api/events'),{withCredentials:true});lastPong=Date.now();es.addEventListener('status',e=>{setChatStatus(e.data||'');syncBusyFromStatus(e.data||'');esRetry=0;lastPong=Date.now();queueStatusRefresh(80);});es.addEventListener('message',e=>{lastPong=Date.now();try{const d=JSON.parse(e.data);if(d.content&&d.role!=='user'){addBubble(d.content,'bot',false,d.timestamp||'');}queueStatusRefresh(120);}catch(x){}});es.addEventListener('skill_change',e=>{lastPong=Date.now();try{JSON.parse(e.data);loadSkillControl();queueStatusRefresh(120);}catch(x){}});es.addEventListener('speech',e=>{lastPong=Date.now();try{const d=JSON.parse(e.data);const input=document.getElementById('message');if(d.type==='partial'&&d.text&&input){input.value=d.text;input.dispatchEvent(new Event('input',{bubbles:true}));}else if(d.type==='final'){window.__voiceRecording=false;renderMicButton();if(d.text&&input){input.value=d.text;input.dispatchEvent(new Event('input',{bubbles:true}));}loadStatus();}else if(d.type==='error'){window.__voiceRecording=false;renderMicButton();setChatStatus(d.error||'Voice error',{plain:true,className:'st-err'});setTimeout(loadStatus,2000);}else if(d.type==='ready'){window.__voiceRecording=true;renderMicButton();setChatStatus('Listening...',{plain:true});}}catch(x){}});es.onerror=e=>{if(es){es.close();es=null;}queueStatusRefresh(200);esRetry++;setTimeout(connectSSE,Math.min(esRetry*500,5000));};es.onopen=()=>{esRetry=0;lastPong=Date.now();queueStatusRefresh(50);}}setInterval(()=>{if(es&&Date.now()-lastPong>15000){es.close();es=null;connectSSE();}},5000);"
             + "let providerProfiles=[];let activeProfileId='default';let profileRenameTimer=null;"
             + "function renderProfileOptions(){const select=document.getElementById('cfgActiveProfile');if(!select)return;let h='';(providerProfiles||[]).forEach(p=>{const id=(p&&p.id)||'';const name=(p&&p.name)||id||'Profile';h+='<option value=\"'+escapeHtml(id)+'\" '+(id===activeProfileId?'selected':'')+'>'+escapeHtml(name)+'</option>';});select.innerHTML=h;const active=(providerProfiles||[]).find(p=>p&&p.id===activeProfileId)||providerProfiles[0]||null;const nameInput=document.getElementById('cfgProfileName');if(nameInput){nameInput.value=active&&active.name?active.name:'';}}"
             + "async function switchActiveProfile(){const select=document.getElementById('cfgActiveProfile');if(!select)return;const nextId=select.value||'';if(!nextId||nextId===activeProfileId)return;try{const r=await fetch(apiUrl('/api/config/profile'),{method:'POST',credentials:'include',headers:apiHeaders({'Content-Type':'application/json'}),body:JSON.stringify({action:'set_active',profile_id:nextId})});const j=await r.json();if(j.ok){activeProfileId=nextId;await loadConfig();flashCardStatus('apiStatus','Switched');}else{flashCardStatus('apiStatus','Failed');}}catch(e){flashCardStatus('apiStatus','Error');}}"

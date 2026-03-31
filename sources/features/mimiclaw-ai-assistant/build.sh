@@ -87,6 +87,7 @@ javac -source 1.8 -target 1.8 \
     src/com/ava/mods/mimiclaw/llm/*.java \
     src/com/ava/mods/mimiclaw/memory/*.java \
     src/com/ava/mods/mimiclaw/skills/*.java \
+    src/com/ava/mods/mimiclaw/speech/*.java \
     src/com/ava/mods/mimiclaw/task/*.java \
     src/com/ava/mods/mimiclaw/terminal/*.java \
     src/com/ava/mods/mimiclaw/tools/*.java
@@ -108,6 +109,7 @@ export PATH="$JAVA_HOME/bin:$PATH"
     $BUILD_DIR/com/ava/mods/mimiclaw/llm/*.class \
     $BUILD_DIR/com/ava/mods/mimiclaw/memory/*.class \
     $BUILD_DIR/com/ava/mods/mimiclaw/skills/*.class \
+    $BUILD_DIR/com/ava/mods/mimiclaw/speech/*.class \
     $BUILD_DIR/com/ava/mods/mimiclaw/task/*.class \
     $BUILD_DIR/com/ava/mods/mimiclaw/terminal/*.class \
     $BUILD_DIR/com/ava/mods/mimiclaw/tools/*.class \
