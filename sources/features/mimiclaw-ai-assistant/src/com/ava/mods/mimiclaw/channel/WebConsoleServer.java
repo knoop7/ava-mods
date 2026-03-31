@@ -35,7 +35,7 @@ public class WebConsoleServer {
     private final MimiClawManager manager;
     private final Map<String, Long> sessions = new ConcurrentHashMap<>();
     private final java.util.List<BufferedWriter> sseClients = java.util.Collections.synchronizedList(new java.util.ArrayList<>());
-    private final ExecutorService clientPool = Executors.newCachedThreadPool();
+    private volatile ExecutorService clientPool;
     private volatile boolean running = false;
     private volatile ServerSocket serverSocket;
     private volatile Thread serverThread;
@@ -64,6 +64,8 @@ public class WebConsoleServer {
             return;
         }
         try {
+            // Create new thread pool for client connections
+            clientPool = Executors.newCachedThreadPool();
             ServerSocket server = new ServerSocket();
             server.setReuseAddress(true);
             server.bind(new InetSocketAddress("0.0.0.0", PORT));
@@ -178,6 +180,14 @@ public class WebConsoleServer {
         running = false;
         sessions.clear();
         
+        // Close all SSE client connections
+        synchronized (sseClients) {
+            for (BufferedWriter writer : sseClients) {
+                try { writer.close(); } catch (Exception ignored) {}
+            }
+            sseClients.clear();
+        }
+        
         // Stop UDP responder
         if (udpSocket != null) {
             try { udpSocket.close(); } catch (Exception ignored) {}
@@ -199,6 +209,18 @@ public class WebConsoleServer {
             serverThread.interrupt();
             serverThread = null;
         }
+        
+        // Shutdown client thread pool
+        if (clientPool != null) {
+            clientPool.shutdownNow();
+            clientPool = null;
+        }
+        
+        // Destroy speech recognizer
+        if (speechRecognizer != null) {
+            speechRecognizer.destroy();
+        }
+        
         lastError = "";
     }
 

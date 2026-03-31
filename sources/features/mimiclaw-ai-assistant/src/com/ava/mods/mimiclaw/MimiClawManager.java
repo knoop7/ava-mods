@@ -1609,6 +1609,12 @@ public class MimiClawManager {
     
     public void onDestroy() {
         unregisterAiBrowserUiReceiver();
+        
+        // Cancel any pending LLM requests first
+        if (llmProxy != null) {
+            llmProxy.cancel();
+        }
+        
         if (telegramChannel != null) {
             telegramChannel.stop();
         }
@@ -1629,6 +1635,9 @@ public class MimiClawManager {
         }
         if (agentThread != null) {
             agentThread.interrupt();
+            try {
+                agentThread.join(2000); // Wait up to 2 seconds for thread to stop
+            } catch (InterruptedException ignored) {}
         }
         instance = null;
         Log.d(TAG, "OpenClaw(Mini) destroyed");

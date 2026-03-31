@@ -34,6 +34,8 @@ public class LlmProxy {
     private long totalInputTokens = 0L;
     private long totalOutputTokens = 0L;
     private long totalTokens = 0L;
+    private volatile HttpURLConnection activeConnection;
+    private volatile boolean cancelled = false;
     
     public static class ToolCall {
         public String id;
@@ -177,13 +179,35 @@ public class LlmProxy {
     public synchronized long getTotalTokens() {
         return totalTokens;
     }
+
+    public void cancel() {
+        cancelled = true;
+        HttpURLConnection conn = activeConnection;
+        if (conn != null) {
+            try {
+                conn.disconnect();
+            } catch (Exception ignored) {}
+        }
+    }
+
+    public void resetCancel() {
+        cancelled = false;
+    }
+
+    public boolean isCancelled() {
+        return cancelled;
+    }
     
     private String makeHttpRequest(String requestBody) throws Exception {
+        if (cancelled) {
+            throw new Exception("Request cancelled");
+        }
         String apiUrl = resolveApiUrl();
         HttpURLConnection conn = null;
         try {
             URL url = new URL(apiUrl);
             conn = (HttpURLConnection) url.openConnection();
+            activeConnection = conn;
             
             conn.setRequestMethod("POST");
             conn.setRequestProperty("Content-Type", "application/json");
@@ -235,6 +259,7 @@ public class LlmProxy {
             Log.e(TAG, "LLM request failed provider=" + provider + ", model=" + model + ", url=" + apiUrl, e);
             throw e;
         } finally {
+            activeConnection = null;
             if (conn != null) {
                 conn.disconnect();
             }

@@ -51,10 +51,11 @@ public class ChannelManager {
     }
     
     public void startOutboundDispatcher() {
-        if (dispatcherThread != null) {
+        if (dispatcherThread != null && dispatcherThread.isAlive()) {
             return;
         }
         
+        running = true;
         dispatcherThread = new Thread(() -> {
             Log.d(TAG, "Outbound dispatcher started");
             
