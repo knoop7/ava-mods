@@ -4033,40 +4033,21 @@ public class ToolRegistry {
                 return "Already running the latest version: " + currentVersion;
             }
             
-            // Use reflection to call ModManager.updateModSync
-            // Must use host ClassLoader (parent of mod's DexClassLoader) to access main app classes
-            ClassLoader modLoader = this.getClass().getClassLoader();
-            ClassLoader hostLoader = modLoader != null ? modLoader.getParent() : context.getClassLoader();
-            if (hostLoader == null) {
-                hostLoader = context.getClassLoader();
-            }
-            Class<?> modManagerClass = Class.forName("com.example.ava.mods.ModManager", false, hostLoader);
-            Class<?> companionClass = Class.forName("com.example.ava.mods.ModManager$Companion", false, hostLoader);
+            // Use reflection to call ModManager.updateAndReloadModSync
+            // This method downloads the update and reloads the mod in one call
+            Class<?> modManagerClass = Class.forName("com.example.ava.mods.ModManager");
+            Class<?> companionClass = Class.forName("com.example.ava.mods.ModManager$Companion");
             java.lang.reflect.Field companionField = modManagerClass.getDeclaredField("Companion");
             Object companion = companionField.get(null);
             java.lang.reflect.Method getInstanceMethod = companionClass.getMethod("getInstance", android.content.Context.class);
             Object modManager = getInstanceMethod.invoke(companion, context);
             
-            // Call updateModSync
-            java.lang.reflect.Method updateMethod = modManagerClass.getMethod("updateModSync", String.class);
+            // Call updateAndReloadModSync - updates and reloads in one call
+            java.lang.reflect.Method updateMethod = modManagerClass.getMethod("updateAndReloadModSync", String.class);
             String result = (String) updateMethod.invoke(modManager, MOD_ID);
             
             if ("ok".equals(result)) {
-                // Reload mod to apply update
-                try {
-                    java.lang.reflect.Method reloadMethod = modManagerClass.getMethod("reloadModSync", String.class);
-                    String reloadResult = (String) reloadMethod.invoke(modManager, MOD_ID);
-                    if ("ok".equals(reloadResult)) {
-                        return "Update successful! Version " + latestVersion + " installed and reloaded.";
-                    } else {
-                        return "Update successful! Version " + latestVersion + " installed.\n" +
-                               "Reload failed: " + reloadResult + "\nPlease restart the app.";
-                    }
-                } catch (Exception reloadEx) {
-                    Log.w(TAG, "Auto-reload after update failed", reloadEx);
-                    return "Update successful! Version " + latestVersion + " installed.\n" +
-                           "Please restart the app to apply the update.";
-                }
+                return "Update successful! Version " + latestVersion + " installed and reloaded.";
             } else {
                 return "Update failed: " + result;
             }
