@@ -119,7 +119,8 @@ public class AgentLoop implements Runnable {
             // Compress history to save tokens: ~16k token budget, keep last 8 messages uncompressed
             JSONArray messages = sessionManager.compressHistory(rawHistory, 16000, 8);
             boolean isFirstMessage = messages.length() == 0;
-            String systemPrompt = buildSystemPrompt(msg, isFirstMessage);
+            String sessionSummary = sessionManager.buildContextSummary(rawHistory, 12);
+            String systemPrompt = buildSystemPrompt(msg, isFirstMessage, sessionSummary);
             if (hiddenBrowserEvent) {
                 systemPrompt += "\n\n## Hidden Browser UI Event Mode\n"
                     + "The current user message is a hidden browser UI callback.\n"
@@ -143,14 +144,14 @@ public class AgentLoop implements Runnable {
             String finalText = null;
             int iteration = 0;
             
-            while (iteration < maxToolIterations) {
-                if (isCancelRequested(msg)) {
+            while (iteration < maxToolIterations && running) {
+                if (!running || isCancelRequested(msg)) {
                     notifyStatus("idle", "Cancelled");
                     return;
                 }
                 notifyStatus("llm_request", "Calling " + llmProxy.getProvider() + " / " + llmProxy.getModel());
                 LlmProxy.Response resp = llmProxy.chatWithTools(systemPrompt, messages, tools);
-                if (isCancelRequested(msg)) {
+                if (!running || isCancelRequested(msg)) {
                     notifyStatus("idle", "Cancelled");
                     return;
                 }
@@ -176,7 +177,7 @@ public class AgentLoop implements Runnable {
                 }
                 
                 JSONArray toolResults = executeTools(resp, msg);
-                if (isCancelRequested(msg)) {
+                if (!running || isCancelRequested(msg)) {
                     notifyStatus("idle", "Cancelled");
                     return;
                 }
@@ -253,8 +254,8 @@ public class AgentLoop implements Runnable {
         }
     }
     
-    private String buildSystemPrompt(MessageBus.Message msg, boolean isFirstMessage) {
-        return contextBuilder.buildSystemPrompt(msg.channel, msg.chatId, isFirstMessage);
+    private String buildSystemPrompt(MessageBus.Message msg, boolean isFirstMessage, String sessionSummary) {
+        return contextBuilder.buildSystemPrompt(msg.channel, msg.chatId, isFirstMessage, sessionSummary);
     }
 
     private String buildSessionKey(MessageBus.Message msg) {
@@ -408,7 +409,13 @@ public class AgentLoop implements Runnable {
             JSONObject resultBlock = new JSONObject();
             resultBlock.put("type", "tool_result");
             resultBlock.put("tool_use_id", call.id);
+            resultBlock.put("tool_name", call.name);
+            resultBlock.put("compressible", true);
             resultBlock.put("content", output);
+            String summary = buildToolResultSummary(call.name, output);
+            if (!summary.isEmpty()) {
+                resultBlock.put("summary", summary);
+            }
             enrichToolResultBlock(call.name, output, resultBlock);
             results.put(resultBlock);
         }
@@ -445,6 +452,63 @@ public class AgentLoop implements Runnable {
             }
         } catch (Exception ignored) {
         }
+    }
+
+    private String buildToolResultSummary(String toolName, String output) {
+        if (output == null) {
+            return "";
+        }
+
+        String trimmed = output.trim();
+        if (trimmed.isEmpty()) {
+            return "";
+        }
+
+        try {
+            if (trimmed.startsWith("{")) {
+                JSONObject obj = new JSONObject(trimmed);
+                JSONObject summary = new JSONObject();
+
+                if (obj.has("ok")) summary.put("ok", obj.get("ok"));
+                if (obj.has("status")) summary.put("status", obj.get("status"));
+                if (obj.has("message")) summary.put("message", obj.get("message"));
+                if (obj.has("error")) summary.put("error", obj.get("error"));
+                if (obj.has("path")) summary.put("path", obj.get("path"));
+                if (obj.has("title")) summary.put("title", obj.get("title"));
+                if (obj.has("url")) summary.put("url", obj.get("url"));
+
+                if (obj.has("results") && obj.opt("results") instanceof JSONArray) {
+                    JSONArray results = obj.getJSONArray("results");
+                    summary.put("results_count", results.length());
+                }
+
+                if (obj.has("file_content")) {
+                    String fileContent = obj.optString("file_content", "");
+                    if (!fileContent.isEmpty()) {
+                        summary.put("file_excerpt", abbreviate(fileContent, 240));
+                    }
+                }
+
+                String serialized = summary.toString();
+                if (!"{}".equals(serialized)) {
+                    return serialized;
+                }
+            }
+        } catch (Exception ignored) {
+        }
+
+        return abbreviate("[" + toolName + "] " + trimmed, 280);
+    }
+
+    private String abbreviate(String text, int maxLen) {
+        if (text == null) {
+            return "";
+        }
+        String normalized = text.replace("\r\n", "\n").trim();
+        if (normalized.length() <= maxLen) {
+            return normalized;
+        }
+        return normalized.substring(0, Math.max(0, maxLen - 16)) + "...[truncated]";
     }
 
     private void notifyStatus(String status, String detail) {

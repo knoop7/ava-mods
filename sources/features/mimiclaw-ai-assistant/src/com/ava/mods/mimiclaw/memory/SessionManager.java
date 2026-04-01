@@ -222,18 +222,16 @@ public class SessionManager {
                     JSONObject newBlock = new JSONObject();
                     newBlock.put("type", "tool_result");
                     newBlock.put("tool_use_id", block.optString("tool_use_id", ""));
+                    copyToolResultMetadata(block, newBlock);
                     
                     String content = block.optString("content", "");
-                    String toolName = extractToolName(content);
+                    String toolName = resolveToolName(block, content);
                     int maxLen = getMaxLenForTool(toolName);
+                    String summary = block.optString("summary", "");
+                    boolean compressible = block.optBoolean("compressible", true);
                     
-                    if (content.length() > maxLen) {
-                        String extracted = extractKeyInfo(content, toolName);
-                        if (extracted.length() < content.length() / 2) {
-                            content = extracted;
-                        } else {
-                            content = content.substring(0, maxLen - 50) + "\n...[" + (content.length() - maxLen + 50) + " chars omitted]";
-                        }
+                    if (compressible && content.length() > maxLen) {
+                        content = compressToolResultContent(content, toolName, maxLen, summary);
                     }
                     newBlock.put("content", content);
                     compressed.put(newBlock);
@@ -281,22 +279,19 @@ public class SessionManager {
                     JSONObject newItem = new JSONObject();
                     newItem.put("type", "tool_result");
                     newItem.put("tool_use_id", item.optString("tool_use_id", ""));
+                    copyToolResultMetadata(item, newItem);
                     
                     String content = item.optString("content", "");
-                    String toolName = extractToolName(content);
+                    String toolName = resolveToolName(item, content);
+                    String summary = item.optString("summary", "");
+                    boolean compressible = item.optBoolean("compressible", true);
                     
                     // Recent results: keep more
                     // Old results: keep less but preserve key info
                     int maxLen = isRecent ? 2000 : getMaxLenForTool(toolName);
                     
-                    if (content.length() > maxLen) {
-                        // Try to extract key info first
-                        String extracted = extractKeyInfo(content, toolName);
-                        if (extracted.length() < content.length() / 2) {
-                            content = extracted;
-                        } else {
-                            content = content.substring(0, maxLen - 50) + "\n...[" + (content.length() - maxLen + 50) + " chars omitted]";
-                        }
+                    if (compressible && content.length() > maxLen) {
+                        content = compressToolResultContent(content, toolName, maxLen, summary);
                     }
                     newItem.put("content", content);
                     compressed.put(newItem);
@@ -392,6 +387,212 @@ public class SessionManager {
             // Fall through to simple truncation
         }
         return content;
+    }
+
+    private void copyToolResultMetadata(JSONObject source, JSONObject target) {
+        String toolName = source.optString("tool_name", "");
+        if (!toolName.isEmpty()) {
+            try {
+                target.put("tool_name", toolName);
+            } catch (Exception ignored) {
+            }
+        }
+
+        String summary = source.optString("summary", "");
+        if (!summary.isEmpty()) {
+            try {
+                target.put("summary", summary);
+            } catch (Exception ignored) {
+            }
+        }
+
+        try {
+            target.put("compressible", source.optBoolean("compressible", true));
+        } catch (Exception ignored) {
+        }
+    }
+
+    private String resolveToolName(JSONObject block, String content) {
+        if (block != null) {
+            String toolName = block.optString("tool_name", "");
+            if (!toolName.isEmpty()) {
+                return toolName;
+            }
+        }
+        return extractToolName(content);
+    }
+
+    private String compressToolResultContent(String content, String toolName, int maxLen, String summary) {
+        if (content == null || content.length() <= maxLen) {
+            return content;
+        }
+
+        if (summary != null && !summary.isEmpty()) {
+            String summarized = summary;
+            if (summarized.length() > maxLen) {
+                summarized = summarized.substring(0, Math.max(0, maxLen - 16)) + "...[truncated]";
+            }
+            return summarized + "\n...[full result omitted]";
+        }
+
+        String extracted = extractKeyInfo(content, toolName);
+        if (extracted.length() < content.length() / 2) {
+            return extracted;
+        }
+
+        return content.substring(0, maxLen - 50) + "\n...[" + (content.length() - maxLen + 50) + " chars omitted]";
+    }
+
+    public String buildContextSummary(JSONArray history, int maxMessages) {
+        if (history == null || history.length() == 0) {
+            return "";
+        }
+
+        try {
+            int start = Math.max(0, history.length() - Math.max(1, maxMessages));
+            String lastUser = "";
+            String lastAssistant = "";
+            java.util.List<String> toolLines = new java.util.ArrayList<>();
+
+            for (int i = start; i < history.length(); i++) {
+                JSONObject msg = history.optJSONObject(i);
+                if (msg == null) {
+                    continue;
+                }
+
+                String role = msg.optString("role", "");
+                Object contentObj = msg.opt("content");
+
+                if ("user".equals(role)) {
+                    String extracted = extractMessageSummary(contentObj);
+                    if (!extracted.isEmpty()) {
+                        lastUser = extracted;
+                    }
+                } else if ("assistant".equals(role)) {
+                    String extracted = extractMessageSummary(contentObj);
+                    if (!extracted.isEmpty()) {
+                        lastAssistant = extracted;
+                    }
+                    collectToolSummaryLines(contentObj, toolLines);
+                } else if ("tool".equals(role)) {
+                    collectToolSummaryLines(contentObj, toolLines);
+                }
+            }
+
+            StringBuilder sb = new StringBuilder();
+            if (!lastUser.isEmpty()) {
+                sb.append("- Latest user intent: ").append(lastUser).append("\n");
+            }
+            if (!lastAssistant.isEmpty()) {
+                sb.append("- Latest assistant state: ").append(lastAssistant).append("\n");
+            }
+            if (!toolLines.isEmpty()) {
+                sb.append("- Recent tool observations:\n");
+                int keep = Math.min(4, toolLines.size());
+                for (int i = Math.max(0, toolLines.size() - keep); i < toolLines.size(); i++) {
+                    sb.append("  - ").append(toolLines.get(i)).append("\n");
+                }
+            }
+            return sb.toString().trim();
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to build context summary", e);
+            return "";
+        }
+    }
+
+    private String extractMessageSummary(Object contentObj) {
+        if (contentObj == null) {
+            return "";
+        }
+
+        try {
+            if (contentObj instanceof String) {
+                String value = ((String) contentObj).trim();
+                if (value.startsWith("[") && value.contains("\"type\"")) {
+                    JSONArray blocks = new JSONArray(value);
+                    return extractTextFromBlocks(blocks);
+                }
+                return abbreviateLine(value, 220);
+            }
+
+            if (contentObj instanceof JSONArray) {
+                return extractTextFromBlocks((JSONArray) contentObj);
+            }
+        } catch (Exception ignored) {
+        }
+
+        return abbreviateLine(String.valueOf(contentObj), 220);
+    }
+
+    private String extractTextFromBlocks(JSONArray blocks) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < blocks.length(); i++) {
+            JSONObject block = blocks.optJSONObject(i);
+            if (block == null) {
+                continue;
+            }
+            if ("text".equals(block.optString("type", ""))) {
+                String text = block.optString("text", "").trim();
+                if (!text.isEmpty()) {
+                    if (sb.length() > 0) {
+                        sb.append(" ");
+                    }
+                    sb.append(text);
+                }
+            }
+        }
+        return abbreviateLine(sb.toString(), 220);
+    }
+
+    private void collectToolSummaryLines(Object contentObj, java.util.List<String> toolLines) {
+        if (contentObj == null) {
+            return;
+        }
+
+        try {
+            JSONArray blocks;
+            if (contentObj instanceof JSONArray) {
+                blocks = (JSONArray) contentObj;
+            } else if (contentObj instanceof String) {
+                String text = ((String) contentObj).trim();
+                if (!text.startsWith("[")) {
+                    return;
+                }
+                blocks = new JSONArray(text);
+            } else {
+                return;
+            }
+
+            for (int i = 0; i < blocks.length(); i++) {
+                JSONObject block = blocks.optJSONObject(i);
+                if (block == null || !"tool_result".equals(block.optString("type", ""))) {
+                    continue;
+                }
+                String toolName = resolveToolName(block, block.optString("content", ""));
+                String summary = block.optString("summary", "");
+                if (summary.isEmpty()) {
+                    summary = abbreviateLine(block.optString("content", ""), 160);
+                }
+                if (!summary.isEmpty()) {
+                    toolLines.add(toolName + ": " + summary);
+                }
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
+    private String abbreviateLine(String text, int maxLen) {
+        if (text == null) {
+            return "";
+        }
+        String normalized = text.replace("\r\n", "\n").replace('\n', ' ').replaceAll("\\s+", " ").trim();
+        if (normalized.isEmpty()) {
+            return "";
+        }
+        if (normalized.length() <= maxLen) {
+            return normalized;
+        }
+        return normalized.substring(0, Math.max(0, maxLen - 16)) + "...[truncated]";
     }
 
     /**

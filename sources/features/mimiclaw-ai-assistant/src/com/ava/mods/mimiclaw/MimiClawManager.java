@@ -1608,13 +1608,25 @@ public class MimiClawManager {
     }
     
     public void onDestroy() {
+        Log.d(TAG, "OpenClaw(Mini) onDestroy called");
         unregisterAiBrowserUiReceiver();
         
-        // Cancel any pending LLM requests first
+        // Cancel any pending LLM requests first - this will unblock HTTP connections
         if (llmProxy != null) {
             llmProxy.cancel();
         }
         
+        // Stop agent loop first to prevent new work
+        if (agentLoop != null) {
+            agentLoop.stop();
+        }
+        
+        // Interrupt agent thread
+        if (agentThread != null) {
+            agentThread.interrupt();
+        }
+        
+        // Stop all channels and services
         if (telegramChannel != null) {
             telegramChannel.stop();
         }
@@ -1630,15 +1642,12 @@ public class MimiClawManager {
         if (cronService != null) {
             cronService.stop();
         }
-        if (agentLoop != null) {
-            agentLoop.stop();
-        }
-        if (agentThread != null) {
-            agentThread.interrupt();
-            try {
-                agentThread.join(2000); // Wait up to 2 seconds for thread to stop
-            } catch (InterruptedException ignored) {}
-        }
+        
+        // Clear message bus to unblock any waiting threads
+        MessageBus bus = MessageBus.getInstance();
+        bus.clearInbound(null, null);
+        bus.clearOutbound(null, null);
+        
         instance = null;
         Log.d(TAG, "OpenClaw(Mini) destroyed");
     }

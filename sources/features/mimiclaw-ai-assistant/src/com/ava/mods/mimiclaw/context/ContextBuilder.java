@@ -38,10 +38,14 @@ public class ContextBuilder {
     }
 
     public String buildSystemPrompt(String channel, String chatId) {
-        return buildSystemPrompt(channel, chatId, true);
+        return buildSystemPrompt(channel, chatId, true, null);
     }
     
     public String buildSystemPrompt(String channel, String chatId, boolean isFirstMessage) {
+        return buildSystemPrompt(channel, chatId, isFirstMessage, null);
+    }
+
+    public String buildSystemPrompt(String channel, String chatId, boolean isFirstMessage, String sessionSummary) {
         StringBuilder sb = new StringBuilder();
 
         // Heartbeat mode: lightweight prompt with essential context
@@ -69,6 +73,8 @@ public class ContextBuilder {
         if (isFirstMessage) {
             appendMemorySection(sb);
         }
+
+        appendSessionSummary(sb, sessionSummary);
         
         appendSkillsSection(sb, channel, chatId);
         appendContextSection(sb, channel, chatId);
@@ -180,6 +186,16 @@ public class ContextBuilder {
         sb.append("- Channel: ").append(channel).append("\n");
         sb.append("- Chat ID: ").append(chatId).append("\n");
         sb.append("- Time: ").append(new Date()).append("\n");
+    }
+
+    private void appendSessionSummary(StringBuilder sb, String sessionSummary) {
+        if (sessionSummary == null || sessionSummary.trim().isEmpty()) {
+            return;
+        }
+        sb.append("\n## Session Summary\n\n");
+        sb.append(sessionSummary.trim()).append("\n");
+        sb.append("\nTreat this as compressed context from earlier turns. ");
+        sb.append("Prefer it over re-deriving old state unless fresh tool calls are needed.\n");
     }
 
     private void appendAiBrowserStateSection(StringBuilder sb) {
