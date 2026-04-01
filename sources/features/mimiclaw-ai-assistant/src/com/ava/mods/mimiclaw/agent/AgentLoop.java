@@ -17,10 +17,23 @@ import java.util.Locale;
 public class AgentLoop implements Runnable {
     private static final String TAG = "AgentLoop";
     private static final int MAX_TOOL_ITERATIONS = 30;
+    private static final int MAX_CONTEXT_TOKENS_ESTIMATE = 16000;
+    private static final int CONTEXT_COMPRESSION_BUFFER_TOKENS = 2500;
+    private static final int RECENT_KEEP_COUNT = 8;
+    private static final int MAX_HEAVY_COMPRESSIONS_PER_CONVERSATION = 3;
     private static final String HIDDEN_BROWSER_EVENT_PREFIX = "[BROWSER_UI_EVENT]";
 
     public interface StatusListener {
         void onStatusChanged(String status, String detail);
+    }
+
+    private static class LoopState {
+        int turnIndex = 0;
+        int compressionCount = 0;
+        int heavyCompressionCount = 0;
+        int lastEstimatedTokens = 0;
+        String transitionReason = "initial_turn";
+        boolean compressedThisTurn = false;
     }
     
     private final MessageBus messageBus;
@@ -116,8 +129,8 @@ public class AgentLoop implements Runnable {
             String sessionKey = buildSessionKey(msg);
             toolRegistry.setCurrentContext(msg.channel, msg.chatId);
             JSONArray rawHistory = sessionManager.getHistory(sessionKey, 50);
-            // Compress history to save tokens: ~16k token budget, keep last 8 messages uncompressed
-            JSONArray messages = sessionManager.compressHistory(rawHistory, 16000, 8);
+            // Initial history compression before entering the tool loop.
+            JSONArray messages = sessionManager.compressHistory(rawHistory, MAX_CONTEXT_TOKENS_ESTIMATE, RECENT_KEEP_COUNT);
             boolean isFirstMessage = messages.length() == 0;
             String sessionSummary = sessionManager.buildContextSummary(rawHistory, 12);
             String systemPrompt = buildSystemPrompt(msg, isFirstMessage, sessionSummary);
@@ -143,13 +156,22 @@ public class AgentLoop implements Runnable {
             
             String finalText = null;
             int iteration = 0;
+            LoopState loopState = new LoopState();
             
             while (iteration < maxToolIterations && running) {
                 if (!running || isCancelRequested(msg)) {
                     notifyStatus("idle", "Cancelled");
                     return;
                 }
-                notifyStatus("llm_request", "Calling " + llmProxy.getProvider() + " / " + llmProxy.getModel());
+                loopState.turnIndex = iteration + 1;
+                messages = prepareMessagesForTurn(messages, loopState);
+                notifyStatus(
+                    "llm_request",
+                    "Calling " + llmProxy.getProvider() + " / " + llmProxy.getModel()
+                        + " (turn " + loopState.turnIndex
+                        + ", reason=" + loopState.transitionReason
+                        + ", tokens~" + loopState.lastEstimatedTokens + ")"
+                );
                 LlmProxy.Response resp = llmProxy.chatWithTools(systemPrompt, messages, tools);
                 if (!running || isCancelRequested(msg)) {
                     notifyStatus("idle", "Cancelled");
@@ -191,6 +213,7 @@ public class AgentLoop implements Runnable {
                     sessionManager.appendMessage(sessionKey, "tool", toolResults.toString());
                 }
                 
+                loopState.transitionReason = "tool_followup";
                 iteration++;
             }
             
@@ -256,6 +279,67 @@ public class AgentLoop implements Runnable {
     
     private String buildSystemPrompt(MessageBus.Message msg, boolean isFirstMessage, String sessionSummary) {
         return contextBuilder.buildSystemPrompt(msg.channel, msg.chatId, isFirstMessage, sessionSummary);
+    }
+
+    private JSONArray prepareMessagesForTurn(JSONArray messages, LoopState loopState) {
+        if (messages == null) {
+            loopState.compressedThisTurn = false;
+            loopState.lastEstimatedTokens = 0;
+            loopState.transitionReason = "empty_history";
+            return new JSONArray();
+        }
+
+        String before = messages.toString();
+        int estimatedTokens = sessionManager.estimateHistoryTokens(messages);
+        loopState.lastEstimatedTokens = estimatedTokens;
+
+        if (!sessionManager.shouldCompressHistory(
+            messages,
+            MAX_CONTEXT_TOKENS_ESTIMATE,
+            CONTEXT_COMPRESSION_BUFFER_TOKENS
+        )) {
+            loopState.compressedThisTurn = false;
+            if (loopState.turnIndex > 1 && !"tool_followup".equals(loopState.transitionReason)) {
+                loopState.transitionReason = "next_turn";
+            }
+            return messages;
+        }
+
+        boolean hadBoundaryBefore = sessionManager.hasCompressedHistoryBoundary(messages);
+        boolean allowHeavyCompression = loopState.heavyCompressionCount < MAX_HEAVY_COMPRESSIONS_PER_CONVERSATION;
+        if (!allowHeavyCompression) {
+            loopState.compressedThisTurn = false;
+            loopState.transitionReason = "compression_circuit_open";
+            return messages;
+        }
+
+        JSONArray compacted = sessionManager.compressHistory(
+            messages,
+            MAX_CONTEXT_TOKENS_ESTIMATE,
+            RECENT_KEEP_COUNT,
+            true
+        );
+        String after = compacted != null ? compacted.toString() : "[]";
+        loopState.compressedThisTurn = !before.equals(after);
+        if (loopState.compressedThisTurn) {
+            loopState.compressionCount++;
+            boolean hasBoundaryAfter = sessionManager.hasCompressedHistoryBoundary(compacted);
+            if (hasBoundaryAfter && (!hadBoundaryBefore || !before.equals(after))) {
+                loopState.heavyCompressionCount++;
+            }
+            loopState.transitionReason = "history_compacted";
+            Log.d(
+                TAG,
+                "Loop turn " + loopState.turnIndex
+                    + " compacted history, compressionCount=" + loopState.compressionCount
+                    + ", heavyCompressionCount=" + loopState.heavyCompressionCount
+                    + ", tokens~" + estimatedTokens
+            );
+        } else if (loopState.turnIndex > 1 && !"tool_followup".equals(loopState.transitionReason)) {
+            loopState.transitionReason = "next_turn";
+        }
+
+        return compacted != null ? compacted : messages;
     }
 
     private String buildSessionKey(MessageBus.Message msg) {
