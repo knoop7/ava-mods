@@ -356,37 +356,43 @@ public class GeckoBrowserManager {
         File omniJa = new File(geckoDir, "assets/omni.ja");
 
         // Pre-configure GeckoLoader before GeckoThread can start.
-        // Key insight from bytecode analysis:
-        //   loadLibsSetupLocked() calls putenv("MOZ_ANDROID_LIBDIR=" + nativeLibraryDir)
-        //   where nativeLibraryDir comes from context.getApplicationInfo().nativeLibraryDir
-        //   (= APK's lib dir, NOT our mod dir). The native dlopen uses this env var.
-        //   We must: load libmozglue first, then putenv our path BEFORE GeckoThread runs.
+        // Bytecode analysis shows loadLibsSetupLocked() does:
+        //   putenv("MOZ_ANDROID_LIBDIR=" + applicationInfo.nativeLibraryDir)
+        // That points to APK's lib/ dir, not our mod's native dir.
+        // We must: load libmozglue, then putenv our path BEFORE GeckoThread runs.
+
+        // Step 1: Load libmozglue.so — registers native methods including putenv()
+        try {
+            System.load(nativePath + "/libmozglue.so");
+            Log.d(TAG, "Pre-loaded libmozglue.so");
+        } catch (UnsatisfiedLinkError e) {
+            Log.d(TAG, "libmozglue.so: " + e.getMessage());
+        }
+
         try {
             Class<?> loaderClass = cl.loadClass("org.mozilla.gecko.mozglue.GeckoLoader");
 
-            // 1. Set sLibDir field
-            java.lang.reflect.Field libDirField = loaderClass.getDeclaredField("sLibDir");
-            libDirField.setAccessible(true);
-            libDirField.set(null, nativePath);
-            Log.d(TAG, "Set GeckoLoader.sLibDir = " + nativePath);
-
-            // 2. Load libmozglue.so first — this registers native methods including putenv()
-            try {
-                System.load(nativePath + "/libmozglue.so");
-                Log.d(TAG, "Pre-loaded libmozglue.so");
-            } catch (UnsatisfiedLinkError e) {
-                Log.d(TAG, "libmozglue.so: " + e.getMessage());
-            }
-
-            // 3. Mark mozglue as loaded to prevent GeckoLoader from trying to reload it
+            // Step 2: Mark mozglue as loaded
             try {
                 java.lang.reflect.Field f = loaderClass.getDeclaredField("sMozGlueLoaded");
                 f.setAccessible(true);
                 f.set(null, true);
-            } catch (Exception ignored) {}
+                Log.d(TAG, "Set sMozGlueLoaded = true");
+            } catch (Exception e) {
+                Log.w(TAG, "Could not set sMozGlueLoaded", e);
+            }
 
-            // 4. Call putenv() to set MOZ_ANDROID_LIBDIR to our native dir
-            //    This is what loadSQLiteLibsNative() uses to dlopen libnss3.so etc
+            // Step 3: Set sGREDir (File type) to our assets dir
+            try {
+                java.lang.reflect.Field greField = loaderClass.getDeclaredField("sGREDir");
+                greField.setAccessible(true);
+                greField.set(null, new File(geckoDir, "assets"));
+                Log.d(TAG, "Set GeckoLoader.sGREDir = " + new File(geckoDir, "assets").getAbsolutePath());
+            } catch (Exception e) {
+                Log.w(TAG, "Could not set sGREDir", e);
+            }
+
+            // Step 4: putenv() — the critical fix for native dlopen
             try {
                 Method putenvMethod = loaderClass.getDeclaredMethod("putenv", String.class);
                 putenvMethod.setAccessible(true);
