@@ -521,9 +521,6 @@ public class GeckoBrowserManager {
         Log.d(TAG, "GeckoView created");
     }
 
-    // GeckoView logs "Failed to attach WindowInsetsListener" NPE when used
-    // outside an Activity, but it catches the exception internally (E-level log).
-    // No intervention needed — the browser works fine without WindowInsets.
 
     private void createFallbackWebView() {
         try {
