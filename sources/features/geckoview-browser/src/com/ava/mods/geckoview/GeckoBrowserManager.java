@@ -371,10 +371,14 @@ public class GeckoBrowserManager {
             } catch (Exception ignored) {}
         }
 
-        // Tell Gecko where omni.ja is via -greomni arg in extras Bundle
+        // Gecko loads omni.ja from the host APK's assets/ by default.
+        // Since we're a mod, omni.ja is not in the APK. We use configFilePath
+        // to write a YAML config with -greomni pointing to our extracted omni.ja.
         File omniJa = new File(getGeckoDir(), "assets/omni.ja");
         String omniPath = omniJa.getAbsolutePath();
-        Log.d(TAG, "Initializing GeckoRuntime, nativeDir=" + nativePath + ", omni=" + omniPath);
+        File configFile = writeGeckoConfig(omniPath);
+        Log.d(TAG, "Initializing GeckoRuntime, nativeDir=" + nativePath
+            + ", omni=" + omniPath + ", config=" + configFile.getAbsolutePath());
 
         Class<?> builderClass = cl.loadClass(GECKO_SETTINGS_BUILDER);
         Object builder = builderClass.getConstructor().newInstance();
@@ -384,15 +388,22 @@ public class GeckoBrowserManager {
             jsMethod.invoke(builder, javascriptEnabled);
         } catch (NoSuchMethodException ignored) {}
 
-        // Pass -greomni path via extras Bundle so Gecko finds omni.ja
+        // Use configFilePath to pass -greomni via YAML config
         try {
-            android.os.Bundle extras = new android.os.Bundle();
-            extras.putString("args", "-greomni " + omniPath);
-            Method extrasMethod = builderClass.getMethod("extras", android.os.Bundle.class);
-            extrasMethod.invoke(builder, extras);
-            Log.d(TAG, "Set -greomni via extras: " + omniPath);
+            Method configMethod = builderClass.getMethod("configFilePath", String.class);
+            configMethod.invoke(builder, configFile.getAbsolutePath());
+            Log.d(TAG, "Set configFilePath: " + configFile.getAbsolutePath());
         } catch (Exception e) {
-            Log.w(TAG, "Failed to set extras", e);
+            Log.w(TAG, "configFilePath not available, trying extras", e);
+            // Fallback: try extras Bundle
+            try {
+                android.os.Bundle extras = new android.os.Bundle();
+                extras.putString("args", "-greomni " + omniPath);
+                Method extrasMethod = builderClass.getMethod("extras", android.os.Bundle.class);
+                extrasMethod.invoke(builder, extras);
+            } catch (Exception e2) {
+                Log.w(TAG, "Failed to set extras", e2);
+            }
         }
 
         Method buildMethod = builderClass.getMethod("build");
@@ -604,6 +615,24 @@ public class GeckoBrowserManager {
     private String normalizeUrl(String url) {
         if (url.isEmpty()) return url;
         return url.contains("://") ? url : "https://" + url;
+    }
+
+    /**
+     * Write a YAML config file that Gecko reads via configFilePath.
+     * This lets us pass -greomni to point at our external omni.ja.
+     */
+    private File writeGeckoConfig(String omniPath) {
+        File configFile = new File(getGeckoDir(), "geckoview-config.yaml");
+        try {
+            String yaml = "args:\n  - \"-greomni\"\n  - \"" + omniPath + "\"\n";
+            FileOutputStream fos = new FileOutputStream(configFile);
+            fos.write(yaml.getBytes());
+            fos.close();
+            Log.d(TAG, "Wrote gecko config: " + yaml.trim());
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to write gecko config", e);
+        }
+        return configFile;
     }
 
     private void showToast(String msg) {
