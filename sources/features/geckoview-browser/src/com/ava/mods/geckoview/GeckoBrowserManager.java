@@ -410,11 +410,23 @@ public class GeckoBrowserManager {
         Object settings = buildMethod.invoke(builder);
 
         Class<?> runtimeClass = cl.loadClass(GECKO_RUNTIME_CLASS);
+
+        // Try to get existing runtime first (only one instance allowed per process)
+        try {
+            Method getDefault = runtimeClass.getMethod("getDefault", Context.class);
+            geckoRuntime = getDefault.invoke(null, context);
+            if (geckoRuntime != null) {
+                Log.d(TAG, "Reusing existing GeckoRuntime");
+                return;
+            }
+        } catch (Exception ignored) {}
+
+        // Create new runtime
         Class<?> settingsClass = cl.loadClass(GECKO_SETTINGS_CLASS);
         Method createMethod = runtimeClass.getMethod("create", Context.class, settingsClass);
         geckoRuntime = createMethod.invoke(null, context, settings);
 
-        Log.d(TAG, "GeckoRuntime initialized");
+        Log.d(TAG, "GeckoRuntime created");
     }
 
     /**
