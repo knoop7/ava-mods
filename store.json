@@ -67,6 +67,14 @@
       "author": "pantherale0",
       "description": "Fix Qualcomm audio concurrency for voice assistant (ThinkSmart View)",
       "path": "mods/features/qualcomm-audio-concurrency-fix/"
+    },
+    {
+      "id": "geckoview-browser",
+      "name": "GeckoView Browser",
+      "version": "1.0.0",
+      "author": "Ava",
+      "description": "Independent Firefox-engine browser overlay with HA entity sync",
+      "path": "mods/features/geckoview-browser/"
     }
   ]
 }

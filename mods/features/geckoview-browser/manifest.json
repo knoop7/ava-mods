@@ -1,0 +1,70 @@
+{
+  "id": "geckoview-browser",
+  "name": "GeckoView Browser",
+  "version": "1.0.0",
+  "author": "Ava",
+  "description": "Independent Firefox-engine browser overlay with HA entity sync. Requires GeckoView AAR in libs/.",
+  "icon": "mdi:firefox",
+  "libs": [
+    "libs/geckoview-browser.jar"
+  ],
+  "manager": "com.ava.mods.geckoview.GeckoBrowserManager",
+  "permissions": [
+    "android.permission.SYSTEM_ALERT_WINDOW",
+    "android.permission.INTERNET"
+  ],
+  "entities": [
+    {
+      "type": "switch",
+      "id": "gecko_browser_visible",
+      "name": "GeckoView Browser",
+      "icon": "mdi:firefox",
+      "on": "showBrowser",
+      "off": "hideBrowser"
+    },
+    {
+      "type": "text",
+      "id": "gecko_browser_url",
+      "name": "GeckoView URL",
+      "icon": "mdi:web",
+      "set": "loadUrl",
+      "read": "getCurrentUrl"
+    }
+  ],
+  "config": [
+    {
+      "type": "text",
+      "key": "default_url",
+      "label": "Default URL",
+      "description": "URL to load when browser opens",
+      "placeholder": "https://example.com",
+      "defaultValue": ""
+    },
+    {
+      "type": "switch",
+      "key": "javascript_enabled",
+      "label": "JavaScript",
+      "description": "Enable JavaScript in GeckoView",
+      "defaultValue": "true"
+    },
+    {
+      "type": "switch",
+      "key": "touch_enabled",
+      "label": "Touch Input",
+      "description": "Allow touch interactions with the browser",
+      "defaultValue": "true"
+    },
+    {
+      "type": "select",
+      "key": "user_agent",
+      "label": "User Agent",
+      "description": "Browser identity mode",
+      "defaultValue": "default",
+      "options": [
+        "default",
+        "desktop",
+        "mobile"
+      ]
+    }
+  ]
+}

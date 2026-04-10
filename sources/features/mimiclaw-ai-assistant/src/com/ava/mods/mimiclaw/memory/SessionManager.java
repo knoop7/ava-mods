@@ -126,6 +126,26 @@ public class SessionManager {
         }
         Log.d(TAG, "Cleared session: " + chatId);
     }
+
+    public void replaceHistory(String chatId, JSONArray history) {
+        if (chatId == null) {
+            return;
+        }
+        JSONArray safeHistory = history != null ? cloneHistory(history) : new JSONArray();
+        sessionCache.put(chatId, safeHistory);
+        File sessionFile = getSessionFile(chatId);
+        try {
+            OutputStreamWriter writer = new OutputStreamWriter(new FileOutputStream(sessionFile, false), "UTF-8");
+            for (int i = 0; i < safeHistory.length(); i++) {
+                Object item = safeHistory.get(i);
+                writer.write(String.valueOf(item));
+                writer.write("\n");
+            }
+            writer.close();
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to replace session history: " + chatId, e);
+        }
+    }
     
     private File getSessionFile(String chatId) {
         String safeId = chatId.replaceAll("[^a-zA-Z0-9_-]", "_");
@@ -161,6 +181,68 @@ public class SessionManager {
         return compressHistory(history, maxTokensEstimate, recentKeepCount, true);
     }
 
+    public JSONArray projectHistoryForModel(JSONArray history) {
+        if (history == null || history.length() == 0) {
+            return new JSONArray();
+        }
+        int boundaryIndex = findLatestCompressedBoundaryIndex(history);
+        if (boundaryIndex < 0) {
+            return cloneHistory(history);
+        }
+        return sliceArray(history, boundaryIndex);
+    }
+
+    public JSONArray applyToolResultBudget(JSONArray history, int recentKeepCount) {
+        if (history == null || history.length() == 0) {
+            return history;
+        }
+        try {
+            return applyToolResultBudgetInternal(history, recentKeepCount);
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to apply tool result budget", e);
+            return history;
+        }
+    }
+
+    public JSONArray applyMicrocompact(JSONArray history, int recentKeepCount) {
+        if (history == null || history.length() == 0) {
+            return history;
+        }
+        try {
+            return applyMicrocompactInternal(history, recentKeepCount);
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to apply microcompact", e);
+            return history;
+        }
+    }
+
+    public JSONArray applySnip(JSONArray history, int maxTokensEstimate, int recentKeepCount, int bufferTokens) {
+        if (history == null || history.length() == 0) {
+            return history;
+        }
+        int maxChars = Math.max(256, maxTokensEstimate - Math.max(0, bufferTokens)) * 4;
+        int totalChars = estimateHistoryChars(history);
+        if (totalChars <= maxChars) {
+            return history;
+        }
+
+        JSONArray snipped = cloneHistory(history);
+        int leadingBoundaryCount = countLeadingBoundaryMessages(snipped);
+        int minimumLength = leadingBoundaryCount + Math.max(1, recentKeepCount);
+
+        while (totalChars > maxChars && snipped.length() > minimumLength) {
+            int removeIndex = leadingBoundaryCount;
+            if (removeIndex >= snipped.length() - recentKeepCount) {
+                break;
+            }
+            Object removed = snipped.opt(removeIndex);
+            totalChars -= estimateHistoryItemChars(removed);
+            snipped = removeAt(snipped, removeIndex);
+        }
+
+        return snipped;
+    }
+
     public JSONArray compressHistory(JSONArray history, int maxTokensEstimate, int recentKeepCount, boolean allowHeavyCompression) {
         if (history == null || history.length() == 0) {
             return history;
@@ -192,6 +274,7 @@ public class SessionManager {
             String droppedSummary = buildDroppedHistorySummary(dropped);
             if (!droppedSummary.isEmpty()) {
                 String mergedSummary = droppedSummary;
+                String mergedRetainedSummary = buildRetainedContextSummary(compressed, recentKeepCount);
                 if (compressed.length() > 0) {
                     JSONObject first = compressed.optJSONObject(0);
                     if (isCompressedHistoryMessage(first)) {
@@ -202,11 +285,25 @@ public class SessionManager {
                         compressed = sliceArray(compressed, 1);
                     }
                 }
+                if (compressed.length() > 0) {
+                    JSONObject first = compressed.optJSONObject(0);
+                    if (isRetainedContextMessage(first)) {
+                        mergedRetainedSummary = mergeRetainedContextSummaries(
+                            extractRetainedContextSummary(first),
+                            mergedRetainedSummary
+                        );
+                        compressed = sliceArray(compressed, 1);
+                    }
+                }
 
                 JSONObject summaryMsg = createCompressedHistoryMessage(mergedSummary);
                 JSONArray withSummary = new JSONArray();
                 if (summaryMsg != null) {
                     withSummary.put(summaryMsg);
+                }
+                JSONObject retainedMsg = createRetainedContextMessage(mergedRetainedSummary);
+                if (retainedMsg != null) {
+                    withSummary.put(retainedMsg);
                 }
                 for (int i = 0; i < compressed.length(); i++) {
                     withSummary.put(compressed.get(i));
@@ -222,13 +319,14 @@ public class SessionManager {
     }
 
     private JSONArray applyLightweightCompression(JSONArray history, int recentKeepCount) throws Exception {
+        JSONArray budgeted = applyToolResultBudgetInternal(history, recentKeepCount);
+        JSONArray microcompacted = applyMicrocompactInternal(budgeted, recentKeepCount);
         JSONArray compressed = new JSONArray();
-        Set<String> seenToolResults = new HashSet<>();
         int len = history.length();
         int compressThreshold = Math.max(0, len - recentKeepCount);
 
         for (int i = 0; i < len; i++) {
-            JSONObject msg = history.getJSONObject(i);
+            JSONObject msg = microcompacted.getJSONObject(i);
             JSONObject newMsg = new JSONObject(msg.toString());
             boolean isRecentMsg = i >= compressThreshold;
 
@@ -238,15 +336,78 @@ public class SessionManager {
             }
 
             Object contentObj = newMsg.opt("content");
+            if (contentObj instanceof String) {
+                String content = (String) contentObj;
+                if (!content.startsWith("[") && content.length() > 2000) {
+                    newMsg.put("content", content.substring(0, 1500) + "\n...[truncated]");
+                }
+            }
+
+            compressed.put(newMsg);
+        }
+
+        return compressed;
+    }
+
+    private JSONArray applyToolResultBudgetInternal(JSONArray history, int recentKeepCount) throws Exception {
+        JSONArray compressed = new JSONArray();
+        int len = history.length();
+        int compressThreshold = Math.max(0, len - recentKeepCount);
+
+        for (int i = 0; i < len; i++) {
+            JSONObject msg = history.getJSONObject(i);
+            JSONObject newMsg = new JSONObject(msg.toString());
+            boolean isRecentMsg = i >= compressThreshold;
+            Object contentObj = newMsg.opt("content");
+
             if (contentObj instanceof JSONArray) {
-                JSONArray contentArr = (JSONArray) contentObj;
-                newMsg.put("content", compressContentArray(contentArr, seenToolResults));
+                newMsg.put("content", processContentArray((JSONArray) contentObj, isRecentMsg, null, null, true, false));
             } else if (contentObj instanceof String) {
                 String content = (String) contentObj;
-                if (content.startsWith("[{") || content.startsWith("[")) {
-                    newMsg.put("content", smartCompressToolResults(content, false, seenToolResults));
-                } else if (content.length() > 2000) {
-                    newMsg.put("content", content.substring(0, 1500) + "\n...[truncated]");
+                if (content.startsWith("[")) {
+                    newMsg.put("content", processToolResultsJson(content, isRecentMsg, null, null, true, false));
+                }
+            }
+
+            compressed.put(newMsg);
+        }
+
+        return compressed;
+    }
+
+    private JSONArray applyMicrocompactInternal(JSONArray history, int recentKeepCount) throws Exception {
+        JSONArray compressed = new JSONArray();
+        Set<String> seenToolResultSignatures = new HashSet<>();
+        Set<String> seenToolUseIds = new HashSet<>();
+        int len = history.length();
+        int compressThreshold = Math.max(0, len - recentKeepCount);
+
+        for (int i = 0; i < len; i++) {
+            JSONObject msg = history.getJSONObject(i);
+            JSONObject newMsg = new JSONObject(msg.toString());
+            boolean isRecentMsg = i >= compressThreshold;
+            Object contentObj = newMsg.opt("content");
+
+            if (contentObj instanceof JSONArray) {
+                newMsg.put("content", processContentArray(
+                    (JSONArray) contentObj,
+                    isRecentMsg,
+                    seenToolResultSignatures,
+                    seenToolUseIds,
+                    false,
+                    true
+                ));
+            } else if (contentObj instanceof String) {
+                String content = (String) contentObj;
+                if (content.startsWith("[")) {
+                    newMsg.put("content", processToolResultsJson(
+                        content,
+                        isRecentMsg,
+                        seenToolResultSignatures,
+                        seenToolUseIds,
+                        false,
+                        true
+                    ));
                 }
             }
 
@@ -276,6 +437,18 @@ public class SessionManager {
      * Preserves tool_use structure completely, compresses tool_result content.
      */
     private JSONArray compressContentArray(JSONArray contentArr, Set<String> seenToolResults) {
+        Set<String> seenToolUseIds = seenToolResults != null ? new HashSet<String>() : null;
+        return processContentArray(contentArr, false, seenToolResults, seenToolUseIds, true, true);
+    }
+
+    private JSONArray processContentArray(
+        JSONArray contentArr,
+        boolean isRecent,
+        Set<String> seenToolResultSignatures,
+        Set<String> seenToolUseIds,
+        boolean applyBudget,
+        boolean applyMicrocompact
+    ) {
         try {
             JSONArray compressed = new JSONArray();
             for (int i = 0; i < contentArr.length(); i++) {
@@ -297,15 +470,26 @@ public class SessionManager {
                     int maxLen = getMaxLenForTool(toolName);
                     String summary = block.optString("summary", "");
                     boolean compressible = isToolCompressible(toolName, block.optBoolean("compressible", true));
+                    String toolUseId = block.optString("tool_use_id", "");
 
-                    if (isDuplicateToolResult(toolName, summary, content, seenToolResults)) {
+                    if (applyMicrocompact && isDuplicateToolResult(
+                        toolUseId,
+                        toolName,
+                        summary,
+                        content,
+                        seenToolUseIds,
+                        seenToolResultSignatures
+                    )) {
                         newBlock.put("content", "[same tool result omitted]");
+                        markCompactionMetadata(newBlock, "microcompact", content.length());
                         compressed.put(newBlock);
                         continue;
                     }
                     
-                    if (compressible && content.length() > maxLen) {
+                    if (applyBudget && compressible && shouldApplyToolResultBudget(block, content, maxLen)) {
+                        int originalLength = block.optInt("original_length", content.length());
                         content = compressToolResultContent(content, toolName, maxLen, summary);
+                        markCompactionMetadata(newBlock, "tool_result_budget", originalLength);
                     }
                     newBlock.put("content", content);
                     compressed.put(newBlock);
@@ -338,6 +522,18 @@ public class SessionManager {
      * Low-value tools (get_time, status) get minimal space.
      */
     private String smartCompressToolResults(String jsonContent, boolean isRecent, Set<String> seenToolResults) {
+        Set<String> seenToolUseIds = seenToolResults != null ? new HashSet<String>() : null;
+        return processToolResultsJson(jsonContent, isRecent, seenToolResults, seenToolUseIds, true, true);
+    }
+
+    private String processToolResultsJson(
+        String jsonContent,
+        boolean isRecent,
+        Set<String> seenToolResultSignatures,
+        Set<String> seenToolUseIds,
+        boolean applyBudget,
+        boolean applyMicrocompact
+    ) {
         try {
             JSONArray arr = new JSONArray(jsonContent);
             JSONArray compressed = new JSONArray();
@@ -359,9 +555,18 @@ public class SessionManager {
                     String toolName = resolveToolName(item, content);
                     String summary = item.optString("summary", "");
                     boolean compressible = isToolCompressible(toolName, item.optBoolean("compressible", true));
+                    String toolUseId = item.optString("tool_use_id", "");
 
-                    if (isDuplicateToolResult(toolName, summary, content, seenToolResults)) {
+                    if (applyMicrocompact && isDuplicateToolResult(
+                        toolUseId,
+                        toolName,
+                        summary,
+                        content,
+                        seenToolUseIds,
+                        seenToolResultSignatures
+                    )) {
                         newItem.put("content", "[same tool result omitted]");
+                        markCompactionMetadata(newItem, "microcompact", content.length());
                         compressed.put(newItem);
                         continue;
                     }
@@ -370,8 +575,10 @@ public class SessionManager {
                     // Old results: keep less but preserve key info
                     int maxLen = isRecent ? 2000 : getMaxLenForTool(toolName);
                     
-                    if (compressible && content.length() > maxLen) {
+                    if (applyBudget && compressible && shouldApplyToolResultBudget(item, content, maxLen)) {
+                        int originalLength = item.optInt("original_length", content.length());
                         content = compressToolResultContent(content, toolName, maxLen, summary);
+                        markCompactionMetadata(newItem, "tool_result_budget", originalLength);
                     }
                     newItem.put("content", content);
                     compressed.put(newItem);
@@ -511,18 +718,58 @@ public class SessionManager {
         return defaultValue;
     }
 
-    private boolean isDuplicateToolResult(String toolName, String summary, String content, Set<String> seenToolResults) {
-        if (seenToolResults == null) {
+    private boolean shouldApplyToolResultBudget(JSONObject block, String content, int maxLen) {
+        if (content == null || content.length() <= maxLen) {
+            return false;
+        }
+        if (block == null) {
+            return true;
+        }
+        if (block.optBoolean("compacted", false)) {
+            return false;
+        }
+        return true;
+    }
+
+    private void markCompactionMetadata(JSONObject block, String stage, int originalLength) {
+        if (block == null) {
+            return;
+        }
+        try {
+            block.put("compacted", true);
+            block.put("compaction_stage", stage != null ? stage : "unknown");
+            if (originalLength > 0) {
+                block.put("original_length", originalLength);
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
+    private boolean isDuplicateToolResult(
+        String toolUseId,
+        String toolName,
+        String summary,
+        String content,
+        Set<String> seenToolUseIds,
+        Set<String> seenToolResultSignatures
+    ) {
+        if (seenToolUseIds != null && toolUseId != null && !toolUseId.trim().isEmpty()) {
+            if (!seenToolUseIds.add(toolUseId.trim())) {
+                return true;
+            }
+        }
+
+        if (seenToolResultSignatures == null) {
             return false;
         }
         String signature = buildToolResultSignature(toolName, summary, content);
         if (signature.isEmpty()) {
             return false;
         }
-        if (seenToolResults.contains(signature)) {
+        if (seenToolResultSignatures.contains(signature)) {
             return true;
         }
-        seenToolResults.add(signature);
+        seenToolResultSignatures.add(signature);
         return false;
     }
 
@@ -580,6 +827,10 @@ public class SessionManager {
 
                 if (isCompressedHistoryMessage(msg)) {
                     collectCompressedHistoryLines(contentObj, toolLines);
+                    continue;
+                }
+                if (isRetainedContextMessage(msg)) {
+                    collectRetainedContextLines(contentObj, toolLines);
                     continue;
                 }
 
@@ -642,6 +893,20 @@ public class SessionManager {
         }
     }
 
+    private JSONObject createRetainedContextMessage(String summary) {
+        if (summary == null || summary.trim().isEmpty()) {
+            return null;
+        }
+        try {
+            JSONObject summaryMsg = new JSONObject();
+            summaryMsg.put("role", "assistant");
+            summaryMsg.put("content", "[RETAINED_CONTEXT]\n" + summary.trim());
+            return summaryMsg;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     private boolean isCompressedHistoryMessage(JSONObject msg) {
         if (msg == null) {
             return false;
@@ -652,6 +917,18 @@ public class SessionManager {
         }
         String content = msg.optString("content", "");
         return content.startsWith("[COMPRESSED_HISTORY]");
+    }
+
+    private boolean isRetainedContextMessage(JSONObject msg) {
+        if (msg == null) {
+            return false;
+        }
+        String role = msg.optString("role", "");
+        if (!"assistant".equals(role)) {
+            return false;
+        }
+        String content = msg.optString("content", "");
+        return content.startsWith("[RETAINED_CONTEXT]");
     }
 
     public boolean hasCompressedHistoryBoundary(JSONArray history) {
@@ -666,8 +943,73 @@ public class SessionManager {
         return false;
     }
 
+    public JSONArray getMessagesAfterContextBoundary(JSONArray history) {
+        JSONArray sliced = new JSONArray();
+        if (history == null || history.length() == 0) {
+            return sliced;
+        }
+        int boundaryIndex = findLatestContextBoundaryIndex(history);
+        int start = boundaryIndex >= 0 ? boundaryIndex + 1 : 0;
+        for (int i = start; i < history.length(); i++) {
+            try {
+                sliced.put(history.get(i));
+            } catch (Exception ignored) {
+            }
+        }
+        return sliced;
+    }
+
+    private int findLatestCompressedBoundaryIndex(JSONArray history) {
+        if (history == null || history.length() == 0) {
+            return -1;
+        }
+        for (int i = history.length() - 1; i >= 0; i--) {
+            if (isCompressedHistoryMessage(history.optJSONObject(i))) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private String buildRetainedContextSummary(JSONArray history, int recentKeepCount) {
+        if (history == null || history.length() == 0) {
+            return "";
+        }
+        try {
+            JSONArray effectiveHistory = getMessagesAfterContextBoundary(history);
+            if (effectiveHistory.length() == 0) {
+                effectiveHistory = history;
+            }
+            int start = Math.max(0, effectiveHistory.length() - Math.max(1, recentKeepCount));
+            JSONArray recentSlice = new JSONArray();
+            for (int i = start; i < effectiveHistory.length(); i++) {
+                recentSlice.put(effectiveHistory.get(i));
+            }
+            String summary = buildContextSummary(recentSlice, recentSlice.length());
+            if (summary.isEmpty()) {
+                return "";
+            }
+            return "Recent context retained after compaction.\n" + summary;
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to build retained context summary", e);
+            return "";
+        }
+    }
+
     private String extractCompressedHistorySummary(JSONObject msg) {
         if (!isCompressedHistoryMessage(msg)) {
+            return "";
+        }
+        String content = msg.optString("content", "");
+        int newline = content.indexOf('\n');
+        if (newline < 0) {
+            return "";
+        }
+        return content.substring(newline + 1).trim();
+    }
+
+    private String extractRetainedContextSummary(JSONObject msg) {
+        if (!isRetainedContextMessage(msg)) {
             return "";
         }
         String content = msg.optString("content", "");
@@ -691,6 +1033,21 @@ public class SessionManager {
             return older;
         }
         return older + "\n" + newer;
+    }
+
+    private String mergeRetainedContextSummaries(String olderSummary, String newerSummary) {
+        String older = olderSummary != null ? olderSummary.trim() : "";
+        String newer = newerSummary != null ? newerSummary.trim() : "";
+        if (older.isEmpty()) {
+            return newer;
+        }
+        if (newer.isEmpty()) {
+            return older;
+        }
+        if (older.equals(newer)) {
+            return older;
+        }
+        return newer + "\n" + older;
     }
 
     private String extractMessageSummary(Object contentObj) {
@@ -793,6 +1150,54 @@ public class SessionManager {
         toolLines.add("compacted_history: " + abbreviateLine(body, 180));
     }
 
+    private void collectRetainedContextLines(Object contentObj, java.util.List<String> toolLines) {
+        if (!(contentObj instanceof String)) {
+            return;
+        }
+        String text = ((String) contentObj).trim();
+        if (!text.startsWith("[RETAINED_CONTEXT]")) {
+            return;
+        }
+        int newline = text.indexOf('\n');
+        if (newline < 0 || newline + 1 >= text.length()) {
+            return;
+        }
+        String body = text.substring(newline + 1).trim();
+        if (body.isEmpty()) {
+            return;
+        }
+        toolLines.add("retained_context: " + abbreviateLine(body, 180));
+    }
+
+    private int findLatestContextBoundaryIndex(JSONArray history) {
+        if (history == null || history.length() == 0) {
+            return -1;
+        }
+        for (int i = history.length() - 1; i >= 0; i--) {
+            JSONObject msg = history.optJSONObject(i);
+            if (isCompressedHistoryMessage(msg) || isRetainedContextMessage(msg)) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private int countLeadingBoundaryMessages(JSONArray history) {
+        if (history == null || history.length() == 0) {
+            return 0;
+        }
+        int count = 0;
+        for (int i = 0; i < history.length(); i++) {
+            JSONObject msg = history.optJSONObject(i);
+            if (isCompressedHistoryMessage(msg) || isRetainedContextMessage(msg)) {
+                count++;
+                continue;
+            }
+            break;
+        }
+        return count;
+    }
+
     private String abbreviateLine(String text, int maxLen) {
         if (text == null) {
             return "";
@@ -853,6 +1258,23 @@ public class SessionManager {
             }
         }
         return sliced;
+    }
+
+    private JSONArray removeAt(JSONArray array, int indexToRemove) {
+        JSONArray updated = new JSONArray();
+        if (array == null) {
+            return updated;
+        }
+        for (int i = 0; i < array.length(); i++) {
+            if (i == indexToRemove) {
+                continue;
+            }
+            try {
+                updated.put(array.get(i));
+            } catch (Exception ignored) {
+            }
+        }
+        return updated;
     }
 
     /**

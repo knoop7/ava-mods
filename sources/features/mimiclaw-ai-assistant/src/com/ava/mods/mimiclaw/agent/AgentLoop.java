@@ -164,7 +164,7 @@ public class AgentLoop implements Runnable {
                     return;
                 }
                 loopState.turnIndex = iteration + 1;
-                messages = prepareMessagesForTurn(messages, loopState);
+                messages = prepareMessagesForTurn(sessionKey, messages, loopState);
                 notifyStatus(
                     "llm_request",
                     "Calling " + llmProxy.getProvider() + " / " + llmProxy.getModel()
@@ -281,7 +281,7 @@ public class AgentLoop implements Runnable {
         return contextBuilder.buildSystemPrompt(msg.channel, msg.chatId, isFirstMessage, sessionSummary);
     }
 
-    private JSONArray prepareMessagesForTurn(JSONArray messages, LoopState loopState) {
+    private JSONArray prepareMessagesForTurn(String sessionKey, JSONArray messages, LoopState loopState) {
         if (messages == null) {
             loopState.compressedThisTurn = false;
             loopState.lastEstimatedTokens = 0;
@@ -290,31 +290,62 @@ public class AgentLoop implements Runnable {
         }
 
         String before = messages.toString();
-        int estimatedTokens = sessionManager.estimateHistoryTokens(messages);
+        JSONArray projected = sessionManager.projectHistoryForModel(messages);
+        JSONArray budgeted = sessionManager.applyToolResultBudget(projected, RECENT_KEEP_COUNT);
+        boolean budgetChanged = !projected.toString().equals(budgeted.toString());
+
+        JSONArray microcompacted = sessionManager.applyMicrocompact(budgeted, RECENT_KEEP_COUNT);
+        boolean microcompactChanged = !budgeted.toString().equals(microcompacted.toString());
+
+        JSONArray snipped = sessionManager.applySnip(
+            microcompacted,
+            MAX_CONTEXT_TOKENS_ESTIMATE,
+            RECENT_KEEP_COUNT,
+            CONTEXT_COMPRESSION_BUFFER_TOKENS
+        );
+        boolean snipChanged = !microcompacted.toString().equals(snipped.toString());
+
+        int estimatedTokens = sessionManager.estimateHistoryTokens(snipped);
         loopState.lastEstimatedTokens = estimatedTokens;
 
         if (!sessionManager.shouldCompressHistory(
-            messages,
+            snipped,
             MAX_CONTEXT_TOKENS_ESTIMATE,
             CONTEXT_COMPRESSION_BUFFER_TOKENS
         )) {
-            loopState.compressedThisTurn = false;
+            loopState.compressedThisTurn = budgetChanged || microcompactChanged || snipChanged;
+            if (loopState.compressedThisTurn) {
+                if (snipChanged) {
+                    loopState.transitionReason = "history_snipped";
+                } else if (microcompactChanged) {
+                    loopState.transitionReason = "microcompacted";
+                } else {
+                    loopState.transitionReason = "tool_budgeted";
+                }
+                if (sessionKey != null) {
+                    sessionManager.replaceHistory(sessionKey, snipped);
+                }
+                return snipped;
+            }
             if (loopState.turnIndex > 1 && !"tool_followup".equals(loopState.transitionReason)) {
                 loopState.transitionReason = "next_turn";
             }
-            return messages;
+            return snipped;
         }
 
-        boolean hadBoundaryBefore = sessionManager.hasCompressedHistoryBoundary(messages);
+        boolean hadBoundaryBefore = sessionManager.hasCompressedHistoryBoundary(snipped);
         boolean allowHeavyCompression = loopState.heavyCompressionCount < MAX_HEAVY_COMPRESSIONS_PER_CONVERSATION;
         if (!allowHeavyCompression) {
-            loopState.compressedThisTurn = false;
+            loopState.compressedThisTurn = budgetChanged || microcompactChanged || snipChanged;
             loopState.transitionReason = "compression_circuit_open";
-            return messages;
+            if (loopState.compressedThisTurn && sessionKey != null) {
+                sessionManager.replaceHistory(sessionKey, snipped);
+            }
+            return snipped;
         }
 
         JSONArray compacted = sessionManager.compressHistory(
-            messages,
+            snipped,
             MAX_CONTEXT_TOKENS_ESTIMATE,
             RECENT_KEEP_COUNT,
             true
@@ -335,11 +366,14 @@ public class AgentLoop implements Runnable {
                     + ", heavyCompressionCount=" + loopState.heavyCompressionCount
                     + ", tokens~" + estimatedTokens
             );
+            if (sessionKey != null && compacted != null) {
+                sessionManager.replaceHistory(sessionKey, compacted);
+            }
         } else if (loopState.turnIndex > 1 && !"tool_followup".equals(loopState.transitionReason)) {
             loopState.transitionReason = "next_turn";
         }
 
-        return compacted != null ? compacted : messages;
+        return compacted != null ? compacted : snipped;
     }
 
     private String buildSessionKey(MessageBus.Message msg) {
