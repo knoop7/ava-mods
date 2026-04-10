@@ -1,7 +1,7 @@
 {
   "id": "zigbee-gateway-mod",
   "name": "Zigbee Gateway",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "author": "Ava",
   "description": "Serial to TCP bridge for Zigbee coordinators. Supports Tuya S6E/T6E/S7E/S9E, NSPanel Pro.",
   "icon": "mdi:zigbee",

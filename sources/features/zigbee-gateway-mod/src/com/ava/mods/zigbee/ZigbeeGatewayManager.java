@@ -3,7 +3,9 @@ package com.ava.mods.zigbee;
 import android.content.Context;
 import android.util.Log;
 
+import java.io.BufferedReader;
 import java.io.File;
+import java.io.FileReader;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -15,6 +17,7 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -141,8 +144,9 @@ public class ZigbeeGatewayManager {
 
     public void startServer() {
         synchronized (lifecycleLock) {
-            if (hasActiveServerLocked()) {
+            if (hasActiveServerLocked() || isTcpPortListening()) {
                 serverRunning.set(true);
+                serverStarting.set(false);
                 Log.d(TAG, "Server already running");
                 return;
             }
@@ -235,7 +239,7 @@ public class ZigbeeGatewayManager {
                 }
             }
         } catch (BindException e) {
-            if (hasActiveServer()) {
+            if (hasActiveServer() || isTcpPortListening()) {
                 serverRunning.set(true);
                 Log.w(TAG, "Skipped duplicate server start because an instance is already listening", e);
             } else {
@@ -441,7 +445,8 @@ public class ZigbeeGatewayManager {
         synchronized (lifecycleLock) {
             return serverStarting.get()
                     || serverRunning.get()
-                    || (serverSocket != null && !serverSocket.isClosed());
+                    || (serverSocket != null && !serverSocket.isClosed())
+                    || isTcpPortListening();
         }
     }
 
@@ -467,6 +472,46 @@ public class ZigbeeGatewayManager {
 
     public long getBytesSent() {
         return bytesSent.get();
+    }
+
+    private boolean isTcpPortListening() {
+        return isTcpPortListening(tcpPort);
+    }
+
+    private boolean isTcpPortListening(int port) {
+        return isTcpPortListeningInProc("/proc/net/tcp", port)
+                || isTcpPortListeningInProc("/proc/net/tcp6", port);
+    }
+
+    private boolean isTcpPortListeningInProc(String path, int port) {
+        String expectedPort = String.format(Locale.US, "%04X", port);
+        try (BufferedReader reader = new BufferedReader(new FileReader(path))) {
+            String line;
+            boolean firstLine = true;
+            while ((line = reader.readLine()) != null) {
+                if (firstLine) {
+                    firstLine = false;
+                    continue;
+                }
+                String[] parts = line.trim().split("\\s+");
+                if (parts.length < 4) {
+                    continue;
+                }
+                String localAddress = parts[1];
+                String state = parts[3];
+                int colonIndex = localAddress.indexOf(':');
+                if (colonIndex < 0) {
+                    continue;
+                }
+                String localPort = localAddress.substring(colonIndex + 1).toUpperCase(Locale.US);
+                if (expectedPort.equals(localPort) && "0A".equals(state)) {
+                    return true;
+                }
+            }
+        } catch (Exception e) {
+            Log.d(TAG, "Failed to inspect port state from " + path, e);
+        }
+        return false;
     }
 
     private String detectSerialPort() {
