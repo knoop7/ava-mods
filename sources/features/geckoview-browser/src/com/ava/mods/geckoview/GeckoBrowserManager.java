@@ -12,7 +12,6 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowManager;
 import android.widget.FrameLayout;
-import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -32,11 +31,11 @@ import java.util.zip.ZipInputStream;
 /**
  * GeckoView Browser Mod Manager.
  *
- * On first use, automatically downloads GeckoView AAR from Mozilla Maven,
- * extracts classes.jar and native .so files, then loads them via reflection.
+ * GeckoView Java classes (geckoview-classes.jar, pre-converted to DEX) are
+ * bundled in the mod's libs/ and loaded by Ava's DexClassLoader automatically.
  *
- * Provides an independent Firefox-engine browser overlay controlled via
- * Home Assistant entities (switch for visibility, text for URL).
+ * Native .so libraries (~150MB) are downloaded from Mozilla Maven on first use
+ * and cached locally.
  */
 public class GeckoBrowserManager {
 
@@ -48,7 +47,6 @@ public class GeckoBrowserManager {
     private static final String GECKO_SETTINGS_CLASS   = "org.mozilla.geckoview.GeckoRuntimeSettings";
     private static final String GECKO_SETTINGS_BUILDER = "org.mozilla.geckoview.GeckoRuntimeSettings$Builder";
 
-    // Mozilla Maven URL for arm64-v8a stable channel
     private static final String GECKO_VERSION = "149.0.20260403140140";
     private static final String GECKO_AAR_URL =
         "https://maven.mozilla.org/maven2/org/mozilla/geckoview/geckoview-arm64-v8a/"
@@ -60,19 +58,15 @@ public class GeckoBrowserManager {
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
 
-    // GeckoView instances (held as Object — loaded via reflection)
     private Object geckoRuntime;
     private Object geckoSession;
     private Object geckoView;
-    private ClassLoader geckoClassLoader;
 
-    // Overlay state
     private WindowManager windowManager;
     private FrameLayout containerView;
     private boolean isVisible = false;
     private volatile boolean isDownloading = false;
 
-    // Current state
     private volatile String currentUrl = "";
     private volatile String defaultUrl = "";
     private volatile boolean javascriptEnabled = true;
@@ -107,24 +101,14 @@ public class GeckoBrowserManager {
     public void applyConfig(String key, String value) {
         if (key == null || value == null) return;
         switch (key) {
-            case "default_url":
-                defaultUrl = value.trim();
-                break;
-            case "javascript_enabled":
-                javascriptEnabled = "true".equalsIgnoreCase(value.trim());
-                break;
-            case "touch_enabled":
-                touchEnabled = "true".equalsIgnoreCase(value.trim());
-                break;
-            case "user_agent":
-                userAgentMode = value.trim();
-                break;
+            case "default_url": defaultUrl = value.trim(); break;
+            case "javascript_enabled": javascriptEnabled = "true".equalsIgnoreCase(value.trim()); break;
+            case "touch_enabled": touchEnabled = "true".equalsIgnoreCase(value.trim()); break;
+            case "user_agent": userAgentMode = value.trim(); break;
         }
     }
 
-    public void setLastError(String error) {
-        this.lastError = error;
-    }
+    public void setLastError(String error) { this.lastError = error; }
 
     // ---------------------------------------------------------------
     // Entity actions
@@ -133,16 +117,15 @@ public class GeckoBrowserManager {
     public void showBrowser() {
         if (isVisible || isDownloading) return;
 
-        File geckoDir = getGeckoDir();
-        File classesJar = new File(geckoDir, "classes.jar");
-
-        if (!classesJar.exists()) {
-            // First time — download GeckoView AAR
+        // Check if native libs are downloaded
+        File nativeDir = getNativeLibDir();
+        if (!nativeDir.exists() || !hasNativeLibs(nativeDir)) {
+            // Need to download native libs first
             isDownloading = true;
             showDownloadOverlay();
             executor.execute(() -> {
                 try {
-                    downloadAndExtractGecko(geckoDir);
+                    downloadNativeLibs();
                     mainHandler.post(() -> {
                         isDownloading = false;
                         removeOverlay();
@@ -153,7 +136,6 @@ public class GeckoBrowserManager {
                     mainHandler.post(() -> {
                         isDownloading = false;
                         updateDownloadStatus("Download failed: " + e.getMessage());
-                        // Auto dismiss after 5s
                         mainHandler.postDelayed(() -> removeOverlay(), 5000);
                     });
                 }
@@ -177,7 +159,7 @@ public class GeckoBrowserManager {
                 Log.d(TAG, "Browser shown");
             } catch (Exception e) {
                 Log.e(TAG, "Failed to show browser", e);
-                showToast("GeckoView failed: " + e.getMessage());
+                showToast("GeckoView: " + e.getMessage());
             }
         });
     }
@@ -200,9 +182,7 @@ public class GeckoBrowserManager {
         }
     }
 
-    public String getCurrentUrl() {
-        return currentUrl;
-    }
+    public String getCurrentUrl() { return currentUrl; }
 
     public void onDestroy() {
         mainHandler.post(() -> {
@@ -210,32 +190,36 @@ public class GeckoBrowserManager {
             closeSession();
             isVisible = false;
             currentUrl = "";
-            Log.d(TAG, "Destroyed");
         });
     }
 
     // ---------------------------------------------------------------
-    // GeckoView AAR download and extraction
+    // Native library download (only .so + assets, ~80MB compressed)
     // ---------------------------------------------------------------
 
     private File getGeckoDir() {
         return new File(context.getFilesDir(), "geckoview");
     }
 
-    private void downloadAndExtractGecko(File geckoDir) throws Exception {
-        // Clean up any previous partial download
-        if (geckoDir.exists()) {
-            deleteRecursive(geckoDir);
-        }
+    private File getNativeLibDir() {
+        return new File(getGeckoDir(), "jni/arm64-v8a");
+    }
 
+    private boolean hasNativeLibs(File dir) {
+        File libxul = new File(dir, "libxul.so");
+        return libxul.exists();
+    }
+
+    private void downloadNativeLibs() throws Exception {
+        File geckoDir = getGeckoDir();
         File tmpDir = new File(geckoDir.getParent(), "geckoview_tmp");
         if (tmpDir.exists()) deleteRecursive(tmpDir);
         tmpDir.mkdirs();
 
         File aarFile = new File(tmpDir, "geckoview.aar");
 
-        // Download AAR
-        mainHandler.post(() -> updateDownloadStatus("Downloading GeckoView (~84MB)..."));
+        // Download
+        mainHandler.post(() -> updateDownloadStatus("Downloading GeckoView engine (~84MB)..."));
         Log.d(TAG, "Downloading: " + GECKO_AAR_URL);
 
         HttpURLConnection conn = (HttpURLConnection) new URL(GECKO_AAR_URL).openConnection();
@@ -267,16 +251,16 @@ public class GeckoBrowserManager {
         fos.close();
         in.close();
         conn.disconnect();
-        Log.d(TAG, "Download complete: " + aarFile.length() + " bytes");
 
-        // Extract needed files from AAR (which is a ZIP)
-        mainHandler.post(() -> updateDownloadStatus("Extracting..."));
+        // Extract only native libs and assets from AAR
+        mainHandler.post(() -> updateDownloadStatus("Extracting native libraries..."));
         extractAar(aarFile, tmpDir);
-
-        // Rename to final directory (atomic)
         aarFile.delete();
+
+        // Move to final location
+        if (geckoDir.exists()) deleteRecursive(geckoDir);
         tmpDir.renameTo(geckoDir);
-        Log.d(TAG, "GeckoView ready at " + geckoDir.getAbsolutePath());
+        Log.d(TAG, "Native libs ready at " + geckoDir.getAbsolutePath());
     }
 
     private void extractAar(File aarFile, File outDir) throws Exception {
@@ -285,15 +269,10 @@ public class GeckoBrowserManager {
         byte[] buffer = new byte[65536];
         while ((entry = zis.getNextEntry()) != null) {
             String name = entry.getName();
-
-            // We need: classes.jar, jni/**/*.so, assets/**
-            boolean needed = name.equals("classes.jar")
-                || (name.startsWith("jni/") && name.endsWith(".so"))
+            // Only extract native libs and assets (classes already bundled in mod)
+            boolean needed = (name.startsWith("jni/") && name.endsWith(".so"))
                 || name.startsWith("assets/");
-
-            if (!needed || entry.isDirectory()) {
-                continue;
-            }
+            if (!needed || entry.isDirectory()) continue;
 
             File outFile = new File(outDir, name);
             outFile.getParentFile().mkdirs();
@@ -303,7 +282,7 @@ public class GeckoBrowserManager {
                 fos.write(buffer, 0, count);
             }
             fos.close();
-            Log.d(TAG, "Extracted: " + name + " (" + outFile.length() + " bytes)");
+            Log.d(TAG, "Extracted: " + name);
         }
         zis.close();
     }
@@ -311,9 +290,7 @@ public class GeckoBrowserManager {
     private void deleteRecursive(File f) {
         if (f.isDirectory()) {
             File[] children = f.listFiles();
-            if (children != null) {
-                for (File c : children) deleteRecursive(c);
-            }
+            if (children != null) for (File c : children) deleteRecursive(c);
         }
         f.delete();
     }
@@ -326,17 +303,8 @@ public class GeckoBrowserManager {
 
     private void showDownloadOverlay() {
         if (containerView != null) return;
-
         containerView = new FrameLayout(context);
         containerView.setBackgroundColor(Color.parseColor("#E6000000"));
-
-        FrameLayout center = new FrameLayout(context);
-        FrameLayout.LayoutParams centerLp = new FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.WRAP_CONTENT,
-            FrameLayout.LayoutParams.WRAP_CONTENT
-        );
-        centerLp.gravity = Gravity.CENTER;
-        center.setLayoutParams(centerLp);
 
         downloadStatusView = new TextView(context);
         downloadStatusView.setText("Preparing GeckoView...");
@@ -344,18 +312,19 @@ public class GeckoBrowserManager {
         downloadStatusView.setTextSize(16f);
         downloadStatusView.setGravity(Gravity.CENTER);
         downloadStatusView.setPadding(64, 64, 64, 64);
-        center.addView(downloadStatusView);
 
-        containerView.addView(center);
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT
+        );
+        lp.gravity = Gravity.CENTER;
+        containerView.addView(downloadStatusView, lp);
 
         WindowManager.LayoutParams params = new WindowManager.LayoutParams(
-            WindowManager.LayoutParams.MATCH_PARENT,
-            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT,
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
                 ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
                 : WindowManager.LayoutParams.TYPE_PHONE,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
-                | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT
         );
         params.gravity = Gravity.TOP | Gravity.START;
@@ -363,84 +332,149 @@ public class GeckoBrowserManager {
     }
 
     private void updateDownloadStatus(String text) {
-        if (downloadStatusView != null) {
-            downloadStatusView.setText(text);
-        }
+        if (downloadStatusView != null) downloadStatusView.setText(text);
     }
 
     // ---------------------------------------------------------------
-    // GeckoView runtime initialization (reflection)
+    // GeckoView runtime (classes loaded by mod's ClassLoader, native from disk)
     // ---------------------------------------------------------------
 
     private void ensureGeckoRuntime() throws Exception {
         if (geckoRuntime != null) return;
 
-        File geckoDir = getGeckoDir();
-        File classesJar = new File(geckoDir, "classes.jar");
-        if (!classesJar.exists()) {
-            throw new RuntimeException("GeckoView not downloaded yet");
+        // GeckoView classes are already on this class's ClassLoader
+        // (geckoview-classes.jar is in mod libs/, loaded by Ava's DexClassLoader)
+        ClassLoader cl = GeckoBrowserManager.class.getClassLoader();
+
+        // But GeckoView needs to find its native .so files.
+        // We need to add the native lib path to the system.
+        File nativeDir = getNativeLibDir();
+        if (!nativeDir.exists()) {
+            throw new RuntimeException("Native libs not downloaded. Toggle the switch to trigger download.");
         }
 
-        // Build native lib path: geckoDir/jni/arm64-v8a/
-        String nativeLibPath = new File(geckoDir, "jni/arm64-v8a").getAbsolutePath();
-        // Also check armeabi-v7a for 32-bit devices
-        File armv7 = new File(geckoDir, "jni/armeabi-v7a");
-        if (armv7.exists() && !new File(nativeLibPath).exists()) {
-            nativeLibPath = armv7.getAbsolutePath();
+        // Set system property so GeckoView can find its libs
+        String nativePath = nativeDir.getAbsolutePath();
+        try {
+            System.setProperty("gecko.libdir", nativePath);
+        } catch (Exception ignored) {}
+
+        // Also try to inject native path into the existing ClassLoader
+        addNativeLibPath(cl, nativePath);
+
+        // Set assets path for omni.ja
+        File assetsDir = new File(getGeckoDir(), "assets");
+        if (assetsDir.exists()) {
+            try {
+                System.setProperty("gecko.assetsdir", assetsDir.getAbsolutePath());
+            } catch (Exception ignored) {}
         }
 
-        // Create DexClassLoader to load GeckoView classes
-        File dexDir = context.getDir("gecko_dex", Context.MODE_PRIVATE);
-        geckoClassLoader = new dalvik.system.DexClassLoader(
-            classesJar.getAbsolutePath(),
-            dexDir.getAbsolutePath(),
-            nativeLibPath,
-            context.getClassLoader()
-        );
+        Log.d(TAG, "Initializing GeckoRuntime, nativeDir=" + nativePath);
 
-        Log.d(TAG, "Initializing GeckoRuntime with ClassLoader...");
-
-        // GeckoRuntimeSettings.Builder
-        Class<?> builderClass = geckoClassLoader.loadClass(GECKO_SETTINGS_BUILDER);
+        Class<?> builderClass = cl.loadClass(GECKO_SETTINGS_BUILDER);
         Object builder = builderClass.getConstructor().newInstance();
 
         try {
             Method jsMethod = builderClass.getMethod("javaScriptEnabled", boolean.class);
             jsMethod.invoke(builder, javascriptEnabled);
-        } catch (NoSuchMethodException ignored) { }
+        } catch (NoSuchMethodException ignored) {}
 
         Method buildMethod = builderClass.getMethod("build");
         Object settings = buildMethod.invoke(builder);
 
-        // GeckoRuntime.create(context, settings)
-        Class<?> runtimeClass = geckoClassLoader.loadClass(GECKO_RUNTIME_CLASS);
-        Class<?> settingsClass = geckoClassLoader.loadClass(GECKO_SETTINGS_CLASS);
+        Class<?> runtimeClass = cl.loadClass(GECKO_RUNTIME_CLASS);
+        Class<?> settingsClass = cl.loadClass(GECKO_SETTINGS_CLASS);
         Method createMethod = runtimeClass.getMethod("create", Context.class, settingsClass);
         geckoRuntime = createMethod.invoke(null, context, settings);
 
-        Log.d(TAG, "GeckoRuntime initialized successfully");
+        Log.d(TAG, "GeckoRuntime initialized");
+    }
+
+    /**
+     * Inject a native library path into an existing ClassLoader via reflection.
+     * This allows System.loadLibrary() to find .so files in our custom directory.
+     */
+    private void addNativeLibPath(ClassLoader classLoader, String nativePath) {
+        try {
+            // BaseDexClassLoader.pathList (DexPathList)
+            java.lang.reflect.Field pathListField = findField(classLoader.getClass(), "pathList");
+            pathListField.setAccessible(true);
+            Object pathList = pathListField.get(classLoader);
+
+            // DexPathList.nativeLibraryDirectories (List<File>)
+            java.lang.reflect.Field nativeLibField = pathList.getClass().getDeclaredField("nativeLibraryDirectories");
+            nativeLibField.setAccessible(true);
+            @SuppressWarnings("unchecked")
+            java.util.List<File> nativeLibDirs = (java.util.List<File>) nativeLibField.get(pathList);
+
+            File dir = new File(nativePath);
+            if (!nativeLibDirs.contains(dir)) {
+                nativeLibDirs.add(0, dir);
+                Log.d(TAG, "Injected native lib path: " + nativePath);
+            }
+
+            // Also update nativeLibraryPathElements if it exists
+            try {
+                java.lang.reflect.Field elementsField = pathList.getClass().getDeclaredField("nativeLibraryPathElements");
+                elementsField.setAccessible(true);
+                Object[] oldElements = (Object[]) elementsField.get(pathList);
+
+                // Use makePathElements via reflection
+                Method makeMethod = pathList.getClass().getDeclaredMethod(
+                    "makePathElements", java.util.List.class);
+                makeMethod.setAccessible(true);
+                Object[] newElements = (Object[]) makeMethod.invoke(null, nativeLibDirs);
+
+                // Merge: new elements first, then old
+                Object[] merged = java.util.Arrays.copyOf(newElements, newElements.length + oldElements.length);
+                System.arraycopy(oldElements, 0, merged, newElements.length, oldElements.length);
+                elementsField.set(pathList, merged);
+            } catch (Exception e) {
+                Log.w(TAG, "Could not update nativeLibraryPathElements, may still work", e);
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Failed to inject native path, trying System.load directly", e);
+            // Fallback: pre-load critical libs manually
+            try {
+                System.load(nativePath + "/libmozglue.so");
+                System.load(nativePath + "/libxul.so");
+            } catch (Exception e2) {
+                Log.e(TAG, "Manual lib loading also failed", e2);
+            }
+        }
+    }
+
+    private java.lang.reflect.Field findField(Class<?> clazz, String name) throws NoSuchFieldException {
+        Class<?> current = clazz;
+        while (current != null) {
+            try {
+                return current.getDeclaredField(name);
+            } catch (NoSuchFieldException e) {
+                current = current.getSuperclass();
+            }
+        }
+        throw new NoSuchFieldException(name);
     }
 
     // ---------------------------------------------------------------
-    // Overlay window management
+    // Overlay
     // ---------------------------------------------------------------
 
     private void createOverlay() throws Exception {
         if (containerView != null) return;
-
         containerView = new FrameLayout(context);
         containerView.setBackgroundColor(Color.BLACK);
 
         try {
             createGeckoView();
         } catch (Exception e) {
-            Log.w(TAG, "Cannot create GeckoView, using fallback WebView", e);
+            Log.w(TAG, "GeckoView creation failed, fallback to WebView", e);
             createFallbackWebView();
         }
 
         WindowManager.LayoutParams params = new WindowManager.LayoutParams(
-            WindowManager.LayoutParams.MATCH_PARENT,
-            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT,
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
                 ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
                 : WindowManager.LayoutParams.TYPE_PHONE,
@@ -450,7 +484,6 @@ public class GeckoBrowserManager {
             PixelFormat.TRANSLUCENT
         );
         params.gravity = Gravity.TOP | Gravity.START;
-
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             params.layoutInDisplayCutoutMode =
                 WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
@@ -458,61 +491,51 @@ public class GeckoBrowserManager {
 
         containerView.setOnTouchListener((v, event) -> {
             if (!touchEnabled) return false;
-            if (event.getAction() == MotionEvent.ACTION_DOWN) {
-                makeFocusable(params);
-            }
+            if (event.getAction() == MotionEvent.ACTION_DOWN) makeFocusable(params);
             return false;
         });
 
         windowManager.addView(containerView, params);
-        Log.d(TAG, "Overlay added");
     }
 
     private void createGeckoView() throws Exception {
-        Class<?> viewClass = geckoClassLoader.loadClass(GECKO_VIEW_CLASS);
+        ClassLoader cl = GeckoBrowserManager.class.getClassLoader();
+
+        Class<?> viewClass = cl.loadClass(GECKO_VIEW_CLASS);
         Constructor<?> ctor = viewClass.getConstructor(Context.class);
         geckoView = ctor.newInstance(context);
 
-        Class<?> sessionClass = geckoClassLoader.loadClass(GECKO_SESSION_CLASS);
+        Class<?> sessionClass = cl.loadClass(GECKO_SESSION_CLASS);
         geckoSession = sessionClass.getConstructor().newInstance();
 
-        Class<?> runtimeClass = geckoClassLoader.loadClass(GECKO_RUNTIME_CLASS);
+        Class<?> runtimeClass = cl.loadClass(GECKO_RUNTIME_CLASS);
         Method openMethod = sessionClass.getMethod("open", runtimeClass);
         openMethod.invoke(geckoSession, geckoRuntime);
 
         Method setSessionMethod = viewClass.getMethod("setSession", sessionClass);
         setSessionMethod.invoke(geckoView, geckoSession);
 
-        View view = (View) geckoView;
-        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT,
-            FrameLayout.LayoutParams.MATCH_PARENT
-        );
-        containerView.addView(view, lp);
-        Log.d(TAG, "GeckoView created and attached");
+        containerView.addView((View) geckoView, new FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        Log.d(TAG, "GeckoView created");
     }
 
     private void createFallbackWebView() {
         try {
-            android.webkit.WebView webView = new android.webkit.WebView(context);
-            webView.getSettings().setJavaScriptEnabled(javascriptEnabled);
-            webView.getSettings().setDomStorageEnabled(true);
-            webView.getSettings().setMixedContentMode(android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
-            webView.setWebViewClient(new android.webkit.WebViewClient());
-            geckoView = webView;
+            android.webkit.WebView wv = new android.webkit.WebView(context);
+            wv.getSettings().setJavaScriptEnabled(javascriptEnabled);
+            wv.getSettings().setDomStorageEnabled(true);
+            wv.getSettings().setMixedContentMode(android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+            wv.setWebViewClient(new android.webkit.WebViewClient());
+            geckoView = wv;
             geckoSession = null;
-            FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.MATCH_PARENT
-            );
-            containerView.addView(webView, lp);
-            Log.d(TAG, "Fallback WebView created");
+            containerView.addView(wv, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         } catch (Exception e) {
-            Log.e(TAG, "Fallback WebView also failed", e);
             TextView tv = new TextView(context);
-            tv.setText("GeckoView initialization failed.\n" + e.getMessage());
+            tv.setText("Browser init failed:\n" + e.getMessage());
             tv.setTextColor(Color.WHITE);
-            tv.setTextSize(16f);
+            tv.setTextSize(14f);
             tv.setGravity(Gravity.CENTER);
             tv.setPadding(48, 48, 48, 48);
             containerView.addView(tv);
@@ -522,13 +545,9 @@ public class GeckoBrowserManager {
     private void removeOverlay() {
         if (containerView != null) {
             try {
-                if (geckoView instanceof View) {
-                    containerView.removeView((View) geckoView);
-                }
+                if (geckoView instanceof View) containerView.removeView((View) geckoView);
                 windowManager.removeView(containerView);
-            } catch (Exception e) {
-                Log.w(TAG, "Error removing overlay", e);
-            }
+            } catch (Exception e) { Log.w(TAG, "Error removing overlay", e); }
             containerView = null;
             downloadStatusView = null;
         }
@@ -538,11 +557,8 @@ public class GeckoBrowserManager {
     private void closeSession() {
         if (geckoSession != null) {
             try {
-                Method closeMethod = geckoSession.getClass().getMethod("close");
-                closeMethod.invoke(geckoSession);
-            } catch (Exception e) {
-                Log.w(TAG, "Error closing GeckoSession", e);
-            }
+                geckoSession.getClass().getMethod("close").invoke(geckoSession);
+            } catch (Exception ignored) {}
             geckoSession = null;
         }
         geckoView = null;
@@ -550,49 +566,31 @@ public class GeckoBrowserManager {
 
     private void makeFocusable(WindowManager.LayoutParams params) {
         params.flags &= ~WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
-        try {
-            windowManager.updateViewLayout(containerView, params);
-        } catch (Exception e) {
-            Log.w(TAG, "Failed to make focusable", e);
-        }
+        try { windowManager.updateViewLayout(containerView, params); } catch (Exception ignored) {}
     }
 
     // ---------------------------------------------------------------
-    // URL loading
+    // URL
     // ---------------------------------------------------------------
 
     private void doLoadUrl(String url) {
         if (geckoSession != null) {
             try {
-                Method loadUri = geckoSession.getClass().getMethod("loadUri", String.class);
-                loadUri.invoke(geckoSession, url);
+                geckoSession.getClass().getMethod("loadUri", String.class).invoke(geckoSession, url);
                 currentUrl = url;
-                Log.d(TAG, "GeckoSession loading: " + url);
-            } catch (Exception e) {
-                Log.e(TAG, "Failed to load URL in GeckoSession", e);
-            }
+            } catch (Exception e) { Log.e(TAG, "loadUri failed", e); }
         } else if (geckoView instanceof android.webkit.WebView) {
             ((android.webkit.WebView) geckoView).loadUrl(url);
             currentUrl = url;
-            Log.d(TAG, "Fallback WebView loading: " + url);
         }
     }
-
-    // ---------------------------------------------------------------
-    // Utilities
-    // ---------------------------------------------------------------
 
     private String normalizeUrl(String url) {
         if (url.isEmpty()) return url;
-        if (!url.contains("://")) {
-            return "https://" + url;
-        }
-        return url;
+        return url.contains("://") ? url : "https://" + url;
     }
 
-    private void showToast(String message) {
-        try {
-            Toast.makeText(context, message, Toast.LENGTH_LONG).show();
-        } catch (Exception ignored) { }
+    private void showToast(String msg) {
+        try { Toast.makeText(context, msg, Toast.LENGTH_LONG).show(); } catch (Exception ignored) {}
     }
 }
