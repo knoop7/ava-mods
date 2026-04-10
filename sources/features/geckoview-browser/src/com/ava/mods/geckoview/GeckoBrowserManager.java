@@ -198,7 +198,8 @@ public class GeckoBrowserManager {
     // ---------------------------------------------------------------
 
     private File getGeckoDir() {
-        return new File(context.getFilesDir(), "geckoview");
+        // Store inside the mod's own directory: files/mods/geckoview-browser/native/
+        return new File(context.getFilesDir(), "mods/geckoview-browser/native");
     }
 
     private File getNativeLibDir() {
