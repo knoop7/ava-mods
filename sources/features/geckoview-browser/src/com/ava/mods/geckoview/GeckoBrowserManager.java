@@ -355,26 +355,57 @@ public class GeckoBrowserManager {
 
         File omniJa = new File(geckoDir, "assets/omni.ja");
 
-        // Set GeckoLoader.sLibDir so native dlopen() can find .so files
+        // Pre-configure GeckoLoader before GeckoThread can start
         try {
             Class<?> loaderClass = cl.loadClass("org.mozilla.gecko.mozglue.GeckoLoader");
+
+            // 1. Set sLibDir — GeckoThread reads this in loadSQLiteLibs/loadGeckoLibs
             java.lang.reflect.Field libDirField = loaderClass.getDeclaredField("sLibDir");
             libDirField.setAccessible(true);
             libDirField.set(null, nativePath);
             Log.d(TAG, "Set GeckoLoader.sLibDir = " + nativePath);
-        } catch (Exception e) {
-            Log.w(TAG, "Could not set GeckoLoader.sLibDir", e);
-        }
 
-        // Set GeckoThread.sGREDir for omni.ja resolution
-        try {
-            Class<?> threadClass = cl.loadClass("org.mozilla.gecko.GeckoThread");
-            java.lang.reflect.Field greDirField = threadClass.getDeclaredField("sGREDir");
-            greDirField.setAccessible(true);
-            greDirField.set(null, geckoDir.getAbsolutePath() + "/assets/");
-            Log.d(TAG, "Set GeckoThread.sGREDir = " + geckoDir.getAbsolutePath() + "/assets/");
+            // 2. Call loadLibsSetupLocked to register lib path with GeckoLoader
+            try {
+                Method setupMethod = loaderClass.getDeclaredMethod("loadLibsSetupLocked", Context.class);
+                setupMethod.setAccessible(true);
+                setupMethod.invoke(null, context);
+                Log.d(TAG, "Called GeckoLoader.loadLibsSetupLocked");
+            } catch (Exception e) {
+                Log.w(TAG, "loadLibsSetupLocked failed (non-fatal)", e);
+            }
+
+            // 3. Pre-load native libs so dlopen() finds them
+            try {
+                System.load(nativePath + "/libmozglue.so");
+                Log.d(TAG, "Pre-loaded libmozglue.so");
+            } catch (UnsatisfiedLinkError e) {
+                Log.d(TAG, "libmozglue.so already loaded or " + e.getMessage());
+            }
+            try {
+                System.load(nativePath + "/libnss3.so");
+                Log.d(TAG, "Pre-loaded libnss3.so");
+            } catch (UnsatisfiedLinkError e) {
+                Log.d(TAG, "libnss3.so: " + e.getMessage());
+            }
+
+            // 4. Mark mozglue as loaded to prevent double-load
+            try {
+                java.lang.reflect.Field mozGlueField = loaderClass.getDeclaredField("sMozGlueLoaded");
+                if (mozGlueField == null) mozGlueField = loaderClass.getDeclaredField("sNativeLibLoaded");
+                mozGlueField.setAccessible(true);
+                mozGlueField.set(null, true);
+            } catch (NoSuchFieldException e) {
+                // Try alternate field name
+                try {
+                    java.lang.reflect.Field f2 = loaderClass.getDeclaredField("sNativeLibLoaded");
+                    f2.setAccessible(true);
+                    f2.set(null, true);
+                } catch (Exception ignored) {}
+            } catch (Exception ignored) {}
+
         } catch (Exception e) {
-            Log.w(TAG, "Could not set GeckoThread.sGREDir", e);
+            Log.e(TAG, "Failed to configure GeckoLoader", e);
         }
 
         Log.d(TAG, "Initializing GeckoRuntime v68, native=" + nativePath
