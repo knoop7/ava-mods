@@ -1,17 +1,15 @@
 package com.ava.mods.zigbee;
 
 import android.content.Context;
-import android.os.Handler;
-import android.os.Looper;
 import android.util.Log;
 
 import java.io.File;
-import java.io.FileDescriptor;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.BindException;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
@@ -30,9 +28,9 @@ public class ZigbeeGatewayManager {
     private static volatile ZigbeeGatewayManager instance;
 
     private final Context context;
-    private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final ExecutorService executor = Executors.newCachedThreadPool();
     private final CopyOnWriteArrayList<Socket> clients = new CopyOnWriteArrayList<>();
+    private final Object lifecycleLock = new Object();
     private final List<String> serialPortCandidates = Arrays.asList(
             "/dev/ttyS5",
             "/dev/ttyUSB0",
@@ -50,6 +48,8 @@ public class ZigbeeGatewayManager {
     private volatile boolean rtsctsFlow = false;
 
     private final AtomicBoolean serverRunning = new AtomicBoolean(false);
+    private final AtomicBoolean serverStarting = new AtomicBoolean(false);
+    private final AtomicBoolean restartInProgress = new AtomicBoolean(false);
     private final AtomicInteger clientCount = new AtomicInteger(0);
     private final AtomicLong bytesReceived = new AtomicLong(0);
     private final AtomicLong bytesSent = new AtomicLong(0);
@@ -57,7 +57,6 @@ public class ZigbeeGatewayManager {
     private ServerSocket serverSocket;
     private FileInputStream serialIn;
     private FileOutputStream serialOut;
-    private FileDescriptor serialFd;
     private volatile boolean stopRequested = false;
 
     private ZigbeeGatewayManager(Context context) {
@@ -87,32 +86,32 @@ public class ZigbeeGatewayManager {
             case "serial_port":
                 if (!value.equals(serialPort)) {
                     serialPort = value.trim();
-                    needsRestart = serverRunning.get();
+                    needsRestart = isServerRunning();
                 }
                 break;
             case "baudrate":
                 int newBaud = parseInt(value, 115200);
                 if (newBaud != baudrate) {
                     baudrate = newBaud;
-                    needsRestart = serverRunning.get();
+                    needsRestart = isServerRunning();
                 }
                 break;
             case "tcp_port":
                 int newPort = parseInt(value, 8888);
                 if (newPort != tcpPort) {
                     tcpPort = newPort;
-                    needsRestart = serverRunning.get();
+                    needsRestart = isServerRunning();
                 }
                 break;
             case "listen_address":
                 if (!value.equals(listenAddress)) {
                     listenAddress = value.trim();
-                    needsRestart = serverRunning.get();
+                    needsRestart = isServerRunning();
                 }
                 break;
             case "auto_start":
                 autoStart = "true".equalsIgnoreCase(value);
-                if (autoStart && !serverRunning.get()) {
+                if (autoStart && !isServerRunning()) {
                     startServer();
                 }
                 break;
@@ -120,8 +119,10 @@ public class ZigbeeGatewayManager {
                 boolean newFlow = "true".equalsIgnoreCase(value);
                 if (newFlow != rtsctsFlow) {
                     rtsctsFlow = newFlow;
-                    needsRestart = serverRunning.get();
+                    needsRestart = isServerRunning();
                 }
+                break;
+            default:
                 break;
         }
 
@@ -139,65 +140,121 @@ public class ZigbeeGatewayManager {
     }
 
     public void startServer() {
-        if (serverRunning.get()) {
-            Log.d(TAG, "Server already running");
-            return;
+        synchronized (lifecycleLock) {
+            if (hasActiveServerLocked()) {
+                serverRunning.set(true);
+                Log.d(TAG, "Server already running");
+                return;
+            }
+            if (serverStarting.get()) {
+                Log.d(TAG, "Server start already in progress");
+                return;
+            }
+            stopRequested = false;
+            serverStarting.set(true);
         }
 
-        executor.execute(() -> {
-            try {
-                if (!openSerialPort()) {
-                    Log.e(TAG, "Failed to open serial port: " + serialPort);
-                    return;
-                }
-
-                serverSocket = new ServerSocket();
-                serverSocket.setReuseAddress(true);
-                serverSocket.bind(new InetSocketAddress(listenAddress, tcpPort));
-                serverRunning.set(true);
-
-                Log.i(TAG, "Server started - Serial: " + serialPort + "@" + baudrate 
-                        + " TCP: " + listenAddress + ":" + tcpPort);
-
-                startSerialReader();
-
-                while (!stopRequested && serverRunning.get()) {
-                    try {
-                        Socket client = serverSocket.accept();
-                        handleClient(client);
-                    } catch (IOException e) {
-                        if (!stopRequested) {
-                            Log.e(TAG, "Accept error", e);
-                        }
-                    }
-                }
-            } catch (Exception e) {
-                Log.e(TAG, "Server error", e);
-            } finally {
-                cleanup();
-            }
-        });
+        executor.execute(this::runServerLoop);
     }
 
     public void stopServer() {
         stopRequested = true;
-        serverRunning.set(false);
-        cleanup();
+        serverStarting.set(false);
+        releaseOwnedResources(null, null, null);
         Log.i(TAG, "Server stopped");
     }
 
     public void restartServer() {
+        if (!restartInProgress.compareAndSet(false, true)) {
+            Log.d(TAG, "Restart already in progress");
+            return;
+        }
         executor.execute(() -> {
-            stopServer();
             try {
-                Thread.sleep(500);
-            } catch (InterruptedException ignored) {}
-            stopRequested = false;
-            startServer();
+                stopServer();
+                try {
+                    Thread.sleep(500);
+                } catch (InterruptedException ignored) {
+                    Thread.currentThread().interrupt();
+                }
+                stopRequested = false;
+                startServer();
+            } finally {
+                restartInProgress.set(false);
+            }
         });
     }
 
-    private boolean openSerialPort() {
+    private void runServerLoop() {
+        ServerSocket localServerSocket = null;
+        FileInputStream localSerialIn = null;
+        FileOutputStream localSerialOut = null;
+        try {
+            localServerSocket = new ServerSocket();
+            localServerSocket.setReuseAddress(true);
+            localServerSocket.bind(new InetSocketAddress(listenAddress, tcpPort));
+
+            SerialConnection connection = openSerialPort();
+            if (connection == null) {
+                Log.e(TAG, "Failed to open serial port: " + serialPort);
+                return;
+            }
+            localSerialIn = connection.inputStream;
+            localSerialOut = connection.outputStream;
+
+            synchronized (lifecycleLock) {
+                if (stopRequested) {
+                    Log.d(TAG, "Stop requested during startup, aborting server start");
+                    return;
+                }
+                if (hasActiveServerLocked()) {
+                    serverRunning.set(true);
+                    Log.d(TAG, "Another server instance became active during startup");
+                    return;
+                }
+                serverSocket = localServerSocket;
+                serialIn = localSerialIn;
+                serialOut = localSerialOut;
+                serverRunning.set(true);
+                serverStarting.set(false);
+            }
+
+            Log.i(TAG, "Server started - Serial: " + serialPort + "@" + baudrate
+                    + " TCP: " + listenAddress + ":" + tcpPort);
+
+            startSerialReader(localSerialIn);
+
+            while (!stopRequested && isOwnedServerSocket(localServerSocket)) {
+                try {
+                    Socket client = localServerSocket.accept();
+                    handleClient(client);
+                } catch (IOException e) {
+                    if (!stopRequested && isOwnedServerSocket(localServerSocket)) {
+                        Log.e(TAG, "Accept error", e);
+                    }
+                }
+            }
+        } catch (BindException e) {
+            if (hasActiveServer()) {
+                serverRunning.set(true);
+                Log.w(TAG, "Skipped duplicate server start because an instance is already listening", e);
+            } else {
+                Log.e(TAG, "Server bind error", e);
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Server error", e);
+        } finally {
+            synchronized (lifecycleLock) {
+                serverStarting.set(false);
+            }
+            releaseOwnedResources(localServerSocket, localSerialIn, localSerialOut);
+            closeQuietly(localServerSocket);
+            closeQuietly(localSerialIn);
+            closeQuietly(localSerialOut);
+        }
+    }
+
+    private SerialConnection openSerialPort() {
         try {
             String detectedSerialPort = detectSerialPort();
             if (detectedSerialPort != null && !new File(serialPort).exists()) {
@@ -207,45 +264,45 @@ public class ZigbeeGatewayManager {
             File device = new File(serialPort);
             if (!device.exists()) {
                 Log.e(TAG, "Serial device not found: " + serialPort);
-                return false;
+                return null;
             }
 
             Process process = Runtime.getRuntime().exec(new String[]{
-                "su", "-c", "chmod 666 " + serialPort
+                    "su", "-c", "chmod 666 " + serialPort
             });
             process.waitFor();
 
             if (!device.canRead() || !device.canWrite()) {
                 Log.e(TAG, "No read/write permission for: " + serialPort);
-                return false;
+                return null;
             }
 
             process = Runtime.getRuntime().exec(new String[]{
-                "su", "-c", "stty -F " + serialPort + " " + baudrate + " raw -echo"
+                    "su", "-c", "stty -F " + serialPort + " " + baudrate + " raw -echo"
             });
             process.waitFor();
 
-            serialIn = new FileInputStream(device);
-            serialOut = new FileOutputStream(device);
+            FileInputStream inputStream = new FileInputStream(device);
+            FileOutputStream outputStream = new FileOutputStream(device);
 
             Log.d(TAG, "Serial port opened: " + serialPort + "@" + baudrate);
-            return true;
+            return new SerialConnection(inputStream, outputStream);
         } catch (Exception e) {
             Log.e(TAG, "Failed to open serial port", e);
-            return false;
+            return null;
         }
     }
 
-    private void startSerialReader() {
+    private void startSerialReader(FileInputStream inputStream) {
         executor.execute(() -> {
             byte[] buffer = new byte[4096];
-            while (!stopRequested && serverRunning.get()) {
+            while (!stopRequested && isOwnedSerialInput(inputStream)) {
                 try {
-                    if (serialIn == null) break;
-                    
-                    int available = serialIn.available();
+                    if (inputStream == null) break;
+
+                    int available = inputStream.available();
                     if (available > 0) {
-                        int len = serialIn.read(buffer, 0, Math.min(available, buffer.length));
+                        int len = inputStream.read(buffer, 0, Math.min(available, buffer.length));
                         if (len > 0) {
                             bytesReceived.addAndGet(len);
                             broadcastToClients(buffer, len);
@@ -254,7 +311,7 @@ public class ZigbeeGatewayManager {
                         Thread.sleep(10);
                     }
                 } catch (Exception e) {
-                    if (!stopRequested) {
+                    if (!stopRequested && isOwnedSerialInput(inputStream)) {
                         Log.e(TAG, "Serial read error", e);
                     }
                     break;
@@ -276,17 +333,26 @@ public class ZigbeeGatewayManager {
                 while (!stopRequested && !client.isClosed()) {
                     int len = in.read(buffer);
                     if (len < 0) break;
-                    if (len > 0 && serialOut != null) {
-                        serialOut.write(buffer, 0, len);
-                        serialOut.flush();
-                        bytesSent.addAndGet(len);
+                    if (len > 0) {
+                        FileOutputStream currentSerialOut;
+                        synchronized (lifecycleLock) {
+                            currentSerialOut = serialOut;
+                        }
+                        if (currentSerialOut != null) {
+                            currentSerialOut.write(buffer, 0, len);
+                            currentSerialOut.flush();
+                            bytesSent.addAndGet(len);
+                        }
                     }
                 }
             } catch (Exception e) {
                 Log.d(TAG, "Client disconnected: " + e.getMessage());
             } finally {
                 clients.remove(client);
-                clientCount.decrementAndGet();
+                synchronized (lifecycleLock) {
+                    int currentCount = clientCount.get();
+                    clientCount.set(Math.max(0, currentCount - 1));
+                }
                 try {
                     client.close();
                 } catch (IOException ignored) {}
@@ -309,7 +375,55 @@ public class ZigbeeGatewayManager {
         }
     }
 
-    private void cleanup() {
+    private boolean hasActiveServer() {
+        synchronized (lifecycleLock) {
+            return hasActiveServerLocked();
+        }
+    }
+
+    private boolean hasActiveServerLocked() {
+        return serverSocket != null && !serverSocket.isClosed();
+    }
+
+    private boolean isOwnedServerSocket(ServerSocket socket) {
+        synchronized (lifecycleLock) {
+            return socket != null && socket == serverSocket && !socket.isClosed();
+        }
+    }
+
+    private boolean isOwnedSerialInput(FileInputStream inputStream) {
+        synchronized (lifecycleLock) {
+            return inputStream != null && inputStream == serialIn;
+        }
+    }
+
+    private void releaseOwnedResources(
+            ServerSocket ownedServerSocket,
+            FileInputStream ownedSerialIn,
+            FileOutputStream ownedSerialOut) {
+        ServerSocket serverSocketToClose = null;
+        FileInputStream serialInToClose = null;
+        FileOutputStream serialOutToClose = null;
+
+        synchronized (lifecycleLock) {
+            boolean releaseCurrent =
+                    ownedServerSocket == null
+                            || serverSocket == ownedServerSocket
+                            || serialIn == ownedSerialIn
+                            || serialOut == ownedSerialOut;
+            if (!releaseCurrent) {
+                return;
+            }
+
+            serverSocketToClose = serverSocket;
+            serialInToClose = serialIn;
+            serialOutToClose = serialOut;
+            serverSocket = null;
+            serialIn = null;
+            serialOut = null;
+            serverRunning.set(false);
+        }
+
         for (Socket client : clients) {
             try {
                 client.close();
@@ -318,32 +432,17 @@ public class ZigbeeGatewayManager {
         clients.clear();
         clientCount.set(0);
 
-        if (serverSocket != null) {
-            try {
-                serverSocket.close();
-            } catch (IOException ignored) {}
-            serverSocket = null;
-        }
-
-        if (serialIn != null) {
-            try {
-                serialIn.close();
-            } catch (IOException ignored) {}
-            serialIn = null;
-        }
-
-        if (serialOut != null) {
-            try {
-                serialOut.close();
-            } catch (IOException ignored) {}
-            serialOut = null;
-        }
-
-        serverRunning.set(false);
+        closeQuietly(serverSocketToClose);
+        closeQuietly(serialInToClose);
+        closeQuietly(serialOutToClose);
     }
 
     public boolean isServerRunning() {
-        return serverRunning.get();
+        synchronized (lifecycleLock) {
+            return serverStarting.get()
+                    || serverRunning.get()
+                    || (serverSocket != null && !serverSocket.isClosed());
+        }
     }
 
     public int getTcpPort() {
@@ -388,6 +487,40 @@ public class ZigbeeGatewayManager {
         }
         File file = new File(path);
         return file.exists() && !file.isDirectory();
+    }
+
+    private void closeQuietly(ServerSocket socket) {
+        if (socket != null) {
+            try {
+                socket.close();
+            } catch (IOException ignored) {}
+        }
+    }
+
+    private void closeQuietly(FileInputStream inputStream) {
+        if (inputStream != null) {
+            try {
+                inputStream.close();
+            } catch (IOException ignored) {}
+        }
+    }
+
+    private void closeQuietly(FileOutputStream outputStream) {
+        if (outputStream != null) {
+            try {
+                outputStream.close();
+            } catch (IOException ignored) {}
+        }
+    }
+
+    private static final class SerialConnection {
+        private final FileInputStream inputStream;
+        private final FileOutputStream outputStream;
+
+        private SerialConnection(FileInputStream inputStream, FileOutputStream outputStream) {
+            this.inputStream = inputStream;
+            this.outputStream = outputStream;
+        }
     }
 
     private int parseInt(String value, int fallback) {

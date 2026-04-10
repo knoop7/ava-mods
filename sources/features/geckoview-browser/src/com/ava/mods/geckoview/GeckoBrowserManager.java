@@ -339,14 +339,43 @@ public class GeckoBrowserManager {
             throw new RuntimeException("Native libs not downloaded yet");
         }
 
-        // Inject native lib path into this class's ClassLoader
+        // Inject native lib path into all relevant ClassLoaders
         String nativePath = nativeDir.getAbsolutePath();
         ClassLoader cl = GeckoBrowserManager.class.getClassLoader();
         addNativeLibPath(cl, nativePath);
+        // Also inject into context classloader (used by GeckoThread)
+        ClassLoader contextCl = context.getClassLoader();
+        if (contextCl != cl) {
+            addNativeLibPath(contextCl, nativePath);
+        }
+        ClassLoader threadCl = Thread.currentThread().getContextClassLoader();
+        if (threadCl != null && threadCl != cl && threadCl != contextCl) {
+            addNativeLibPath(threadCl, nativePath);
+        }
 
-        // Write YAML config with -greomni pointing to our omni.ja
         File omniJa = new File(geckoDir, "assets/omni.ja");
-        File configFile = writeGeckoConfig(omniJa.getAbsolutePath());
+
+        // Set GeckoLoader.sLibDir so native dlopen() can find .so files
+        try {
+            Class<?> loaderClass = cl.loadClass("org.mozilla.gecko.mozglue.GeckoLoader");
+            java.lang.reflect.Field libDirField = loaderClass.getDeclaredField("sLibDir");
+            libDirField.setAccessible(true);
+            libDirField.set(null, nativePath);
+            Log.d(TAG, "Set GeckoLoader.sLibDir = " + nativePath);
+        } catch (Exception e) {
+            Log.w(TAG, "Could not set GeckoLoader.sLibDir", e);
+        }
+
+        // Set GeckoThread.sGREDir for omni.ja resolution
+        try {
+            Class<?> threadClass = cl.loadClass("org.mozilla.gecko.GeckoThread");
+            java.lang.reflect.Field greDirField = threadClass.getDeclaredField("sGREDir");
+            greDirField.setAccessible(true);
+            greDirField.set(null, geckoDir.getAbsolutePath() + "/assets/");
+            Log.d(TAG, "Set GeckoThread.sGREDir = " + geckoDir.getAbsolutePath() + "/assets/");
+        } catch (Exception e) {
+            Log.w(TAG, "Could not set GeckoThread.sGREDir", e);
+        }
 
         Log.d(TAG, "Initializing GeckoRuntime v68, native=" + nativePath
             + ", omni=" + omniJa.getAbsolutePath());
@@ -381,18 +410,13 @@ public class GeckoBrowserManager {
             builderClass.getMethod("javaScriptEnabled", boolean.class).invoke(builder, javascriptEnabled);
         } catch (NoSuchMethodException ignored) {}
 
-        // Config file with -greomni for omni.ja path
+        // Pass -greomni via arguments() — do NOT use configFilePath (requires SnakeYAML)
         try {
-            builderClass.getMethod("configFilePath", String.class).invoke(builder, configFile.getAbsolutePath());
-            Log.d(TAG, "Set configFilePath: " + configFile.getAbsolutePath());
+            builderClass.getMethod("arguments", String[].class)
+                .invoke(builder, (Object) new String[]{"-greomni", omniJa.getAbsolutePath()});
+            Log.d(TAG, "Set arguments: -greomni " + omniJa.getAbsolutePath());
         } catch (Exception e) {
-            Log.w(TAG, "configFilePath failed, trying arguments()", e);
-            try {
-                builderClass.getMethod("arguments", String[].class)
-                    .invoke(builder, (Object) new String[]{"-greomni", omniJa.getAbsolutePath()});
-            } catch (Exception e2) {
-                Log.w(TAG, "arguments() also failed", e2);
-            }
+            Log.w(TAG, "arguments() failed", e);
         }
 
         // Disable crash handler (not registered in manifest)
@@ -463,20 +487,6 @@ public class GeckoBrowserManager {
             catch (NoSuchFieldException e) { current = current.getSuperclass(); }
         }
         throw new NoSuchFieldException(name);
-    }
-
-    private File writeGeckoConfig(String omniPath) {
-        File configFile = new File(getGeckoDir(), "geckoview-config.yaml");
-        try {
-            String yaml = "args:\n  - \"-greomni\"\n  - \"" + omniPath + "\"\n";
-            FileOutputStream fos = new FileOutputStream(configFile);
-            fos.write(yaml.getBytes());
-            fos.close();
-            Log.d(TAG, "Wrote gecko config: " + yaml.trim());
-        } catch (Exception e) {
-            Log.e(TAG, "Failed to write gecko config", e);
-        }
-        return configFile;
     }
 
     // ---------------------------------------------------------------

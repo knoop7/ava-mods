@@ -13,7 +13,7 @@
     {
       "type": "binary_sensor",
       "id": "server_running",
-      "name": "Server Status",
+      "name": "Zigbee Status",
       "icon": "mdi:server-network",
       "class": "connectivity",
       "category": "diagnostic",
@@ -22,8 +22,9 @@
     {
       "type": "button",
       "id": "restart_server",
-      "name": "Restart Server",
+      "name": "Zigbee Restart",
       "icon": "mdi:restart",
+      "category": "diagnostic",
       "press": "restartServer"
     }
   ],
