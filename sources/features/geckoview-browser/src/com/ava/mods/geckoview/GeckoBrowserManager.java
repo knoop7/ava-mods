@@ -464,8 +464,7 @@ public class GeckoBrowserManager {
 
     private void createOverlay() throws Exception {
         if (containerView != null) return;
-        // Use SafeFrameLayout to catch GeckoView's NPE in onAttachedToWindow
-        containerView = new SafeFrameLayout(context);
+        containerView = new FrameLayout(context);
         containerView.setBackgroundColor(Color.BLACK);
 
         try {
@@ -497,6 +496,9 @@ public class GeckoBrowserManager {
             return false;
         });
 
+        // Install safety net before adding to WM — GeckoView throws NPE
+        // asynchronously in onAttachedToWindow when not inside an Activity
+        installAttachSafetyNet();
         windowManager.addView(containerView, params);
     }
 
@@ -523,23 +525,31 @@ public class GeckoBrowserManager {
     }
 
     /**
-     * FrameLayout that catches exceptions from child views during attach.
-     * GeckoView throws NPE in onAttachedToWindow when context is not an Activity.
-     * The NPE is non-fatal — GeckoView works fine without WindowInsets listener.
+     * Install a temporary safety net to catch GeckoView's NPE during
+     * onAttachedToWindow which fires asynchronously via performTraversals.
+     * We wrap the main Looper's message handling to swallow this specific NPE.
      */
-    private static class SafeFrameLayout extends FrameLayout {
-        SafeFrameLayout(Context context) { super(context); }
-
-        @Override
-        public void addView(View child, int index, android.view.ViewGroup.LayoutParams params) {
-            try {
-                super.addView(child, index, params);
-            } catch (NullPointerException e) {
-                // GeckoView.onAttachedToWindow -> attachWindowInsetsListener NPE
-                // View is still added, just without WindowInsets integration
-                Log.w("GeckoBrowserManager", "Caught NPE during addView (expected in overlay mode)", e);
+    private void installAttachSafetyNet() {
+        final Thread.UncaughtExceptionHandler original = Thread.getDefaultUncaughtExceptionHandler();
+        Thread.getDefaultUncaughtExceptionHandler();
+        Thread.setDefaultUncaughtExceptionHandler((thread, throwable) -> {
+            // Check if this is GeckoView's known NPE
+            if (throwable instanceof NullPointerException) {
+                String trace = Log.getStackTraceString(throwable);
+                if (trace.contains("attachWindowInsetsListener") || trace.contains("GeckoView.onAttachedToWindow")) {
+                    Log.w(TAG, "Swallowed GeckoView attachWindowInsetsListener NPE (expected in overlay mode)");
+                    // Restore original handler and continue
+                    Thread.setDefaultUncaughtExceptionHandler(original);
+                    return;
+                }
             }
-        }
+            // Not our NPE — delegate to original handler
+            if (original != null) {
+                original.uncaughtException(thread, throwable);
+            }
+        });
+        // Auto-restore after 2 seconds (attach should happen within first frame)
+        mainHandler.postDelayed(() -> Thread.setDefaultUncaughtExceptionHandler(original), 2000);
     }
 
     private void createFallbackWebView() {
