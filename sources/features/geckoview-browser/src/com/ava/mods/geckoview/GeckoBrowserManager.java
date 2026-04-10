@@ -463,7 +463,8 @@ public class GeckoBrowserManager {
 
     private void createOverlay() throws Exception {
         if (containerView != null) return;
-        containerView = new FrameLayout(context);
+        // Use SafeFrameLayout to catch GeckoView's NPE in onAttachedToWindow
+        containerView = new SafeFrameLayout(context);
         containerView.setBackgroundColor(Color.BLACK);
 
         try {
@@ -518,6 +519,26 @@ public class GeckoBrowserManager {
         containerView.addView((View) geckoView, new FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         Log.d(TAG, "GeckoView created");
+    }
+
+    /**
+     * FrameLayout that catches exceptions from child views during attach.
+     * GeckoView throws NPE in onAttachedToWindow when context is not an Activity.
+     * The NPE is non-fatal — GeckoView works fine without WindowInsets listener.
+     */
+    private static class SafeFrameLayout extends FrameLayout {
+        SafeFrameLayout(Context context) { super(context); }
+
+        @Override
+        public void addView(View child, int index, android.view.ViewGroup.LayoutParams params) {
+            try {
+                super.addView(child, index, params);
+            } catch (NullPointerException e) {
+                // GeckoView.onAttachedToWindow -> attachWindowInsetsListener NPE
+                // View is still added, just without WindowInsets integration
+                Log.w("GeckoBrowserManager", "Caught NPE during addView (expected in overlay mode)", e);
+            }
+        }
     }
 
     private void createFallbackWebView() {
