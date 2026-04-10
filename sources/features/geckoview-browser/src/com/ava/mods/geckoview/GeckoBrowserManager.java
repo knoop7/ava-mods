@@ -29,13 +29,12 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
 /**
- * GeckoView Browser Mod Manager.
+ * GeckoView v68 Browser Mod Manager.
  *
- * GeckoView Java classes (geckoview-classes.jar, pre-converted to DEX) are
- * bundled in the mod's libs/ and loaded by Ava's DexClassLoader automatically.
- *
- * Native .so libraries (~150MB) are downloaded from Mozilla Maven on first use
- * and cached locally.
+ * Uses GeckoView 68 which supports single-process mode via
+ * useContentProcessHint(false), requiring only 4 manifest services
+ * instead of 120+. Classes (DEX) bundled in mod libs, native .so
+ * and omni.ja downloaded on first use (~44MB).
  */
 public class GeckoBrowserManager {
 
@@ -47,7 +46,8 @@ public class GeckoBrowserManager {
     private static final String GECKO_SETTINGS_CLASS   = "org.mozilla.geckoview.GeckoRuntimeSettings";
     private static final String GECKO_SETTINGS_BUILDER = "org.mozilla.geckoview.GeckoRuntimeSettings$Builder";
 
-    private static final String GECKO_VERSION = "149.0.20260403140140";
+    // GeckoView v68 — single-process capable, small manifest footprint
+    private static final String GECKO_VERSION = "68.0.20190711090008";
     private static final String GECKO_AAR_URL =
         "https://maven.mozilla.org/maven2/org/mozilla/geckoview/geckoview-arm64-v8a/"
         + GECKO_VERSION + "/geckoview-arm64-v8a-" + GECKO_VERSION + ".aar";
@@ -117,10 +117,8 @@ public class GeckoBrowserManager {
     public void showBrowser() {
         if (isVisible || isDownloading) return;
 
-        // Check if native libs are downloaded
         File nativeDir = getNativeLibDir();
         if (!nativeDir.exists() || !hasNativeLibs(nativeDir)) {
-            // Need to download native libs first
             isDownloading = true;
             showDownloadOverlay();
             executor.execute(() -> {
@@ -194,11 +192,10 @@ public class GeckoBrowserManager {
     }
 
     // ---------------------------------------------------------------
-    // Native library download (only .so + assets, ~80MB compressed)
+    // Native library download (~44MB compressed AAR)
     // ---------------------------------------------------------------
 
     private File getGeckoDir() {
-        // Store inside the mod's own directory: files/mods/geckoview-browser/native/
         return new File(context.getFilesDir(), "mods/geckoview-browser/native");
     }
 
@@ -207,20 +204,18 @@ public class GeckoBrowserManager {
     }
 
     private boolean hasNativeLibs(File dir) {
-        File libxul = new File(dir, "libxul.so");
-        return libxul.exists();
+        return new File(dir, "libxul.so").exists();
     }
 
     private void downloadNativeLibs() throws Exception {
         File geckoDir = getGeckoDir();
-        File tmpDir = new File(geckoDir.getParent(), "geckoview_tmp");
+        File tmpDir = new File(geckoDir.getParent(), "native_tmp");
         if (tmpDir.exists()) deleteRecursive(tmpDir);
         tmpDir.mkdirs();
 
         File aarFile = new File(tmpDir, "geckoview.aar");
 
-        // Download
-        mainHandler.post(() -> updateDownloadStatus("Downloading GeckoView engine (~84MB)..."));
+        mainHandler.post(() -> updateDownloadStatus("Downloading GeckoView v68 (~44MB)..."));
         Log.d(TAG, "Downloading: " + GECKO_AAR_URL);
 
         HttpURLConnection conn = (HttpURLConnection) new URL(GECKO_AAR_URL).openConnection();
@@ -253,15 +248,13 @@ public class GeckoBrowserManager {
         in.close();
         conn.disconnect();
 
-        // Extract only native libs and assets from AAR
-        mainHandler.post(() -> updateDownloadStatus("Extracting native libraries..."));
+        mainHandler.post(() -> updateDownloadStatus("Extracting..."));
         extractAar(aarFile, tmpDir);
         aarFile.delete();
 
-        // Move to final location
         if (geckoDir.exists()) deleteRecursive(geckoDir);
         tmpDir.renameTo(geckoDir);
-        Log.d(TAG, "Native libs ready at " + geckoDir.getAbsolutePath());
+        Log.d(TAG, "GeckoView v68 ready at " + geckoDir.getAbsolutePath());
     }
 
     private void extractAar(File aarFile, File outDir) throws Exception {
@@ -270,7 +263,6 @@ public class GeckoBrowserManager {
         byte[] buffer = new byte[65536];
         while ((entry = zis.getNextEntry()) != null) {
             String name = entry.getName();
-            // Only extract native libs and assets (classes already bundled in mod)
             boolean needed = (name.startsWith("jni/") && name.endsWith(".so"))
                 || name.startsWith("assets/");
             if (!needed || entry.isDirectory()) continue;
@@ -315,8 +307,7 @@ public class GeckoBrowserManager {
         downloadStatusView.setPadding(64, 64, 64, 64);
 
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT
-        );
+            FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT);
         lp.gravity = Gravity.CENTER;
         containerView.addView(downloadStatusView, lp);
 
@@ -326,8 +317,7 @@ public class GeckoBrowserManager {
                 ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
                 : WindowManager.LayoutParams.TYPE_PHONE,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
-            PixelFormat.TRANSLUCENT
-        );
+            PixelFormat.TRANSLUCENT);
         params.gravity = Gravity.TOP | Gravity.START;
         windowManager.addView(containerView, params);
     }
@@ -337,81 +327,33 @@ public class GeckoBrowserManager {
     }
 
     // ---------------------------------------------------------------
-    // GeckoView runtime (classes loaded by mod's ClassLoader, native from disk)
+    // GeckoView v68 runtime — single process mode
     // ---------------------------------------------------------------
 
     private void ensureGeckoRuntime() throws Exception {
         if (geckoRuntime != null) return;
 
-        // GeckoView classes are already on this class's ClassLoader
-        // (geckoview-classes.jar is in mod libs/, loaded by Ava's DexClassLoader)
-        ClassLoader cl = GeckoBrowserManager.class.getClassLoader();
-
-        // But GeckoView needs to find its native .so files.
-        // We need to add the native lib path to the system.
+        File geckoDir = getGeckoDir();
         File nativeDir = getNativeLibDir();
         if (!nativeDir.exists()) {
-            throw new RuntimeException("Native libs not downloaded. Toggle the switch to trigger download.");
+            throw new RuntimeException("Native libs not downloaded yet");
         }
 
-        // Set system property so GeckoView can find its libs
+        // Inject native lib path into this class's ClassLoader
         String nativePath = nativeDir.getAbsolutePath();
-        try {
-            System.setProperty("gecko.libdir", nativePath);
-        } catch (Exception ignored) {}
-
-        // Also try to inject native path into the existing ClassLoader
+        ClassLoader cl = GeckoBrowserManager.class.getClassLoader();
         addNativeLibPath(cl, nativePath);
 
-        // Set assets path for omni.ja
-        File assetsDir = new File(getGeckoDir(), "assets");
-        if (assetsDir.exists()) {
-            try {
-                System.setProperty("gecko.assetsdir", assetsDir.getAbsolutePath());
-            } catch (Exception ignored) {}
-        }
+        // Write YAML config with -greomni pointing to our omni.ja
+        File omniJa = new File(geckoDir, "assets/omni.ja");
+        File configFile = writeGeckoConfig(omniJa.getAbsolutePath());
 
-        // Gecko loads omni.ja from the host APK's assets/ by default.
-        // Since we're a mod, omni.ja is not in the APK. We use configFilePath
-        // to write a YAML config with -greomni pointing to our extracted omni.ja.
-        File omniJa = new File(getGeckoDir(), "assets/omni.ja");
-        String omniPath = omniJa.getAbsolutePath();
-        File configFile = writeGeckoConfig(omniPath);
-        Log.d(TAG, "Initializing GeckoRuntime, nativeDir=" + nativePath
-            + ", omni=" + omniPath + ", config=" + configFile.getAbsolutePath());
-
-        Class<?> builderClass = cl.loadClass(GECKO_SETTINGS_BUILDER);
-        Object builder = builderClass.getConstructor().newInstance();
-
-        try {
-            Method jsMethod = builderClass.getMethod("javaScriptEnabled", boolean.class);
-            jsMethod.invoke(builder, javascriptEnabled);
-        } catch (NoSuchMethodException ignored) {}
-
-        // Use configFilePath to pass -greomni via YAML config
-        try {
-            Method configMethod = builderClass.getMethod("configFilePath", String.class);
-            configMethod.invoke(builder, configFile.getAbsolutePath());
-            Log.d(TAG, "Set configFilePath: " + configFile.getAbsolutePath());
-        } catch (Exception e) {
-            Log.w(TAG, "configFilePath not available, trying extras", e);
-            // Fallback: try extras Bundle
-            try {
-                android.os.Bundle extras = new android.os.Bundle();
-                extras.putString("args", "-greomni " + omniPath);
-                Method extrasMethod = builderClass.getMethod("extras", android.os.Bundle.class);
-                extrasMethod.invoke(builder, extras);
-            } catch (Exception e2) {
-                Log.w(TAG, "Failed to set extras", e2);
-            }
-        }
-
-        Method buildMethod = builderClass.getMethod("build");
-        Object settings = buildMethod.invoke(builder);
+        Log.d(TAG, "Initializing GeckoRuntime v68, native=" + nativePath
+            + ", omni=" + omniJa.getAbsolutePath());
 
         Class<?> runtimeClass = cl.loadClass(GECKO_RUNTIME_CLASS);
 
-        // Try to get existing runtime first (only one instance allowed per process)
+        // Try to reuse existing runtime (only one per process)
         try {
             Method getDefault = runtimeClass.getMethod("getDefault", Context.class);
             geckoRuntime = getDefault.invoke(null, context);
@@ -421,26 +363,61 @@ public class GeckoBrowserManager {
             }
         } catch (Exception ignored) {}
 
-        // Create new runtime
+        // Build settings with single-process mode
+        Class<?> builderClass = cl.loadClass(GECKO_SETTINGS_BUILDER);
+        Object builder = builderClass.getConstructor().newInstance();
+
+        // Disable multi-process — this is the key v68 feature
+        try {
+            Method useContent = builderClass.getMethod("useContentProcessHint", boolean.class);
+            useContent.invoke(builder, false);
+            Log.d(TAG, "Set useContentProcessHint(false) — single process mode");
+        } catch (Exception e) {
+            Log.w(TAG, "useContentProcessHint not available", e);
+        }
+
+        // JavaScript
+        try {
+            builderClass.getMethod("javaScriptEnabled", boolean.class).invoke(builder, javascriptEnabled);
+        } catch (NoSuchMethodException ignored) {}
+
+        // Config file with -greomni for omni.ja path
+        try {
+            builderClass.getMethod("configFilePath", String.class).invoke(builder, configFile.getAbsolutePath());
+            Log.d(TAG, "Set configFilePath: " + configFile.getAbsolutePath());
+        } catch (Exception e) {
+            Log.w(TAG, "configFilePath failed, trying arguments()", e);
+            try {
+                builderClass.getMethod("arguments", String[].class)
+                    .invoke(builder, (Object) new String[]{"-greomni", omniJa.getAbsolutePath()});
+            } catch (Exception e2) {
+                Log.w(TAG, "arguments() also failed", e2);
+            }
+        }
+
+        // Disable crash handler (not registered in manifest)
+        try {
+            builderClass.getMethod("crashHandler", Class.class).invoke(builder, (Object) null);
+            Log.d(TAG, "Disabled crash handler");
+        } catch (Exception ignored) {}
+
+        // Build and create
+        Method buildMethod = builderClass.getMethod("build");
+        Object settings = buildMethod.invoke(builder);
+
         Class<?> settingsClass = cl.loadClass(GECKO_SETTINGS_CLASS);
         Method createMethod = runtimeClass.getMethod("create", Context.class, settingsClass);
         geckoRuntime = createMethod.invoke(null, context, settings);
 
-        Log.d(TAG, "GeckoRuntime created");
+        Log.d(TAG, "GeckoRuntime v68 created (single-process)");
     }
 
-    /**
-     * Inject a native library path into an existing ClassLoader via reflection.
-     * This allows System.loadLibrary() to find .so files in our custom directory.
-     */
     private void addNativeLibPath(ClassLoader classLoader, String nativePath) {
         try {
-            // BaseDexClassLoader.pathList (DexPathList)
             java.lang.reflect.Field pathListField = findField(classLoader.getClass(), "pathList");
             pathListField.setAccessible(true);
             Object pathList = pathListField.get(classLoader);
 
-            // DexPathList.nativeLibraryDirectories (List<File>)
             java.lang.reflect.Field nativeLibField = pathList.getClass().getDeclaredField("nativeLibraryDirectories");
             nativeLibField.setAccessible(true);
             @SuppressWarnings("unchecked")
@@ -452,28 +429,24 @@ public class GeckoBrowserManager {
                 Log.d(TAG, "Injected native lib path: " + nativePath);
             }
 
-            // Also update nativeLibraryPathElements if it exists
+            // Update nativeLibraryPathElements
             try {
                 java.lang.reflect.Field elementsField = pathList.getClass().getDeclaredField("nativeLibraryPathElements");
                 elementsField.setAccessible(true);
                 Object[] oldElements = (Object[]) elementsField.get(pathList);
 
-                // Use makePathElements via reflection
-                Method makeMethod = pathList.getClass().getDeclaredMethod(
-                    "makePathElements", java.util.List.class);
+                Method makeMethod = pathList.getClass().getDeclaredMethod("makePathElements", java.util.List.class);
                 makeMethod.setAccessible(true);
                 Object[] newElements = (Object[]) makeMethod.invoke(null, nativeLibDirs);
 
-                // Merge: new elements first, then old
                 Object[] merged = java.util.Arrays.copyOf(newElements, newElements.length + oldElements.length);
                 System.arraycopy(oldElements, 0, merged, newElements.length, oldElements.length);
                 elementsField.set(pathList, merged);
             } catch (Exception e) {
-                Log.w(TAG, "Could not update nativeLibraryPathElements, may still work", e);
+                Log.w(TAG, "Could not update nativeLibraryPathElements", e);
             }
         } catch (Exception e) {
-            Log.w(TAG, "Failed to inject native path, trying System.load directly", e);
-            // Fallback: pre-load critical libs manually
+            Log.w(TAG, "Failed to inject native path, trying System.load", e);
             try {
                 System.load(nativePath + "/libmozglue.so");
                 System.load(nativePath + "/libxul.so");
@@ -486,13 +459,24 @@ public class GeckoBrowserManager {
     private java.lang.reflect.Field findField(Class<?> clazz, String name) throws NoSuchFieldException {
         Class<?> current = clazz;
         while (current != null) {
-            try {
-                return current.getDeclaredField(name);
-            } catch (NoSuchFieldException e) {
-                current = current.getSuperclass();
-            }
+            try { return current.getDeclaredField(name); }
+            catch (NoSuchFieldException e) { current = current.getSuperclass(); }
         }
         throw new NoSuchFieldException(name);
+    }
+
+    private File writeGeckoConfig(String omniPath) {
+        File configFile = new File(getGeckoDir(), "geckoview-config.yaml");
+        try {
+            String yaml = "args:\n  - \"-greomni\"\n  - \"" + omniPath + "\"\n";
+            FileOutputStream fos = new FileOutputStream(configFile);
+            fos.write(yaml.getBytes());
+            fos.close();
+            Log.d(TAG, "Wrote gecko config: " + yaml.trim());
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to write gecko config", e);
+        }
+        return configFile;
     }
 
     // ---------------------------------------------------------------
@@ -519,8 +503,7 @@ public class GeckoBrowserManager {
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
                 | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
                 | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
-            PixelFormat.TRANSLUCENT
-        );
+            PixelFormat.TRANSLUCENT);
         params.gravity = Gravity.TOP | Gravity.START;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             params.layoutInDisplayCutoutMode =
@@ -558,7 +541,6 @@ public class GeckoBrowserManager {
         Log.d(TAG, "GeckoView created");
     }
 
-
     private void createFallbackWebView() {
         try {
             android.webkit.WebView wv = new android.webkit.WebView(context);
@@ -595,9 +577,8 @@ public class GeckoBrowserManager {
 
     private void closeSession() {
         if (geckoSession != null) {
-            try {
-                geckoSession.getClass().getMethod("close").invoke(geckoSession);
-            } catch (Exception ignored) {}
+            try { geckoSession.getClass().getMethod("close").invoke(geckoSession); }
+            catch (Exception ignored) {}
             geckoSession = null;
         }
         geckoView = null;
@@ -617,6 +598,7 @@ public class GeckoBrowserManager {
             try {
                 geckoSession.getClass().getMethod("loadUri", String.class).invoke(geckoSession, url);
                 currentUrl = url;
+                Log.d(TAG, "Loading: " + url);
             } catch (Exception e) { Log.e(TAG, "loadUri failed", e); }
         } else if (geckoView instanceof android.webkit.WebView) {
             ((android.webkit.WebView) geckoView).loadUrl(url);
@@ -627,24 +609,6 @@ public class GeckoBrowserManager {
     private String normalizeUrl(String url) {
         if (url.isEmpty()) return url;
         return url.contains("://") ? url : "https://" + url;
-    }
-
-    /**
-     * Write a YAML config file that Gecko reads via configFilePath.
-     * This lets us pass -greomni to point at our external omni.ja.
-     */
-    private File writeGeckoConfig(String omniPath) {
-        File configFile = new File(getGeckoDir(), "geckoview-config.yaml");
-        try {
-            String yaml = "args:\n  - \"-greomni\"\n  - \"" + omniPath + "\"\n";
-            FileOutputStream fos = new FileOutputStream(configFile);
-            fos.write(yaml.getBytes());
-            fos.close();
-            Log.d(TAG, "Wrote gecko config: " + yaml.trim());
-        } catch (Exception e) {
-            Log.e(TAG, "Failed to write gecko config", e);
-        }
-        return configFile;
     }
 
     private void showToast(String msg) {
