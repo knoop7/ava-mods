@@ -355,11 +355,18 @@ public class GeckoBrowserManager {
 
         File omniJa = new File(geckoDir, "assets/omni.ja");
 
-        // Pre-configure GeckoLoader before GeckoThread can start.
-        // Bytecode analysis shows loadLibsSetupLocked() does:
-        //   putenv("MOZ_ANDROID_LIBDIR=" + applicationInfo.nativeLibraryDir)
-        // That points to APK's lib/ dir, not our mod's native dir.
-        // We must: load libmozglue, then putenv our path BEFORE GeckoThread runs.
+        // CRITICAL FIX: GeckoLoader.loadLibsSetupLocked() internally does:
+        //   putenv("MOZ_ANDROID_LIBDIR=" + context.getApplicationInfo().nativeLibraryDir)
+        // This overwrites any putenv we set beforehand with the APK's lib dir.
+        // Solution: Patch applicationInfo.nativeLibraryDir to point to OUR native dir
+        // so GeckoLoader picks up the correct path when it reads it.
+        try {
+            String origNativeDir = context.getApplicationInfo().nativeLibraryDir;
+            context.getApplicationInfo().nativeLibraryDir = nativePath;
+            Log.d(TAG, "Patched applicationInfo.nativeLibraryDir: " + origNativeDir + " -> " + nativePath);
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to patch nativeLibraryDir", e);
+        }
 
         // Step 1: Load libmozglue.so — registers native methods including putenv()
         try {
@@ -372,7 +379,7 @@ public class GeckoBrowserManager {
         try {
             Class<?> loaderClass = cl.loadClass("org.mozilla.gecko.mozglue.GeckoLoader");
 
-            // Step 2: Mark mozglue as loaded
+            // Step 2: Mark mozglue as loaded so GeckoLoader won't re-load it
             try {
                 java.lang.reflect.Field f = loaderClass.getDeclaredField("sMozGlueLoaded");
                 f.setAccessible(true);
@@ -382,7 +389,7 @@ public class GeckoBrowserManager {
                 Log.w(TAG, "Could not set sMozGlueLoaded", e);
             }
 
-            // Step 3: Set sGREDir (File type) to our assets dir
+            // Step 3: Set sGREDir to our assets dir
             try {
                 java.lang.reflect.Field greField = loaderClass.getDeclaredField("sGREDir");
                 greField.setAccessible(true);
@@ -392,7 +399,8 @@ public class GeckoBrowserManager {
                 Log.w(TAG, "Could not set sGREDir", e);
             }
 
-            // Step 4: putenv() — the critical fix for native dlopen
+            // Step 4: putenv for both MOZ_ANDROID_LIBDIR and GRE_HOME
+            // Even though we patched applicationInfo, also set env directly as belt-and-suspenders
             try {
                 Method putenvMethod = loaderClass.getDeclaredMethod("putenv", String.class);
                 putenvMethod.setAccessible(true);
