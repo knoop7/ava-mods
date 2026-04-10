@@ -1,13 +1,14 @@
 {
   "id": "geckoview-browser",
   "name": "GeckoView Browser",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "author": "Ava",
   "description": "Independent Firefox-engine browser overlay with HA entity sync. Requires GeckoView AAR in libs/.",
   "icon": "mdi:firefox",
   "libs": [
     "libs/geckoview-browser.jar",
-    "libs/geckoview-classes.jar"
+    "libs/geckoview-classes.jar",
+    "libs/support-shim.jar"
   ],
   "manager": "com.ava.mods.geckoview.GeckoBrowserManager",
   "permissions": [
