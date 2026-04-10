@@ -15,6 +15,8 @@ import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.util.Arrays;
+import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -31,8 +33,16 @@ public class ZigbeeGatewayManager {
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final ExecutorService executor = Executors.newCachedThreadPool();
     private final CopyOnWriteArrayList<Socket> clients = new CopyOnWriteArrayList<>();
+    private final List<String> serialPortCandidates = Arrays.asList(
+            "/dev/ttyS5",
+            "/dev/ttyUSB0",
+            "/dev/ttyACM0",
+            "/dev/ttyAMA0",
+            "/dev/ttyS4",
+            "/dev/ttyS3"
+    );
 
-    private volatile String serialPort = "/dev/ttyUSB0";
+    private volatile String serialPort = "/dev/ttyS5";
     private volatile int baudrate = 115200;
     private volatile int tcpPort = 8888;
     private volatile String listenAddress = "0.0.0.0";
@@ -52,6 +62,10 @@ public class ZigbeeGatewayManager {
 
     private ZigbeeGatewayManager(Context context) {
         this.context = context.getApplicationContext();
+        String detectedSerialPort = detectSerialPort();
+        if (detectedSerialPort != null) {
+            serialPort = detectedSerialPort;
+        }
     }
 
     public static ZigbeeGatewayManager getInstance(Context context) {
@@ -116,6 +130,14 @@ public class ZigbeeGatewayManager {
         }
     }
 
+    public boolean isSupported() {
+        return detectSerialPort() != null;
+    }
+
+    public boolean isSupported(Context context) {
+        return isSupported();
+    }
+
     public void startServer() {
         if (serverRunning.get()) {
             Log.d(TAG, "Server already running");
@@ -177,14 +199,14 @@ public class ZigbeeGatewayManager {
 
     private boolean openSerialPort() {
         try {
+            String detectedSerialPort = detectSerialPort();
+            if (detectedSerialPort != null && !new File(serialPort).exists()) {
+                serialPort = detectedSerialPort;
+            }
+
             File device = new File(serialPort);
             if (!device.exists()) {
                 Log.e(TAG, "Serial device not found: " + serialPort);
-                return false;
-            }
-
-            if (!device.canRead() || !device.canWrite()) {
-                Log.e(TAG, "No read/write permission for: " + serialPort);
                 return false;
             }
 
@@ -192,6 +214,11 @@ public class ZigbeeGatewayManager {
                 "su", "-c", "chmod 666 " + serialPort
             });
             process.waitFor();
+
+            if (!device.canRead() || !device.canWrite()) {
+                Log.e(TAG, "No read/write permission for: " + serialPort);
+                return false;
+            }
 
             process = Runtime.getRuntime().exec(new String[]{
                 "su", "-c", "stty -F " + serialPort + " " + baudrate + " raw -echo"
@@ -341,6 +368,26 @@ public class ZigbeeGatewayManager {
 
     public long getBytesSent() {
         return bytesSent.get();
+    }
+
+    private String detectSerialPort() {
+        if (isUsableSerialPort(serialPort)) {
+            return serialPort;
+        }
+        for (String candidate : serialPortCandidates) {
+            if (isUsableSerialPort(candidate)) {
+                return candidate;
+            }
+        }
+        return null;
+    }
+
+    private boolean isUsableSerialPort(String path) {
+        if (path == null || path.trim().isEmpty()) {
+            return false;
+        }
+        File file = new File(path);
+        return file.exists() && !file.isDirectory();
     }
 
     private int parseInt(String value, int fallback) {

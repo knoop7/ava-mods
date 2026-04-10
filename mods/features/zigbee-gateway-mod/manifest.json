@@ -1,7 +1,7 @@
 {
   "id": "zigbee-gateway-mod",
   "name": "Zigbee Gateway",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "Ava",
   "description": "Serial to TCP bridge for Zigbee coordinators. Supports Tuya S6E/T6E/S7E/S9E, NSPanel Pro.",
   "icon": "mdi:zigbee",
@@ -16,52 +16,8 @@
       "name": "Server Status",
       "icon": "mdi:server-network",
       "class": "connectivity",
+      "category": "diagnostic",
       "read": "isServerRunning"
-    },
-    {
-      "type": "sensor",
-      "id": "tcp_port",
-      "name": "TCP Port",
-      "icon": "mdi:lan-connect",
-      "read": "getTcpPort"
-    },
-    {
-      "type": "sensor",
-      "id": "serial_port",
-      "name": "Serial Port",
-      "icon": "mdi:serial-port",
-      "read": "getSerialPort"
-    },
-    {
-      "type": "sensor",
-      "id": "baudrate",
-      "name": "Baudrate",
-      "icon": "mdi:speedometer",
-      "unit": "bps",
-      "read": "getBaudrate"
-    },
-    {
-      "type": "sensor",
-      "id": "client_count",
-      "name": "Connected Clients",
-      "icon": "mdi:account-network",
-      "read": "getClientCount"
-    },
-    {
-      "type": "sensor",
-      "id": "bytes_received",
-      "name": "Bytes Received",
-      "icon": "mdi:download",
-      "unit": "B",
-      "read": "getBytesReceived"
-    },
-    {
-      "type": "sensor",
-      "id": "bytes_sent",
-      "name": "Bytes Sent",
-      "icon": "mdi:upload",
-      "unit": "B",
-      "read": "getBytesSent"
     },
     {
       "type": "button",
@@ -77,8 +33,8 @@
       "key": "serial_port",
       "label": "Serial Port Path",
       "description": "Device path of the Zigbee coordinator serial port",
-      "dialogHint": "e.g. /dev/ttyUSB0, /dev/ttyACM0, /dev/ttyAMA0",
-      "defaultValue": "/dev/ttyUSB0"
+      "dialogHint": "e.g. /dev/ttyS5, /dev/ttyUSB0, /dev/ttyACM0, /dev/ttyAMA0",
+      "defaultValue": "/dev/ttyS5"
     },
     {
       "type": "select",
@@ -87,7 +43,16 @@
       "description": "Serial communication speed",
       "dialogHint": "Most Zigbee coordinators use 115200 bps",
       "defaultValue": "115200",
-      "options": ["9600", "19200", "38400", "57600", "115200", "230400", "460800", "921600"]
+      "options": [
+        "9600",
+        "19200",
+        "38400",
+        "57600",
+        "115200",
+        "230400",
+        "460800",
+        "921600"
+      ]
     },
     {
       "type": "number",
