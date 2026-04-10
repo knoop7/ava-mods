@@ -79,22 +79,24 @@ git add \
 
 COMMIT_MSG_FILE="$(mktemp)"
 cat > "$COMMIT_MSG_FILE" <<EOF
-Improve Zigbee gateway compatibility and declutter diagnostics
+Keep Zigbee status stable during restarts and duplicate launches
 
-This release narrows Zigbee diagnostics to the service state,
-keeps the published artifacts in sync, and improves serial-port
-detection for devices that expose the coordinator on /dev/ttyS5.
+This release hardens the Zigbee gateway lifecycle so repeated
+start/restart actions do not corrupt the running instance or
+flip the status entity to disconnected while the socket is still
+owned by Ava. It also renames the exposed diagnostic entities to
+user-facing Zigbee labels.
 
-Constraint: Zigbee gateways in our target devices often appear on /dev/ttyS5 instead of /dev/ttyUSB0
+Constraint: The in-app Zigbee gateway and old Termux bridge can race for the same TCP port during testing
 Constraint: Release artifacts must remain mirrored between sources/ and mods/
-Rejected: Keep transport counters and port details as exposed entities | creates noisy diagnostics with little operational value
-Rejected: Require manual serial-port entry for every install | fails on devices where auto-detection is needed
+Rejected: Leave startServer/restartServer as best-effort calls | duplicate launches were causing false disconnect state
+Rejected: Keep generic entity names | users need Zigbee-specific diagnostics in the UI
 Confidence: high
 Scope-risk: narrow
 Reversibility: clean
-Directive: Keep source manifest, release manifest, and release JAR aligned for every Zigbee deploy
+Directive: Preserve lifecycle idempotency before adding new Zigbee status entities or restart paths
 Tested: sources/features/zigbee-gateway-mod/build.sh; JSON validation for manifests and store.json
-Not-tested: On-device runtime verification against live Zigbee hardware
+Not-tested: Extended on-device soak test across repeated UI restart presses
 EOF
 
 git commit -F "$COMMIT_MSG_FILE"
