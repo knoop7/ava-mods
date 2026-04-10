@@ -371,7 +371,10 @@ public class GeckoBrowserManager {
             } catch (Exception ignored) {}
         }
 
-        Log.d(TAG, "Initializing GeckoRuntime, nativeDir=" + nativePath);
+        // Tell Gecko where omni.ja is via -greomni arg in extras Bundle
+        File omniJa = new File(getGeckoDir(), "assets/omni.ja");
+        String omniPath = omniJa.getAbsolutePath();
+        Log.d(TAG, "Initializing GeckoRuntime, nativeDir=" + nativePath + ", omni=" + omniPath);
 
         Class<?> builderClass = cl.loadClass(GECKO_SETTINGS_BUILDER);
         Object builder = builderClass.getConstructor().newInstance();
@@ -380,6 +383,17 @@ public class GeckoBrowserManager {
             Method jsMethod = builderClass.getMethod("javaScriptEnabled", boolean.class);
             jsMethod.invoke(builder, javascriptEnabled);
         } catch (NoSuchMethodException ignored) {}
+
+        // Pass -greomni path via extras Bundle so Gecko finds omni.ja
+        try {
+            android.os.Bundle extras = new android.os.Bundle();
+            extras.putString("args", "-greomni " + omniPath);
+            Method extrasMethod = builderClass.getMethod("extras", android.os.Bundle.class);
+            extrasMethod.invoke(builder, extras);
+            Log.d(TAG, "Set -greomni via extras: " + omniPath);
+        } catch (Exception e) {
+            Log.w(TAG, "Failed to set extras", e);
+        }
 
         Method buildMethod = builderClass.getMethod("build");
         Object settings = buildMethod.invoke(builder);
