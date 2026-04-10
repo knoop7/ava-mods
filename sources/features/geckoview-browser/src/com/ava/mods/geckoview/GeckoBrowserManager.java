@@ -496,9 +496,6 @@ public class GeckoBrowserManager {
             return false;
         });
 
-        // Install safety net before adding to WM — GeckoView throws NPE
-        // asynchronously in onAttachedToWindow when not inside an Activity
-        installAttachSafetyNet();
         windowManager.addView(containerView, params);
     }
 
@@ -524,33 +521,9 @@ public class GeckoBrowserManager {
         Log.d(TAG, "GeckoView created");
     }
 
-    /**
-     * Install a temporary safety net to catch GeckoView's NPE during
-     * onAttachedToWindow which fires asynchronously via performTraversals.
-     * We wrap the main Looper's message handling to swallow this specific NPE.
-     */
-    private void installAttachSafetyNet() {
-        final Thread.UncaughtExceptionHandler original = Thread.getDefaultUncaughtExceptionHandler();
-        Thread.getDefaultUncaughtExceptionHandler();
-        Thread.setDefaultUncaughtExceptionHandler((thread, throwable) -> {
-            // Check if this is GeckoView's known NPE
-            if (throwable instanceof NullPointerException) {
-                String trace = Log.getStackTraceString(throwable);
-                if (trace.contains("attachWindowInsetsListener") || trace.contains("GeckoView.onAttachedToWindow")) {
-                    Log.w(TAG, "Swallowed GeckoView attachWindowInsetsListener NPE (expected in overlay mode)");
-                    // Restore original handler and continue
-                    Thread.setDefaultUncaughtExceptionHandler(original);
-                    return;
-                }
-            }
-            // Not our NPE — delegate to original handler
-            if (original != null) {
-                original.uncaughtException(thread, throwable);
-            }
-        });
-        // Auto-restore after 2 seconds (attach should happen within first frame)
-        mainHandler.postDelayed(() -> Thread.setDefaultUncaughtExceptionHandler(original), 2000);
-    }
+    // GeckoView logs "Failed to attach WindowInsetsListener" NPE when used
+    // outside an Activity, but it catches the exception internally (E-level log).
+    // No intervention needed — the browser works fine without WindowInsets.
 
     private void createFallbackWebView() {
         try {
