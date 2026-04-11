@@ -76,24 +76,24 @@ git add \
 
 COMMIT_MSG_FILE="$(mktemp)"
 cat > "$COMMIT_MSG_FILE" <<EOF
-Make Tuya S8E rotary and gesture sensors usable for automation
+Make Tuya S8E mod sensors push rotary and gesture updates in real time
 
-This release changes the Tuya S8E input handling so the rotary sensor
-behaves like a real automation counter: F2 increments, F3 decrements,
-the value updates in real time while rotating, and it resets to 0
-after 30 seconds of inactivity. Gesture direction also updates during
-movement and returns to idle shortly after touch end.
+This release keeps the rotary sensor as an automation-friendly counter
+while adding listener-based state push hooks so Ava can reflect rotary
+and gesture changes immediately instead of waiting for the default mod
+polling interval. The rotary value still resets to 0 after inactivity,
+and gesture direction still returns to idle after touch end.
 
-Constraint: Rotary input arrives as repeated KEY_F2/KEY_F3 pulses rather than absolute positions
-Constraint: Idle state must be represented as 0 for rotary and idle for gesture to keep automations predictable
-Rejected: Treat rotary input as a transient direction pulse | loses cumulative state needed for automation rules
-Rejected: Keep the steps unit on Rotary Position | implies a physical unit rather than an automation-friendly counter
+Constraint: Ava's default mod entity refresh cadence is too slow for interactive rotary feedback
+Constraint: Tuya S8E rotary input arrives as repeated KEY_F2/KEY_F3 pulses rather than absolute positions
+Rejected: Increase global Ava polling frequency | risks unnecessary system-wide overhead
+Rejected: Revert rotary sensor to transient direction pulses | breaks automation scenarios that need accumulated state
 Confidence: high
 Scope-risk: moderate
 Reversibility: clean
-Directive: Preserve rotary reset-to-zero semantics unless automation consumers are updated to handle a non-idle resting value
-Tested: sources/devices/tuya-s8e-support/build.sh 1.0.4; JSON validation for manifests and store.json; adb input event capture on 192.168.0.60:5555
-Not-tested: End-to-end automation execution through Ava UI after deployment
+Directive: Keep listener callbacks aligned with entity ids rotary_position and gesture_direction unless Ava's listener bridge changes
+Tested: sources/devices/tuya-s8e-support/build.sh 1.0.5; JSON validation for manifests and store.json; adb input event capture on 192.168.0.60:5555
+Not-tested: End-to-end Ava listener bridge behavior on-device after both sides are installed
 EOF
 
 git commit -F "$COMMIT_MSG_FILE"

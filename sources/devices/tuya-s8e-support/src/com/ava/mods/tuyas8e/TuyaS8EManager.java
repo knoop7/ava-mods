@@ -9,6 +9,11 @@ import java.io.DataOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileReader;
+import java.lang.reflect.Method;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -44,6 +49,7 @@ public class TuyaS8EManager {
     private final ExecutorService listenerExecutor = Executors.newCachedThreadPool();
     private final ScheduledExecutorService resetExecutor = Executors.newSingleThreadScheduledExecutor();
     private final AtomicBoolean listenersStarted = new AtomicBoolean(false);
+    private final Map<String, CopyOnWriteArrayList<Object>> stateListeners = new ConcurrentHashMap<String, CopyOnWriteArrayList<Object>>();
     private final AtomicInteger rotaryPosition = new AtomicInteger(0);
     private final AtomicInteger rotaryResetToken = new AtomicInteger(0);
     private final AtomicInteger gestureResetToken = new AtomicInteger(0);
@@ -169,6 +175,21 @@ public class TuyaS8EManager {
         return Build.MODEL == null ? "" : Build.MODEL;
     }
 
+    public boolean registerStateListener(String entityId, Object callback) {
+        if (entityId == null || entityId.trim().isEmpty() || callback == null) {
+            return false;
+        }
+        CopyOnWriteArrayList<Object> listeners = stateListeners.get(entityId);
+        if (listeners == null) {
+            listeners = new CopyOnWriteArrayList<Object>();
+            stateListeners.put(entityId, listeners);
+        }
+        if (!listeners.contains(callback)) {
+            listeners.add(callback);
+        }
+        return true;
+    }
+
     private void startListenersIfNeeded() {
         if (!listenersStarted.compareAndSet(false, true)) {
             return;
@@ -278,13 +299,15 @@ public class TuyaS8EManager {
     }
 
     private void updateRotaryPosition(int delta) {
-        rotaryPosition.addAndGet(delta);
+        int current = rotaryPosition.addAndGet(delta);
+        notifyStateListeners("rotary_position", Integer.valueOf(current));
         final int token = rotaryResetToken.incrementAndGet();
         resetExecutor.schedule(new Runnable() {
             @Override
             public void run() {
                 if (rotaryResetToken.get() == token) {
                     rotaryPosition.set(0);
+                    notifyStateListeners("rotary_position", Integer.valueOf(0));
                 }
             }
         }, ROTARY_RESET_DELAY_MS, TimeUnit.MILLISECONDS);
@@ -301,6 +324,7 @@ public class TuyaS8EManager {
         } else {
             lastGestureDirection = dy > 0 ? "down" : "up";
         }
+        notifyStateListeners("gesture_direction", lastGestureDirection);
         gestureResetToken.incrementAndGet();
     }
 
@@ -311,9 +335,25 @@ public class TuyaS8EManager {
             public void run() {
                 if (gestureResetToken.get() == token) {
                     lastGestureDirection = "idle";
+                    notifyStateListeners("gesture_direction", lastGestureDirection);
                 }
             }
         }, GESTURE_RESET_DELAY_MS, TimeUnit.MILLISECONDS);
+    }
+
+    private void notifyStateListeners(String entityId, Object value) {
+        List<Object> listeners = stateListeners.get(entityId);
+        if (listeners == null || listeners.isEmpty()) {
+            return;
+        }
+        for (Object listener : listeners) {
+            try {
+                Method method = listener.getClass().getMethod("onStateChanged", Object.class);
+                method.invoke(listener, value);
+            } catch (Exception e) {
+                Log.w(TAG, "Failed to notify state listener for " + entityId, e);
+            }
+        }
     }
 
     private boolean writeSysfs(String path, String value) {

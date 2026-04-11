@@ -1,7 +1,7 @@
 {
   "id": "tuya-s8e-support",
   "name": "Tuya S8E",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "author": "Ava",
   "description": "Device support for Tuya S8E with screen backlight, small display control, and climate readings",
   "icon": "mdi:tablet-dashboard",
@@ -9,7 +9,7 @@
     "libs/tuya-s8e-support.jar"
   ],
   "manager": "com.ava.mods.tuyas8e.TuyaS8EManager",
-  "jar_hash": "4014062f9af1b674d7adeed939599a63",
+  "jar_hash": "14a57da5b15ed5ae2bc67fe1b8bbe1de",
   "entities": [
     {
       "type": "switch",
