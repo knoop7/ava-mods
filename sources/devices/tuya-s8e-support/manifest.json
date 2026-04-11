@@ -1,7 +1,7 @@
 {
   "id": "tuya-s8e-support",
   "name": "Tuya S8E",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "author": "Ava",
   "description": "Device support for Tuya S8E with screen backlight, small display control, and climate readings",
   "icon": "mdi:tablet-dashboard",
@@ -9,7 +9,7 @@
     "libs/tuya-s8e-support.jar"
   ],
   "manager": "com.ava.mods.tuyas8e.TuyaS8EManager",
-  "jar_hash": "14a57da5b15ed5ae2bc67fe1b8bbe1de",
+  "jar_hash": "733253ba5add817269811fd865f9423a",
   "entities": [
     {
       "type": "switch",
@@ -52,14 +52,16 @@
       "id": "rotary_position",
       "name": "Rotary Position",
       "icon": "mdi:rotate-3d-variant",
-      "read": "getRotaryPosition"
+      "read": "getRotaryPosition",
+      "refresh_interval_ms": 500
     },
     {
       "type": "text_sensor",
       "id": "gesture_direction",
       "name": "Gesture Direction",
       "icon": "mdi:gesture-swipe",
-      "read": "getGestureDirection"
+      "read": "getGestureDirection",
+      "refresh_interval_ms": 500
     }
   ]
 }

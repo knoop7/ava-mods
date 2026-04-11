@@ -32,7 +32,7 @@ public class TuyaS8EManager {
     private static final float TEMPERATURE_OFFSET = -4.0f;
     private static final float HUMIDITY_OFFSET = 4.0f;
     private static final int GESTURE_THRESHOLD = 20;
-    private static final long ROTARY_RESET_DELAY_MS = 30000L;
+    private static final long ROTARY_RESET_DELAY_MS = 3000L;
     private static final long GESTURE_RESET_DELAY_MS = 350L;
     private static final int INPUT_EVENT_SIZE =
             (Build.SUPPORTED_64_BIT_ABIS != null && Build.SUPPORTED_64_BIT_ABIS.length > 0) ? 24 : 16;
@@ -325,7 +325,6 @@ public class TuyaS8EManager {
             lastGestureDirection = dy > 0 ? "down" : "up";
         }
         notifyStateListeners("gesture_direction", lastGestureDirection);
-        gestureResetToken.incrementAndGet();
     }
 
     private void scheduleGestureReset() {
