@@ -8,6 +8,11 @@ import java.io.BufferedReader;
 import java.io.DataOutputStream;
 import java.io.File;
 import java.io.FileReader;
+import java.io.InputStreamReader;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class TuyaS8EManager {
     private static final String TAG = "TuyaS8EManager";
@@ -15,18 +20,26 @@ public class TuyaS8EManager {
     private static final String SMALL_SCREEN_BACKLIGHT_PATH = "/sys/class/gpio/gpio115/value";
     private static final String TEMPERATURE_PATH = "/sys/devices/platform/twi.1/i2c-1/1-0040/temp1_input";
     private static final String HUMIDITY_PATH = "/sys/devices/platform/twi.1/i2c-1/1-0040/humidity1_input";
+    private static final String ROTARY_EVENT_PATH = "/dev/input/event4";
+    private static final String TOUCHPAD_EVENT_PATH = "/dev/input/event2";
     private static final float TEMPERATURE_OFFSET = -4.0f;
     private static final float HUMIDITY_OFFSET = 4.0f;
+    private static final int GESTURE_THRESHOLD = 20;
 
     private static volatile TuyaS8EManager instance;
     private final Context context;
+    private final ExecutorService listenerExecutor = Executors.newCachedThreadPool();
+    private final AtomicBoolean listenersStarted = new AtomicBoolean(false);
+    private final AtomicInteger rotaryPosition = new AtomicInteger(0);
     private volatile float lastTemperature = 0.0f;
     private volatile float lastHumidity = 0.0f;
     private volatile boolean hasTemperatureReading = false;
     private volatile boolean hasHumidityReading = false;
+    private volatile String lastGestureDirection = "idle";
 
     private TuyaS8EManager(Context context) {
         this.context = context.getApplicationContext();
+        startListenersIfNeeded();
     }
 
     public static TuyaS8EManager getInstance(Context context) {
@@ -126,8 +139,138 @@ public class TuyaS8EManager {
         return parseHumidity(readSysfs(HUMIDITY_PATH)) != null;
     }
 
+    public int getRotaryPosition() {
+        startListenersIfNeeded();
+        return rotaryPosition.get();
+    }
+
+    public String getGestureDirection() {
+        startListenersIfNeeded();
+        return lastGestureDirection;
+    }
+
     public String getDeviceModel() {
         return Build.MODEL == null ? "" : Build.MODEL;
+    }
+
+    private void startListenersIfNeeded() {
+        if (!listenersStarted.compareAndSet(false, true)) {
+            return;
+        }
+        listenerExecutor.execute(new Runnable() {
+            @Override
+            public void run() {
+                listenRotaryEvents();
+            }
+        });
+        listenerExecutor.execute(new Runnable() {
+            @Override
+            public void run() {
+                listenTouchpadEvents();
+            }
+        });
+    }
+
+    private void listenRotaryEvents() {
+        while (true) {
+            Process process = null;
+            try {
+                process = Runtime.getRuntime().exec(new String[]{
+                        "su", "-c", "getevent -lt " + ROTARY_EVENT_PATH
+                });
+                BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    if (!line.contains("EV_KEY")) {
+                        continue;
+                    }
+                    if (line.contains("KEY_F2") && line.contains("DOWN")) {
+                        rotaryPosition.incrementAndGet();
+                    } else if (line.contains("KEY_F3") && line.contains("DOWN")) {
+                        rotaryPosition.decrementAndGet();
+                    }
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "Rotary listener failed", e);
+            } finally {
+                if (process != null) {
+                    process.destroy();
+                }
+            }
+            sleepQuietly(1000);
+        }
+    }
+
+    private void listenTouchpadEvents() {
+        while (true) {
+            Process process = null;
+            try {
+                process = Runtime.getRuntime().exec(new String[]{
+                        "su", "-c", "getevent -lt " + TOUCHPAD_EVENT_PATH
+                });
+                BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+                String line;
+                Integer startX = null;
+                Integer startY = null;
+                Integer lastX = null;
+                Integer lastY = null;
+                boolean touchActive = false;
+                while ((line = reader.readLine()) != null) {
+                    if (line.contains("ABS_MT_TRACKING_ID")) {
+                        if (line.trim().endsWith("ffffffff")) {
+                            if (touchActive && startX != null && startY != null && lastX != null && lastY != null) {
+                                updateGestureDirection(startX, startY, lastX, lastY);
+                            }
+                            touchActive = false;
+                            startX = null;
+                            startY = null;
+                            lastX = null;
+                            lastY = null;
+                            continue;
+                        }
+                        touchActive = true;
+                    }
+
+                    if (line.contains("ABS_MT_POSITION_X")) {
+                        Integer parsed = parseHexValue(line);
+                        if (parsed != null) {
+                            if (startX == null) {
+                                startX = parsed;
+                            }
+                            lastX = parsed;
+                        }
+                    } else if (line.contains("ABS_MT_POSITION_Y")) {
+                        Integer parsed = parseHexValue(line);
+                        if (parsed != null) {
+                            if (startY == null) {
+                                startY = parsed;
+                            }
+                            lastY = parsed;
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "Touchpad listener failed", e);
+            } finally {
+                if (process != null) {
+                    process.destroy();
+                }
+            }
+            sleepQuietly(1000);
+        }
+    }
+
+    private void updateGestureDirection(int startX, int startY, int endX, int endY) {
+        int dx = endX - startX;
+        int dy = endY - startY;
+        if (Math.abs(dx) < GESTURE_THRESHOLD && Math.abs(dy) < GESTURE_THRESHOLD) {
+            return;
+        }
+        if (Math.abs(dx) >= Math.abs(dy)) {
+            lastGestureDirection = dx > 0 ? "right" : "left";
+        } else {
+            lastGestureDirection = dy > 0 ? "down" : "up";
+        }
     }
 
     private boolean writeSysfs(String path, String value) {
@@ -211,5 +354,26 @@ public class TuyaS8EManager {
 
     private float roundToTwoDecimals(float value) {
         return Math.round(value * 100.0f) / 100.0f;
+    }
+
+    private Integer parseHexValue(String line) {
+        try {
+            String[] parts = line.trim().split("\\s+");
+            if (parts.length == 0) {
+                return null;
+            }
+            String hex = parts[parts.length - 1];
+            return Integer.parseInt(hex, 16);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private void sleepQuietly(long ms) {
+        try {
+            Thread.sleep(ms);
+        } catch (InterruptedException ignored) {
+            Thread.currentThread().interrupt();
+        }
     }
 }

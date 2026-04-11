@@ -46,6 +46,21 @@
       "unit": "%",
       "class": "humidity",
       "read": "getHumidity"
+    },
+    {
+      "type": "sensor",
+      "id": "rotary_position",
+      "name": "Rotary Position",
+      "icon": "mdi:rotate-3d-variant",
+      "unit": "steps",
+      "read": "getRotaryPosition"
+    },
+    {
+      "type": "text_sensor",
+      "id": "gesture_direction",
+      "name": "Gesture Direction",
+      "icon": "mdi:gesture-swipe",
+      "read": "getGestureDirection"
     }
   ]
 }
