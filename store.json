@@ -55,7 +55,7 @@
     {
       "id": "tuya-s8e-support",
       "name": "Tuya S8E",
-      "version": "1.0.8",
+      "version": "1.0.9",
       "author": "Ava",
       "description": "Control both Tuya S8E backlights and read onboard temperature and humidity values",
       "path": "mods/devices/tuya-s8e-support/"

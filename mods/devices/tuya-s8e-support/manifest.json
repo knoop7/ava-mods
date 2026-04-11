@@ -1,7 +1,7 @@
 {
   "id": "tuya-s8e-support",
   "name": "Tuya S8E",
-  "version": "1.0.8",
+  "version": "1.0.9",
   "author": "Ava",
   "description": "Device support for Tuya S8E with screen backlight, small display control, and climate readings",
   "icon": "mdi:tablet-dashboard",
@@ -9,7 +9,7 @@
     "libs/tuya-s8e-support.jar"
   ],
   "manager": "com.ava.mods.tuyas8e.TuyaS8EManager",
-  "jar_hash": "008b1a6bd964f54e1070b4486c5d4da2",
+  "jar_hash": "7707405070d4459df1f31a2cf68c8807",
   "entities": [
     {
       "type": "switch",
@@ -38,7 +38,8 @@
       "icon": "mdi:thermometer",
       "unit": "°C",
       "class": "temperature",
-      "read": "getTemperature"
+      "read": "getTemperature",
+      "refresh_interval_ms": 30000
     },
     {
       "type": "sensor",
@@ -47,7 +48,8 @@
       "icon": "mdi:water-percent",
       "unit": "%",
       "class": "humidity",
-      "read": "getHumidity"
+      "read": "getHumidity",
+      "refresh_interval_ms": 30000
     },
     {
       "type": "text_sensor",

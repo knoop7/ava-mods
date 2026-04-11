@@ -200,7 +200,24 @@ public class TuyaS8EManager {
         if (!listeners.contains(callback)) {
             listeners.add(callback);
         }
+        pushCurrentState(entityId, callback);
         return true;
+    }
+
+    private void pushCurrentState(String entityId, Object callback) {
+        if ("screen_backlight".equals(entityId)) {
+            notifySingleListener(callback, Boolean.valueOf(isScreenBacklightOn()));
+        } else if ("small_screen_backlight".equals(entityId)) {
+            notifySingleListener(callback, Boolean.valueOf(isSmallScreenBacklightOn()));
+        } else if ("temperature".equals(entityId) && hasTemperatureReading()) {
+            notifySingleListener(callback, Float.valueOf(getTemperature()));
+        } else if ("humidity".equals(entityId) && hasHumidityReading()) {
+            notifySingleListener(callback, Float.valueOf(getHumidity()));
+        } else if ("rotary_position".equals(entityId)) {
+            notifySingleListener(callback, Integer.valueOf(rotaryPosition.get()));
+        } else if ("gesture_direction".equals(entityId)) {
+            notifySingleListener(callback, lastGestureDirection);
+        }
     }
 
     private void startListenersIfNeeded() {
@@ -359,12 +376,16 @@ public class TuyaS8EManager {
             return;
         }
         for (Object listener : listeners) {
-            try {
-                Method method = listener.getClass().getMethod("onStateChanged", Object.class);
-                method.invoke(listener, value);
-            } catch (Exception e) {
-                Log.w(TAG, "Failed to notify state listener for " + entityId, e);
-            }
+            notifySingleListener(listener, value);
+        }
+    }
+
+    private void notifySingleListener(Object listener, Object value) {
+        try {
+            Method method = listener.getClass().getMethod("onStateChanged", Object.class);
+            method.invoke(listener, value);
+        } catch (Exception e) {
+            Log.w(TAG, "Failed to notify state listener", e);
         }
     }
 
