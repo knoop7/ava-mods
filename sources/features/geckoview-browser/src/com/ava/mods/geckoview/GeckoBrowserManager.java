@@ -212,8 +212,12 @@ public class GeckoBrowserManager {
         return new File(getGeckoDir(), "jni/arm64-v8a");
     }
 
+    private File getGeckoPackageFile() {
+        return new File(getGeckoDir(), "geckoview.aar");
+    }
+
     private boolean hasNativeLibs(File dir) {
-        return new File(dir, "libxul.so").exists();
+        return new File(dir, "libxul.so").exists() && getGeckoPackageFile().exists();
     }
 
     private void downloadNativeLibs() throws Exception {
@@ -259,7 +263,6 @@ public class GeckoBrowserManager {
 
         mainHandler.post(() -> updateDownloadStatus("Extracting..."));
         extractAar(aarFile, tmpDir);
-        aarFile.delete();
 
         if (geckoDir.exists()) deleteRecursive(geckoDir);
         tmpDir.renameTo(geckoDir);
@@ -354,11 +357,13 @@ public class GeckoBrowserManager {
     private void initGeckoRuntime() throws Exception {
         final File geckoDir = getGeckoDir();
         final File nativeDir = getNativeLibDir();
+        final File geckoPackage = getGeckoPackageFile();
         final File assetsDir = new File(geckoDir, "assets");
         final File omniJa = new File(assetsDir, "omni.ja");
         final String nativePath = nativeDir.getAbsolutePath();
 
         requirePath(nativeDir, "native library directory");
+        requirePath(geckoPackage, "geckoview.aar");
         requirePath(new File(nativeDir, "libmozglue.so"), "libmozglue.so");
         requirePath(new File(nativeDir, "libxul.so"), "libxul.so");
         requirePath(assetsDir, "assets directory");
@@ -385,7 +390,7 @@ public class GeckoBrowserManager {
             Log.e(TAG, "Failed to patch nativeLibraryDir", e);
         }
 
-        Log.d(TAG, "Initializing GeckoRuntime with external assets: " + omniJa.getAbsolutePath());
+        Log.d(TAG, "Initializing GeckoRuntime with external package: " + geckoPackage.getAbsolutePath());
 
         final Class<?> runtimeClass = cl.loadClass(GECKO_RUNTIME_CLASS);
 
@@ -429,8 +434,8 @@ public class GeckoBrowserManager {
 
         try {
             builderClass.getMethod("arguments", String[].class)
-                    .invoke(builder, (Object) new String[]{"-greomni", omniJa.getAbsolutePath()});
-            Log.d(TAG, "Pinned runtime args to external omni.ja");
+                    .invoke(builder, (Object) new String[]{"-greomni", geckoPackage.getAbsolutePath()});
+            Log.d(TAG, "Pinned runtime args to external geckoview.aar");
         } catch (Exception e) {
             Log.w(TAG, "arguments() failed", e);
         }

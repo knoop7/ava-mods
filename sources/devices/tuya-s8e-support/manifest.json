@@ -30,20 +30,6 @@
       "read": "isSmallScreenBacklightOn"
     },
     {
-      "type": "binary_sensor",
-      "id": "screen_backlight_state",
-      "name": "Screen Backlight State",
-      "icon": "mdi:monitor",
-      "read": "isScreenBacklightOn"
-    },
-    {
-      "type": "binary_sensor",
-      "id": "small_screen_backlight_state",
-      "name": "Small Screen Backlight State",
-      "icon": "mdi:monitor-small",
-      "read": "isSmallScreenBacklightOn"
-    },
-    {
       "type": "sensor",
       "id": "temperature",
       "name": "Temperature",
