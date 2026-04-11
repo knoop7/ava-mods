@@ -480,17 +480,16 @@ public class GeckoBrowserManager {
         context.getApplicationInfo().nativeLibraryDir = nativePath;
         Log.d(TAG, "Patched applicationInfo.nativeLibraryDir -> " + nativePath);
 
-        // Patch publicSourceDir (and sourceDir) to point to our AAR.
+        // Patch publicSourceDir (and sourceDir) to point to omni.ja directly.
         // GeckoThread.getMainProcessArgs() automatically adds:
         //   -greomni <context.getPackageResourcePath()>
         // getPackageResourcePath() returns applicationInfo.publicSourceDir.
-        // The host APK has no assets/omni.ja, so we must redirect it to our AAR
-        // which contains assets/omni.ja in its ZIP structure.
-        // GeckoLoader.extractLibrary() also reads sourceDir to find .so files from APK,
-        // but that's a fallback — our injectNativeLibPathStrict handles primary loading.
-        context.getApplicationInfo().sourceDir = geckoPackage.getAbsolutePath();
-        context.getApplicationInfo().publicSourceDir = geckoPackage.getAbsolutePath();
-        Log.d(TAG, "Patched sourceDir/publicSourceDir -> " + geckoPackage.getAbsolutePath());
+        // Gecko native layer opens -greomni value directly as a ZIP file expecting
+        // omni.ja format — NOT as an APK/AAR containing assets/omni.ja.
+        // So we must point to the omni.ja file itself, not the AAR.
+        context.getApplicationInfo().sourceDir = omniJa.getAbsolutePath();
+        context.getApplicationInfo().publicSourceDir = omniJa.getAbsolutePath();
+        Log.d(TAG, "Patched sourceDir/publicSourceDir -> " + omniJa.getAbsolutePath());
 
         try {
             initGeckoRuntimeInner(cl, nativeDir, assetsDir, omniJa, nativePath, geckoPackage);
@@ -610,15 +609,15 @@ public class GeckoBrowserManager {
         }
 
         // Pass -greomni via arguments(). GeckoThread.getMainProcessArgs() automatically
-        // adds -greomni from getPackageResourcePath() (which we've patched to AAR).
-        // Our args are appended AFTER the auto-generated ones (line 269-270 of GeckoThread).
-        // Gecko native code reads -greomni to find a ZIP container that contains assets/omni.ja.
-        // The last -greomni wins, so we pass the AAR path explicitly to be safe.
-        // NOTE: -greomni must point to the container (AAR/APK), NOT the omni.ja file itself.
+        // adds -greomni from getPackageResourcePath() (which we've patched to omni.ja).
+        // Our args are appended AFTER the auto-generated ones.
+        // Gecko native layer opens -greomni value directly as omni.ja (ZIP format).
+        // Both the auto-generated one (via publicSourceDir) and this explicit one
+        // point to omni.ja — double insurance.
         try {
             builderClass.getMethod("arguments", String[].class)
-                .invoke(builder, (Object) new String[]{"-greomni", geckoPackage.getAbsolutePath()});
-            Log.d(TAG, "Set arguments: -greomni " + geckoPackage.getAbsolutePath());
+                .invoke(builder, (Object) new String[]{"-greomni", omniJa.getAbsolutePath()});
+            Log.d(TAG, "Set arguments: -greomni " + omniJa.getAbsolutePath());
         } catch (Exception e) {
             Log.w(TAG, "arguments() failed", e);
         }

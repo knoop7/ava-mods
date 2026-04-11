@@ -7,8 +7,8 @@ import android.util.Log;
 import java.io.BufferedReader;
 import java.io.DataOutputStream;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileReader;
-import java.io.InputStreamReader;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -25,6 +25,15 @@ public class TuyaS8EManager {
     private static final float TEMPERATURE_OFFSET = -4.0f;
     private static final float HUMIDITY_OFFSET = 4.0f;
     private static final int GESTURE_THRESHOLD = 20;
+    private static final int INPUT_EVENT_SIZE =
+            (Build.SUPPORTED_64_BIT_ABIS != null && Build.SUPPORTED_64_BIT_ABIS.length > 0) ? 24 : 16;
+    private static final int EV_KEY = 0x01;
+    private static final int EV_ABS = 0x03;
+    private static final int KEY_F2 = 60;
+    private static final int KEY_F3 = 61;
+    private static final int ABS_MT_POSITION_X = 53;
+    private static final int ABS_MT_POSITION_Y = 54;
+    private static final int ABS_MT_TRACKING_ID = 57;
 
     private static volatile TuyaS8EManager instance;
     private final Context context;
@@ -173,29 +182,28 @@ public class TuyaS8EManager {
 
     private void listenRotaryEvents() {
         while (true) {
-            Process process = null;
+            FileInputStream stream = null;
             try {
-                process = Runtime.getRuntime().exec(new String[]{
-                        "su", "-c", "getevent -lt " + ROTARY_EVENT_PATH
-                });
-                BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    if (!line.contains("EV_KEY")) {
+                ensureInputDeviceReadable(ROTARY_EVENT_PATH);
+                stream = new FileInputStream(ROTARY_EVENT_PATH);
+                while (true) {
+                    InputEvent event = readInputEvent(stream);
+                    if (event == null) {
+                        break;
+                    }
+                    if (event.type != EV_KEY || event.value != 1) {
                         continue;
                     }
-                    if (line.contains("KEY_F2") && line.contains("DOWN")) {
+                    if (event.code == KEY_F2) {
                         rotaryPosition.incrementAndGet();
-                    } else if (line.contains("KEY_F3") && line.contains("DOWN")) {
+                    } else if (event.code == KEY_F3) {
                         rotaryPosition.decrementAndGet();
                     }
                 }
             } catch (Exception e) {
                 Log.e(TAG, "Rotary listener failed", e);
             } finally {
-                if (process != null) {
-                    process.destroy();
-                }
+                closeQuietly(stream);
             }
             sleepQuietly(1000);
         }
@@ -203,21 +211,25 @@ public class TuyaS8EManager {
 
     private void listenTouchpadEvents() {
         while (true) {
-            Process process = null;
+            FileInputStream stream = null;
             try {
-                process = Runtime.getRuntime().exec(new String[]{
-                        "su", "-c", "getevent -lt " + TOUCHPAD_EVENT_PATH
-                });
-                BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
-                String line;
+                ensureInputDeviceReadable(TOUCHPAD_EVENT_PATH);
+                stream = new FileInputStream(TOUCHPAD_EVENT_PATH);
                 Integer startX = null;
                 Integer startY = null;
                 Integer lastX = null;
                 Integer lastY = null;
                 boolean touchActive = false;
-                while ((line = reader.readLine()) != null) {
-                    if (line.contains("ABS_MT_TRACKING_ID")) {
-                        if (line.trim().endsWith("ffffffff")) {
+                while (true) {
+                    InputEvent event = readInputEvent(stream);
+                    if (event == null) {
+                        break;
+                    }
+                    if (event.type != EV_ABS) {
+                        continue;
+                    }
+                    if (event.code == ABS_MT_TRACKING_ID) {
+                        if (event.value == -1) {
                             if (touchActive && startX != null && startY != null && lastX != null && lastY != null) {
                                 updateGestureDirection(startX, startY, lastX, lastY);
                             }
@@ -231,30 +243,22 @@ public class TuyaS8EManager {
                         touchActive = true;
                     }
 
-                    if (line.contains("ABS_MT_POSITION_X")) {
-                        Integer parsed = parseHexValue(line);
-                        if (parsed != null) {
-                            if (startX == null) {
-                                startX = parsed;
-                            }
-                            lastX = parsed;
+                    if (event.code == ABS_MT_POSITION_X) {
+                        if (startX == null) {
+                            startX = event.value;
                         }
-                    } else if (line.contains("ABS_MT_POSITION_Y")) {
-                        Integer parsed = parseHexValue(line);
-                        if (parsed != null) {
-                            if (startY == null) {
-                                startY = parsed;
-                            }
-                            lastY = parsed;
+                        lastX = event.value;
+                    } else if (event.code == ABS_MT_POSITION_Y) {
+                        if (startY == null) {
+                            startY = event.value;
                         }
+                        lastY = event.value;
                     }
                 }
             } catch (Exception e) {
                 Log.e(TAG, "Touchpad listener failed", e);
             } finally {
-                if (process != null) {
-                    process.destroy();
-                }
+                closeQuietly(stream);
             }
             sleepQuietly(1000);
         }
@@ -356,16 +360,21 @@ public class TuyaS8EManager {
         return Math.round(value * 100.0f) / 100.0f;
     }
 
-    private Integer parseHexValue(String line) {
+    private void ensureInputDeviceReadable(String path) {
+        File file = new File(path);
+        if (file.canRead()) {
+            return;
+        }
         try {
-            String[] parts = line.trim().split("\\s+");
-            if (parts.length == 0) {
-                return null;
-            }
-            String hex = parts[parts.length - 1];
-            return Integer.parseInt(hex, 16);
+            Process process = Runtime.getRuntime().exec("su");
+            DataOutputStream os = new DataOutputStream(process.getOutputStream());
+            os.writeBytes("chmod 666 " + path + "\n");
+            os.writeBytes("exit\n");
+            os.flush();
+            os.close();
+            process.waitFor();
         } catch (Exception e) {
-            return null;
+            Log.e(TAG, "Failed to chmod input device: " + path, e);
         }
     }
 
@@ -374,6 +383,61 @@ public class TuyaS8EManager {
             Thread.sleep(ms);
         } catch (InterruptedException ignored) {
             Thread.currentThread().interrupt();
+        }
+    }
+
+    private InputEvent readInputEvent(FileInputStream stream) {
+        try {
+            byte[] buffer = new byte[INPUT_EVENT_SIZE];
+            int offset = 0;
+            while (offset < buffer.length) {
+                int read = stream.read(buffer, offset, buffer.length - offset);
+                if (read < 0) {
+                    return null;
+                }
+                offset += read;
+            }
+
+            int base = INPUT_EVENT_SIZE - 8;
+            int type = readUInt16LE(buffer, base);
+            int code = readUInt16LE(buffer, base + 2);
+            int value = readInt32LE(buffer, base + 4);
+            return new InputEvent(type, code, value);
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to read input event", e);
+            return null;
+        }
+    }
+
+    private int readUInt16LE(byte[] buffer, int offset) {
+        return (buffer[offset] & 0xFF) | ((buffer[offset + 1] & 0xFF) << 8);
+    }
+
+    private int readInt32LE(byte[] buffer, int offset) {
+        return (buffer[offset] & 0xFF)
+                | ((buffer[offset + 1] & 0xFF) << 8)
+                | ((buffer[offset + 2] & 0xFF) << 16)
+                | ((buffer[offset + 3] & 0xFF) << 24);
+    }
+
+    private void closeQuietly(FileInputStream stream) {
+        if (stream != null) {
+            try {
+                stream.close();
+            } catch (Exception ignored) {
+            }
+        }
+    }
+
+    private static final class InputEvent {
+        private final int type;
+        private final int code;
+        private final int value;
+
+        private InputEvent(int type, int code, int value) {
+            this.type = type;
+            this.code = code;
+            this.value = value;
         }
     }
 }
