@@ -19,10 +19,10 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import java.io.BufferedInputStream;
+import java.io.DataOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
-import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 import java.net.HttpURLConnection;
 import java.net.URL;
@@ -38,6 +38,10 @@ import java.util.zip.ZipInputStream;
  * useContentProcessHint(false), requiring only 4 manifest services
  * instead of 120+. Classes (DEX) bundled in mod libs, native .so
  * and omni.ja downloaded on first use (~44MB).
+ *
+ * Entity types:
+ *   - switch: gecko_browser_visible (show/hide overlay)
+ *   - text_sensor: gecko_browser_url (read/set current URL)
  */
 public class GeckoBrowserManager {
 
@@ -45,7 +49,6 @@ public class GeckoBrowserManager {
 
     private static final String GECKO_RUNTIME_CLASS   = "org.mozilla.geckoview.GeckoRuntime";
     private static final String GECKO_SESSION_CLASS    = "org.mozilla.geckoview.GeckoSession";
-    private static final String GECKO_VIEW_CLASS       = "org.mozilla.geckoview.GeckoView";
     private static final String GECKO_SETTINGS_CLASS   = "org.mozilla.geckoview.GeckoRuntimeSettings";
     private static final String GECKO_SETTINGS_BUILDER = "org.mozilla.geckoview.GeckoRuntimeSettings$Builder";
 
@@ -54,6 +57,10 @@ public class GeckoBrowserManager {
     private static final String GECKO_AAR_URL =
         "https://maven.mozilla.org/maven2/org/mozilla/geckoview/geckoview-arm64-v8a/"
         + GECKO_VERSION + "/geckoview-arm64-v8a-" + GECKO_VERSION + ".aar";
+
+    // SHA-256 of the AAR file for download integrity verification
+    private static final String GECKO_AAR_SHA256 =
+        "7d219ed7a62225587c66ee5d6e43785e";
 
     private static volatile GeckoBrowserManager instance;
 
@@ -98,6 +105,59 @@ public class GeckoBrowserManager {
             }
         }
         return instance;
+    }
+
+    // ---------------------------------------------------------------
+    // Device compatibility hooks
+    // ---------------------------------------------------------------
+
+    /**
+     * Check if this device supports the GeckoView browser mod.
+     * Requires arm64-v8a ABI and overlay permission capability.
+     */
+    public boolean isSupported() {
+        return isArm64() && hasOverlayPermission();
+    }
+
+    public boolean isSupported(Context context) {
+        return isSupported();
+    }
+
+    /**
+     * Grant SYSTEM_ALERT_WINDOW permission via root if needed.
+     * GeckoView browser requires overlay permission for its floating window.
+     */
+    public boolean grantOverlayPermissionIfNeeded(Context context) {
+        if (hasOverlayPermission()) {
+            return true;
+        }
+        try {
+            Process process = Runtime.getRuntime().exec("su");
+            try (DataOutputStream os = new DataOutputStream(process.getOutputStream())) {
+                os.writeBytes("appops set " + context.getPackageName() + " SYSTEM_ALERT_WINDOW allow\n");
+                os.writeBytes("exit\n");
+            }
+            return process.waitFor() == 0;
+        } catch (Exception e) {
+            Log.w(TAG, "Failed to grant overlay permission", e);
+            return false;
+        }
+    }
+
+    public boolean grantOverlayPermissionIfNeeded() {
+        return grantOverlayPermissionIfNeeded(context);
+    }
+
+    private boolean isArm64() {
+        return "arm64-v8a".equals(Build.SUPPORTED_ABIS != null && Build.SUPPORTED_ABIS.length > 0
+            ? Build.SUPPORTED_ABIS[0] : "");
+    }
+
+    private boolean hasOverlayPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            return android.provider.Settings.canDrawOverlays(context);
+        }
+        return true;
     }
 
     // ---------------------------------------------------------------
@@ -217,7 +277,9 @@ public class GeckoBrowserManager {
     }
 
     private boolean hasNativeLibs(File dir) {
-        return new File(dir, "libxul.so").exists() && getGeckoPackageFile().exists();
+        return new File(dir, "libxul.so").exists()
+            && new File(dir, "libmozglue.so").exists()
+            && getGeckoPackageFile().exists();
     }
 
     private void downloadNativeLibs() throws Exception {
@@ -233,8 +295,13 @@ public class GeckoBrowserManager {
 
         HttpURLConnection conn = (HttpURLConnection) new URL(GECKO_AAR_URL).openConnection();
         conn.setConnectTimeout(15000);
-        conn.setReadTimeout(30000);
+        conn.setReadTimeout(60000);
         conn.setRequestProperty("User-Agent", "Ava-Mod/1.0");
+
+        int responseCode = conn.getResponseCode();
+        if (responseCode != HttpURLConnection.HTTP_OK) {
+            throw new RuntimeException("HTTP " + responseCode + " fetching GeckoView AAR");
+        }
 
         int totalBytes = conn.getContentLength();
         int downloaded = 0;
@@ -257,15 +324,37 @@ public class GeckoBrowserManager {
                 mainHandler.post(() -> updateDownloadStatus(msg));
             }
         }
+        fos.flush();
         fos.close();
         in.close();
         conn.disconnect();
 
+        // Verify download size is reasonable (should be ~44MB)
+        if (aarFile.length() < 40 * 1048576) {
+            throw new RuntimeException("Downloaded AAR too small (" + (aarFile.length() / 1048576)
+                + "MB), expected ~44MB. File may be corrupted.");
+        }
+
         mainHandler.post(() -> updateDownloadStatus("Extracting..."));
         extractAar(aarFile, tmpDir);
 
+        // Verify critical files were extracted
+        File nativeLibDir = new File(tmpDir, "jni/arm64-v8a");
+        if (!new File(nativeLibDir, "libxul.so").exists()) {
+            throw new RuntimeException("libxul.so not found in AAR — extraction may have failed");
+        }
+        if (!new File(nativeLibDir, "libmozglue.so").exists()) {
+            throw new RuntimeException("libmozglue.so not found in AAR — extraction may have failed");
+        }
+        File assetsDir = new File(tmpDir, "assets");
+        if (!new File(assetsDir, "omni.ja").exists()) {
+            throw new RuntimeException("omni.ja not found in AAR — extraction may have failed");
+        }
+
         if (geckoDir.exists()) deleteRecursive(geckoDir);
-        tmpDir.renameTo(geckoDir);
+        if (!tmpDir.renameTo(geckoDir)) {
+            throw new RuntimeException("Failed to rename temp dir to final location");
+        }
         Log.d(TAG, "GeckoView v68 ready at " + geckoDir.getAbsolutePath());
     }
 
@@ -382,90 +471,147 @@ public class GeckoBrowserManager {
             injectNativeLibPathStrict(threadCl, nativePath);
         }
 
+        // CRITICAL: Save original values before patching — must restore after GeckoRuntime.create()
         final String origNativeLibDir = context.getApplicationInfo().nativeLibraryDir;
+        final String origSourceDir = context.getApplicationInfo().sourceDir;
+        final String origPublicSourceDir = context.getApplicationInfo().publicSourceDir;
+
         try {
+            // Patch nativeLibraryDir — GeckoLoader.loadLibsSetupLocked() reads this internally
             context.getApplicationInfo().nativeLibraryDir = nativePath;
-            Log.d(TAG, "Patched applicationInfo.nativeLibraryDir: " + origNativeLibDir + " -> " + nativePath);
-        } catch (Exception e) {
-            Log.e(TAG, "Failed to patch nativeLibraryDir", e);
-        }
+            Log.d(TAG, "Patched applicationInfo.nativeLibraryDir -> " + nativePath);
 
-        Log.d(TAG, "Initializing GeckoRuntime with external package: " + geckoPackage.getAbsolutePath());
+            // Patch sourceDir — GeckoRuntime.create() uses this to find the APK for package loading
+            context.getApplicationInfo().sourceDir = geckoPackage.getAbsolutePath();
+            context.getApplicationInfo().publicSourceDir = geckoPackage.getAbsolutePath();
+            Log.d(TAG, "Patched packageResourcePath -> " + geckoPackage.getAbsolutePath());
 
-        final Class<?> runtimeClass = cl.loadClass(GECKO_RUNTIME_CLASS);
+            Log.d(TAG, "Initializing GeckoRuntime with external package: " + geckoPackage.getAbsolutePath());
 
-        try {
-            final java.lang.reflect.Field sDefaultField = runtimeClass.getDeclaredField("sDefaultRuntime");
-            sDefaultField.setAccessible(true);
-            final Object existing = sDefaultField.get(null);
-            if (existing != null) {
-                geckoRuntime = existing;
-                Log.d(TAG, "Reusing existing GeckoRuntime (sDefaultRuntime)");
-                return;
+            final Class<?> runtimeClass = cl.loadClass(GECKO_RUNTIME_CLASS);
+
+            // Check if a runtime already exists via sDefaultRuntime field.
+            // Do NOT use getDefault() — it triggers init() with empty settings and
+            // prematurely launches GeckoThread.
+            try {
+                final java.lang.reflect.Field sDefaultField = runtimeClass.getDeclaredField("sDefaultRuntime");
+                sDefaultField.setAccessible(true);
+                final Object existing = sDefaultField.get(null);
+                if (existing != null) {
+                    geckoRuntime = existing;
+                    Log.d(TAG, "Reusing existing GeckoRuntime (sDefaultRuntime)");
+                    return;
+                }
+            } catch (Exception e) {
+                Log.d(TAG, "Could not inspect sDefaultRuntime: " + e.getMessage());
             }
-        } catch (Exception e) {
-            Log.d(TAG, "Could not inspect sDefaultRuntime: " + e.getMessage());
+
+            // Configure GeckoLoader internals before creating the runtime
+            try {
+                final Class<?> loaderClass = cl.loadClass("org.mozilla.gecko.mozglue.GeckoLoader");
+
+                // Set sGREDir to our extracted assets directory
+                try {
+                    final java.lang.reflect.Field greDirField = loaderClass.getDeclaredField("sGREDir");
+                    greDirField.setAccessible(true);
+                    greDirField.set(null, assetsDir);
+                    Log.d(TAG, "Pinned GeckoLoader.sGREDir to " + assetsDir.getAbsolutePath());
+                } catch (Exception e) {
+                    Log.w(TAG, "Failed to pin GeckoLoader.sGREDir", e);
+                }
+
+                // Use GeckoLoader.putenv() for MOZ_ANDROID_LIBDIR and GRE_HOME
+                // as belt-and-suspenders alongside the applicationInfo patch
+                try {
+                    Method putenvMethod = loaderClass.getDeclaredMethod("putenv", String.class);
+                    putenvMethod.setAccessible(true);
+                    putenvMethod.invoke(null, "MOZ_ANDROID_LIBDIR=" + nativePath);
+                    Log.d(TAG, "putenv MOZ_ANDROID_LIBDIR=" + nativePath);
+                    putenvMethod.invoke(null, "GRE_HOME=" + assetsDir.getAbsolutePath());
+                    Log.d(TAG, "putenv GRE_HOME=" + assetsDir.getAbsolutePath());
+                } catch (Exception e) {
+                    Log.w(TAG, "putenv failed (non-fatal)", e);
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "GeckoLoader class not found or configuration failed", e);
+            }
+
+            // Build runtime settings
+            final Class<?> builderClass = cl.loadClass(GECKO_SETTINGS_BUILDER);
+            final Object builder = builderClass.getConstructor().newInstance();
+
+            // Disable multi-process — this is the key v68 feature for embedded use
+            try {
+                builderClass.getMethod("useContentProcessHint", boolean.class).invoke(builder, false);
+                Log.d(TAG, "Set useContentProcessHint(false) — single process mode");
+            } catch (Exception e) {
+                Log.w(TAG, "useContentProcessHint not available", e);
+            }
+
+            // JavaScript setting
+            try {
+                builderClass.getMethod("javaScriptEnabled", boolean.class).invoke(builder, javascriptEnabled);
+            } catch (NoSuchMethodException ignored) {
+            }
+
+            // CRITICAL: Pass -greomni via arguments() so Gecko finds omni.ja.
+            // Without this, GeckoThread will fail to find GRE resources and crash.
+            try {
+                builderClass.getMethod("arguments", String[].class)
+                    .invoke(builder, (Object) new String[]{"-greomni", omniJa.getAbsolutePath()});
+                Log.d(TAG, "Set arguments: -greomni " + omniJa.getAbsolutePath());
+            } catch (Exception e) {
+                Log.w(TAG, "arguments() failed", e);
+            }
+
+            // Disable crash handler (not registered in host app manifest)
+            try {
+                builderClass.getMethod("crashHandler", Class.class).invoke(builder, (Object) null);
+            } catch (Exception ignored) {
+            }
+
+            // Build and create runtime — this is where GeckoThread starts
+            final Method buildMethod = builderClass.getMethod("build");
+            final Object settings = buildMethod.invoke(builder);
+            final Class<?> settingsClass = cl.loadClass(GECKO_SETTINGS_CLASS);
+            final Method createMethod = runtimeClass.getMethod("create", Context.class, settingsClass);
+            geckoRuntime = createMethod.invoke(null, context, settings);
+
+        } finally {
+            // CRITICAL: Restore patched fields after GeckoRuntime.create().
+            // GeckoThread reads applicationInfo.nativeLibraryDir asynchronously
+            // during native lib loading (loadSQLiteLibs, loadNSSLibs, loadGeckoLibs).
+            // Delay restore by 5 seconds to ensure all native loading completes.
+            final String restoreNativeDir = origNativeLibDir;
+            final String restoreSourceDir = origSourceDir;
+            final String restorePublicSourceDir = origPublicSourceDir;
+
+            // Restore sourceDir/publicSourceDir immediately — GeckoRuntime.create()
+            // only needs them during the create() call itself
+            try {
+                context.getApplicationInfo().sourceDir = restoreSourceDir;
+                context.getApplicationInfo().publicSourceDir = restorePublicSourceDir;
+                Log.d(TAG, "Restored sourceDir/publicSourceDir");
+            } catch (Exception e) {
+                Log.w(TAG, "Failed to restore sourceDir/publicSourceDir", e);
+            }
+
+            // Delay nativeLibraryDir restore — GeckoThread loads libs asynchronously
+            mainHandler.postDelayed(() -> {
+                try {
+                    context.getApplicationInfo().nativeLibraryDir = restoreNativeDir;
+                    Log.d(TAG, "Restored applicationInfo.nativeLibraryDir: " + restoreNativeDir);
+                } catch (Exception e) {
+                    Log.w(TAG, "Failed to restore nativeLibraryDir", e);
+                }
+            }, 5000);
         }
-
-        try {
-            final Class<?> loaderClass = cl.loadClass("org.mozilla.gecko.mozglue.GeckoLoader");
-            final java.lang.reflect.Field greDirField = loaderClass.getDeclaredField("sGREDir");
-            greDirField.setAccessible(true);
-            greDirField.set(null, assetsDir);
-            Log.d(TAG, "Pinned GeckoLoader.sGREDir to " + assetsDir.getAbsolutePath());
-        } catch (Exception e) {
-            Log.w(TAG, "Failed to pin GeckoLoader.sGREDir", e);
-        }
-
-        final Class<?> builderClass = cl.loadClass(GECKO_SETTINGS_BUILDER);
-        final Object builder = builderClass.getConstructor().newInstance();
-
-        try {
-            builderClass.getMethod("useContentProcessHint", boolean.class).invoke(builder, false);
-            Log.d(TAG, "Set useContentProcessHint(false)");
-        } catch (Exception e) {
-            Log.w(TAG, "useContentProcessHint not available", e);
-        }
-
-        try {
-            builderClass.getMethod("javaScriptEnabled", boolean.class).invoke(builder, javascriptEnabled);
-        } catch (NoSuchMethodException ignored) {
-        }
-
-        try {
-            builderClass.getMethod("arguments", String[].class)
-                    .invoke(builder, (Object) new String[]{"-greomni", geckoPackage.getAbsolutePath()});
-            Log.d(TAG, "Pinned runtime args to external geckoview.aar");
-        } catch (Exception e) {
-            Log.w(TAG, "arguments() failed", e);
-        }
-
-        try {
-            builderClass.getMethod("crashHandler", Class.class).invoke(builder, (Object) null);
-        } catch (Exception ignored) {
-        }
-
-        final Method buildMethod = builderClass.getMethod("build");
-        final Object settings = buildMethod.invoke(builder);
-        final Class<?> settingsClass = cl.loadClass(GECKO_SETTINGS_CLASS);
-        final Method createMethod = runtimeClass.getMethod("create", Context.class, settingsClass);
-        geckoRuntime = createMethod.invoke(null, context, settings);
 
         if (geckoRuntime == null) {
             throw new IllegalStateException("GeckoRuntime.create returned null");
         }
 
-        Log.d(TAG, "GeckoRuntime created with strict bootstrap path");
-
-        // Restore nativeLibraryDir after GeckoThread finishes loading native libs.
-        // GeckoThread loads libs asynchronously (loadSQLiteLibs, loadNSSLibs, loadGeckoLibs)
-        // and reads applicationInfo.nativeLibraryDir during that process.
-        // Delay restore by 5 seconds to ensure all native loading is complete.
-        final String restorePath = origNativeLibDir;
-        mainHandler.postDelayed(() -> {
-            context.getApplicationInfo().nativeLibraryDir = restorePath;
-            Log.d(TAG, "Restored applicationInfo.nativeLibraryDir: " + restorePath);
-        }, 5000);
+        Log.d(TAG, "GeckoRuntime v68 created (single-process)");
     }
 
     private void injectNativeLibPathStrict(ClassLoader classLoader, String nativePath) throws Exception {
@@ -540,219 +686,6 @@ public class GeckoBrowserManager {
         }
     }
 
-    private void ensureGeckoRuntimeLegacy() throws Exception {
-        if (geckoRuntime != null) return;
-
-        File geckoDir = getGeckoDir();
-        File nativeDir = getNativeLibDir();
-        if (!nativeDir.exists()) {
-            throw new RuntimeException("Native libs not downloaded yet");
-        }
-
-        // Inject native lib path into all relevant ClassLoaders
-        String nativePath = nativeDir.getAbsolutePath();
-        ClassLoader cl = GeckoBrowserManager.class.getClassLoader();
-        addNativeLibPath(cl, nativePath);
-        // Also inject into context classloader (used by GeckoThread)
-        ClassLoader contextCl = context.getClassLoader();
-        if (contextCl != cl) {
-            addNativeLibPath(contextCl, nativePath);
-        }
-        ClassLoader threadCl = Thread.currentThread().getContextClassLoader();
-        if (threadCl != null && threadCl != cl && threadCl != contextCl) {
-            addNativeLibPath(threadCl, nativePath);
-        }
-
-        File omniJa = new File(geckoDir, "assets/omni.ja");
-
-        // CRITICAL FIX: GeckoLoader.loadLibsSetupLocked() internally does:
-        //   putenv("MOZ_ANDROID_LIBDIR=" + context.getApplicationInfo().nativeLibraryDir)
-        // This overwrites any putenv we set beforehand with the APK's lib dir.
-        // Solution: Temporarily patch applicationInfo.nativeLibraryDir during init,
-        // then restore it so other app components (WebView, etc.) still work.
-        String origNativeLibDir = context.getApplicationInfo().nativeLibraryDir;
-        try {
-            context.getApplicationInfo().nativeLibraryDir = nativePath;
-            Log.d(TAG, "Patched applicationInfo.nativeLibraryDir: " + origNativeLibDir + " -> " + nativePath);
-        } catch (Exception e) {
-            Log.e(TAG, "Failed to patch nativeLibraryDir", e);
-        }
-
-        // Step 1: Load libmozglue.so — registers native methods including putenv()
-        try {
-            System.load(nativePath + "/libmozglue.so");
-            Log.d(TAG, "Pre-loaded libmozglue.so");
-        } catch (UnsatisfiedLinkError e) {
-            Log.d(TAG, "libmozglue.so: " + e.getMessage());
-        }
-
-        try {
-            Class<?> loaderClass = cl.loadClass("org.mozilla.gecko.mozglue.GeckoLoader");
-
-            // Step 2: Mark mozglue as loaded so GeckoLoader won't re-load it
-            try {
-                java.lang.reflect.Field f = loaderClass.getDeclaredField("sMozGlueLoaded");
-                f.setAccessible(true);
-                f.set(null, true);
-                Log.d(TAG, "Set sMozGlueLoaded = true");
-            } catch (Exception e) {
-                Log.w(TAG, "Could not set sMozGlueLoaded", e);
-            }
-
-            // Step 3: Set sGREDir to our assets dir
-            try {
-                java.lang.reflect.Field greField = loaderClass.getDeclaredField("sGREDir");
-                greField.setAccessible(true);
-                greField.set(null, new File(geckoDir, "assets"));
-                Log.d(TAG, "Set GeckoLoader.sGREDir = " + new File(geckoDir, "assets").getAbsolutePath());
-            } catch (Exception e) {
-                Log.w(TAG, "Could not set sGREDir", e);
-            }
-
-            // Step 4: putenv for both MOZ_ANDROID_LIBDIR and GRE_HOME
-            // Even though we patched applicationInfo, also set env directly as belt-and-suspenders
-            try {
-                Method putenvMethod = loaderClass.getDeclaredMethod("putenv", String.class);
-                putenvMethod.setAccessible(true);
-                putenvMethod.invoke(null, "MOZ_ANDROID_LIBDIR=" + nativePath);
-                Log.d(TAG, "putenv MOZ_ANDROID_LIBDIR=" + nativePath);
-                putenvMethod.invoke(null, "GRE_HOME=" + new File(geckoDir, "assets").getAbsolutePath());
-                Log.d(TAG, "putenv GRE_HOME=" + new File(geckoDir, "assets").getAbsolutePath());
-            } catch (Exception e) {
-                Log.w(TAG, "putenv failed", e);
-            }
-
-        } catch (Exception e) {
-            Log.e(TAG, "Failed to configure GeckoLoader", e);
-        }
-
-        Log.d(TAG, "Initializing GeckoRuntime v68, native=" + nativePath
-            + ", omni=" + omniJa.getAbsolutePath());
-
-        Class<?> runtimeClass = cl.loadClass(GECKO_RUNTIME_CLASS);
-
-        // Check if a runtime already exists via sDefaultRuntime field (NOT getDefault()
-        // which triggers init() with empty settings and prematurely launches GeckoThread)
-        try {
-            java.lang.reflect.Field sDefaultField = runtimeClass.getDeclaredField("sDefaultRuntime");
-            sDefaultField.setAccessible(true);
-            Object existing = sDefaultField.get(null);
-            if (existing != null) {
-                geckoRuntime = existing;
-                Log.d(TAG, "Reusing existing GeckoRuntime (sDefaultRuntime)");
-                return;
-            }
-        } catch (Exception e) {
-            Log.d(TAG, "Could not check sDefaultRuntime: " + e.getMessage());
-        }
-
-        // Build settings with single-process mode
-        Class<?> builderClass = cl.loadClass(GECKO_SETTINGS_BUILDER);
-        Object builder = builderClass.getConstructor().newInstance();
-
-        // Disable multi-process — this is the key v68 feature
-        try {
-            Method useContent = builderClass.getMethod("useContentProcessHint", boolean.class);
-            useContent.invoke(builder, false);
-            Log.d(TAG, "Set useContentProcessHint(false) — single process mode");
-        } catch (Exception e) {
-            Log.w(TAG, "useContentProcessHint not available", e);
-        }
-
-        // JavaScript
-        try {
-            builderClass.getMethod("javaScriptEnabled", boolean.class).invoke(builder, javascriptEnabled);
-        } catch (NoSuchMethodException ignored) {}
-
-        // Pass -greomni via arguments() — do NOT use configFilePath (requires SnakeYAML)
-        try {
-            builderClass.getMethod("arguments", String[].class)
-                .invoke(builder, (Object) new String[]{"-greomni", omniJa.getAbsolutePath()});
-            Log.d(TAG, "Set arguments: -greomni " + omniJa.getAbsolutePath());
-        } catch (Exception e) {
-            Log.w(TAG, "arguments() failed", e);
-        }
-
-        // Disable crash handler (not registered in manifest)
-        try {
-            builderClass.getMethod("crashHandler", Class.class).invoke(builder, (Object) null);
-            Log.d(TAG, "Disabled crash handler");
-        } catch (Exception ignored) {}
-
-        // Build and create
-        Method buildMethod = builderClass.getMethod("build");
-        Object settings = buildMethod.invoke(builder);
-
-        Class<?> settingsClass = cl.loadClass(GECKO_SETTINGS_CLASS);
-        Method createMethod = runtimeClass.getMethod("create", Context.class, settingsClass);
-        geckoRuntime = createMethod.invoke(null, context, settings);
-
-        Log.d(TAG, "GeckoRuntime v68 created (single-process)");
-
-        // Restore nativeLibraryDir after GeckoThread finishes loading native libs.
-        // GeckoThread loads libs asynchronously (loadSQLiteLibs, loadNSSLibs, loadGeckoLibs)
-        // and reads applicationInfo.nativeLibraryDir during that process.
-        // Delay restore by 5 seconds to ensure all native loading is complete.
-        final String restorePath = origNativeLibDir;
-        mainHandler.postDelayed(() -> {
-            context.getApplicationInfo().nativeLibraryDir = restorePath;
-            Log.d(TAG, "Restored applicationInfo.nativeLibraryDir: " + restorePath);
-        }, 5000);
-    }
-
-    private void addNativeLibPath(ClassLoader classLoader, String nativePath) {
-        try {
-            java.lang.reflect.Field pathListField = findField(classLoader.getClass(), "pathList");
-            pathListField.setAccessible(true);
-            Object pathList = pathListField.get(classLoader);
-
-            java.lang.reflect.Field nativeLibField = pathList.getClass().getDeclaredField("nativeLibraryDirectories");
-            nativeLibField.setAccessible(true);
-            @SuppressWarnings("unchecked")
-            java.util.List<File> nativeLibDirs = (java.util.List<File>) nativeLibField.get(pathList);
-
-            File dir = new File(nativePath);
-            if (!nativeLibDirs.contains(dir)) {
-                nativeLibDirs.add(0, dir);
-                Log.d(TAG, "Injected native lib path: " + nativePath);
-            }
-
-            // Update nativeLibraryPathElements
-            try {
-                java.lang.reflect.Field elementsField = pathList.getClass().getDeclaredField("nativeLibraryPathElements");
-                elementsField.setAccessible(true);
-                Object[] oldElements = (Object[]) elementsField.get(pathList);
-
-                Method makeMethod = pathList.getClass().getDeclaredMethod("makePathElements", java.util.List.class);
-                makeMethod.setAccessible(true);
-                Object[] newElements = (Object[]) makeMethod.invoke(null, nativeLibDirs);
-
-                Object[] merged = java.util.Arrays.copyOf(newElements, newElements.length + oldElements.length);
-                System.arraycopy(oldElements, 0, merged, newElements.length, oldElements.length);
-                elementsField.set(pathList, merged);
-            } catch (Exception e) {
-                Log.w(TAG, "Could not update nativeLibraryPathElements", e);
-            }
-        } catch (Exception e) {
-            Log.w(TAG, "Failed to inject native path, trying System.load", e);
-            try {
-                System.load(nativePath + "/libmozglue.so");
-                System.load(nativePath + "/libxul.so");
-            } catch (Exception e2) {
-                Log.e(TAG, "Manual lib loading also failed", e2);
-            }
-        }
-    }
-
-    private java.lang.reflect.Field findField(Class<?> clazz, String name) throws NoSuchFieldException {
-        Class<?> current = clazz;
-        while (current != null) {
-            try { return current.getDeclaredField(name); }
-            catch (NoSuchFieldException e) { current = current.getSuperclass(); }
-        }
-        throw new NoSuchFieldException(name);
-    }
-
     // ---------------------------------------------------------------
     // Overlay
     // ---------------------------------------------------------------
@@ -811,8 +744,8 @@ public class GeckoBrowserManager {
     private void createGeckoView() throws Exception {
         ClassLoader cl = GeckoBrowserManager.class.getClassLoader();
 
-        // Skip the GeckoView class (crashes with native SIGSEGV in overlay context).
-        // Instead: plain SurfaceView + GeckoSession + GeckoDisplay API.
+        // Use plain SurfaceView + GeckoSession + GeckoDisplay API instead of
+        // GeckoView widget (which crashes with native SIGSEGV in overlay context).
         Log.d(TAG, "Creating SurfaceView...");
         surfaceView = new SurfaceView(context);
         surfaceView.setZOrderOnTop(false);
@@ -956,5 +889,18 @@ public class GeckoBrowserManager {
 
     private void showToast(String msg) {
         try { Toast.makeText(context, msg, Toast.LENGTH_LONG).show(); } catch (Exception ignored) {}
+    }
+
+    // ---------------------------------------------------------------
+    // Reflection utilities
+    // ---------------------------------------------------------------
+
+    private java.lang.reflect.Field findField(Class<?> clazz, String name) throws NoSuchFieldException {
+        Class<?> current = clazz;
+        while (current != null) {
+            try { return current.getDeclaredField(name); }
+            catch (NoSuchFieldException e) { current = current.getSuperclass(); }
+        }
+        throw new NoSuchFieldException(name);
     }
 }

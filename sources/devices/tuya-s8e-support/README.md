@@ -1,6 +1,6 @@
 # Tuya S8E
 
-Device-specific controls for Tuya S8E smart screens.
+Dedicated Tuya S8E controls for both backlights plus onboard temperature and humidity readings.
 
 ## Exposed controls
 
@@ -16,4 +16,3 @@ the real hardware state.
 cd sources/devices/tuya-s8e-support
 ./build.sh 1.0.0
 ```
-

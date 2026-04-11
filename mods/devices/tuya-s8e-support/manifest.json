@@ -3,7 +3,7 @@
   "name": "Tuya S8E",
   "version": "1.0.1",
   "author": "Ava",
-  "description": "Dedicated screen and small-screen backlight controls for Tuya S8E devices",
+  "description": "Device support for Tuya S8E with screen backlight, small display control, and climate readings",
   "icon": "mdi:tablet-dashboard",
   "libs": [
     "libs/tuya-s8e-support.jar"
