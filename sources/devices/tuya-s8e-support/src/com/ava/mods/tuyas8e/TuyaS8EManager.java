@@ -32,8 +32,8 @@ public class TuyaS8EManager {
     private static final float TEMPERATURE_OFFSET = -4.0f;
     private static final float HUMIDITY_OFFSET = 4.0f;
     private static final int GESTURE_THRESHOLD = 20;
-    private static final long ROTARY_RESET_DELAY_MS = 3000L;
-    private static final long GESTURE_RESET_DELAY_MS = 350L;
+    private static final long ROTARY_RESET_DELAY_MS = 1200L;
+    private static final long GESTURE_RESET_DELAY_MS = 250L;
     private static final int INPUT_EVENT_SIZE =
             (Build.SUPPORTED_64_BIT_ABIS != null && Build.SUPPORTED_64_BIT_ABIS.length > 0) ? 24 : 16;
     private static final int EV_KEY = 0x01;
@@ -174,6 +174,11 @@ public class TuyaS8EManager {
         return rotaryPosition.get();
     }
 
+    public String getRotaryPositionText() {
+        startListenersIfNeeded();
+        return String.valueOf(rotaryPosition.get());
+    }
+
     public String getGestureDirection() {
         startListenersIfNeeded();
         return lastGestureDirection;
@@ -227,7 +232,7 @@ public class TuyaS8EManager {
                     if (event == null) {
                         break;
                     }
-                    if (event.type != EV_KEY || event.value != 1) {
+                    if (event.type != EV_KEY || event.value == 0) {
                         continue;
                     }
                     if (event.code == KEY_F2) {
