@@ -11,6 +11,8 @@ import java.io.FileInputStream;
 import java.io.FileReader;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -25,6 +27,8 @@ public class TuyaS8EManager {
     private static final float TEMPERATURE_OFFSET = -4.0f;
     private static final float HUMIDITY_OFFSET = 4.0f;
     private static final int GESTURE_THRESHOLD = 20;
+    private static final long ROTARY_RESET_DELAY_MS = 30000L;
+    private static final long GESTURE_RESET_DELAY_MS = 350L;
     private static final int INPUT_EVENT_SIZE =
             (Build.SUPPORTED_64_BIT_ABIS != null && Build.SUPPORTED_64_BIT_ABIS.length > 0) ? 24 : 16;
     private static final int EV_KEY = 0x01;
@@ -38,8 +42,11 @@ public class TuyaS8EManager {
     private static volatile TuyaS8EManager instance;
     private final Context context;
     private final ExecutorService listenerExecutor = Executors.newCachedThreadPool();
+    private final ScheduledExecutorService resetExecutor = Executors.newSingleThreadScheduledExecutor();
     private final AtomicBoolean listenersStarted = new AtomicBoolean(false);
     private final AtomicInteger rotaryPosition = new AtomicInteger(0);
+    private final AtomicInteger rotaryResetToken = new AtomicInteger(0);
+    private final AtomicInteger gestureResetToken = new AtomicInteger(0);
     private volatile float lastTemperature = 0.0f;
     private volatile float lastHumidity = 0.0f;
     private volatile boolean hasTemperatureReading = false;
@@ -195,9 +202,9 @@ public class TuyaS8EManager {
                         continue;
                     }
                     if (event.code == KEY_F2) {
-                        rotaryPosition.incrementAndGet();
+                        updateRotaryPosition(1);
                     } else if (event.code == KEY_F3) {
-                        rotaryPosition.decrementAndGet();
+                        updateRotaryPosition(-1);
                     }
                 }
             } catch (Exception e) {
@@ -233,6 +240,7 @@ public class TuyaS8EManager {
                             if (touchActive && startX != null && startY != null && lastX != null && lastY != null) {
                                 updateGestureDirection(startX, startY, lastX, lastY);
                             }
+                            scheduleGestureReset();
                             touchActive = false;
                             startX = null;
                             startY = null;
@@ -241,6 +249,7 @@ public class TuyaS8EManager {
                             continue;
                         }
                         touchActive = true;
+                        gestureResetToken.incrementAndGet();
                     }
 
                     if (event.code == ABS_MT_POSITION_X) {
@@ -254,6 +263,10 @@ public class TuyaS8EManager {
                         }
                         lastY = event.value;
                     }
+
+                    if (touchActive && startX != null && startY != null && lastX != null && lastY != null) {
+                        updateGestureDirection(startX, startY, lastX, lastY);
+                    }
                 }
             } catch (Exception e) {
                 Log.e(TAG, "Touchpad listener failed", e);
@@ -262,6 +275,19 @@ public class TuyaS8EManager {
             }
             sleepQuietly(1000);
         }
+    }
+
+    private void updateRotaryPosition(int delta) {
+        rotaryPosition.addAndGet(delta);
+        final int token = rotaryResetToken.incrementAndGet();
+        resetExecutor.schedule(new Runnable() {
+            @Override
+            public void run() {
+                if (rotaryResetToken.get() == token) {
+                    rotaryPosition.set(0);
+                }
+            }
+        }, ROTARY_RESET_DELAY_MS, TimeUnit.MILLISECONDS);
     }
 
     private void updateGestureDirection(int startX, int startY, int endX, int endY) {
@@ -275,6 +301,19 @@ public class TuyaS8EManager {
         } else {
             lastGestureDirection = dy > 0 ? "down" : "up";
         }
+        gestureResetToken.incrementAndGet();
+    }
+
+    private void scheduleGestureReset() {
+        final int token = gestureResetToken.get();
+        resetExecutor.schedule(new Runnable() {
+            @Override
+            public void run() {
+                if (gestureResetToken.get() == token) {
+                    lastGestureDirection = "idle";
+                }
+            }
+        }, GESTURE_RESET_DELAY_MS, TimeUnit.MILLISECONDS);
     }
 
     private boolean writeSysfs(String path, String value) {

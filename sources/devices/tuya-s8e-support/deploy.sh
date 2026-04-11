@@ -76,23 +76,24 @@ git add \
 
 COMMIT_MSG_FILE="$(mktemp)"
 cat > "$COMMIT_MSG_FILE" <<EOF
-Expose Tuya S8E screen and climate controls as a dedicated device mod
+Make Tuya S8E rotary and gesture sensors usable for automation
 
-This release adds a Tuya S8E-specific device mod that separates
-main-screen and small-screen backlight control, and mirrors the
-existing shell-based temperature and humidity parsing logic in Java
-so the mod can surface the same device capabilities directly.
+This release changes the Tuya S8E input handling so the rotary sensor
+behaves like a real automation counter: F2 increments, F3 decrements,
+the value updates in real time while rotating, and it resets to 0
+after 30 seconds of inactivity. Gesture direction also updates during
+movement and returns to idle shortly after touch end.
 
-Constraint: Tuya S8E backlight control depends on root-writable sysfs nodes
-Constraint: Temperature and humidity parsing must stay aligned with the existing device shell script behavior
-Rejected: Reuse generic Zigbee gateway mod for screen controls | unrelated scope and device semantics
-Rejected: Invent simplified climate parsing | would drift from the device's current shell-based behavior
-Confidence: medium
+Constraint: Rotary input arrives as repeated KEY_F2/KEY_F3 pulses rather than absolute positions
+Constraint: Idle state must be represented as 0 for rotary and idle for gesture to keep automations predictable
+Rejected: Treat rotary input as a transient direction pulse | loses cumulative state needed for automation rules
+Rejected: Keep the steps unit on Rotary Position | implies a physical unit rather than an automation-friendly counter
+Confidence: high
 Scope-risk: moderate
 Reversibility: clean
-Directive: Keep Tuya S8E sysfs paths and climate parsing in sync with the on-device shell scripts before extending this mod
-Tested: sources/devices/tuya-s8e-support/build.sh; JSON validation for manifests and store.json
-Not-tested: On-device validation of screen toggles and climate readings through Ava UI
+Directive: Preserve rotary reset-to-zero semantics unless automation consumers are updated to handle a non-idle resting value
+Tested: sources/devices/tuya-s8e-support/build.sh 1.0.4; JSON validation for manifests and store.json; adb input event capture on 192.168.0.60:5555
+Not-tested: End-to-end automation execution through Ava UI after deployment
 EOF
 
 git commit -F "$COMMIT_MSG_FILE"
