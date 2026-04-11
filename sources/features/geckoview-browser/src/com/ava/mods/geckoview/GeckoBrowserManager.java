@@ -520,6 +520,17 @@ public class GeckoBrowserManager {
                     Log.w(TAG, "Failed to pin GeckoLoader.sGREDir", e);
                 }
 
+                // CRITICAL: load libmozglue.so BEFORE calling putenv().
+                // putenv() is a native method that lives in libmozglue.so —
+                // GeckoThread loads it asynchronously later, but we need it now.
+                try {
+                    final File mozglueSo = new File(nativeDir, "libmozglue.so");
+                    System.load(mozglueSo.getAbsolutePath());
+                    Log.d(TAG, "Pre-loaded " + mozglueSo.getAbsolutePath());
+                } catch (UnsatisfiedLinkError e) {
+                    Log.w(TAG, "libmozglue.so already loaded or unavailable", e);
+                }
+
                 // Use GeckoLoader.putenv() for MOZ_ANDROID_LIBDIR and GRE_HOME
                 // as belt-and-suspenders alongside the applicationInfo patch
                 try {
