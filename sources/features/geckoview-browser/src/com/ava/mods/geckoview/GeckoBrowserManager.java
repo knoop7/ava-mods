@@ -582,7 +582,13 @@ public class GeckoBrowserManager {
         Class<?> viewClass = cl.loadClass(GECKO_VIEW_CLASS);
         Constructor<?> ctor = viewClass.getConstructor(Context.class);
         Log.d(TAG, "Creating GeckoView instance...");
-        geckoView = ctor.newInstance(context);
+        try {
+            geckoView = ctor.newInstance(context);
+        } catch (java.lang.reflect.InvocationTargetException ite) {
+            Throwable cause = ite.getCause();
+            Log.e(TAG, "GeckoView constructor failed: " + cause, cause);
+            throw ite;
+        }
         Log.d(TAG, "GeckoView instance created");
 
         Log.d(TAG, "Creating GeckoSession...");
