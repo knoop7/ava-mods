@@ -612,12 +612,13 @@ public class GeckoBrowserManager {
         // Pass -greomni via arguments(). GeckoThread.getMainProcessArgs() automatically
         // adds -greomni from getPackageResourcePath() (which we've patched to AAR).
         // Our args are appended AFTER the auto-generated ones (line 269-270 of GeckoThread).
-        // Gecko native code reads -greomni to find omni.ja — the last -greomni wins.
-        // So our explicit path takes precedence over the AAR path.
+        // Gecko native code reads -greomni to find a ZIP container that contains assets/omni.ja.
+        // The last -greomni wins, so we pass the AAR path explicitly to be safe.
+        // NOTE: -greomni must point to the container (AAR/APK), NOT the omni.ja file itself.
         try {
             builderClass.getMethod("arguments", String[].class)
-                .invoke(builder, (Object) new String[]{"-greomni", omniJa.getAbsolutePath()});
-            Log.d(TAG, "Set arguments: -greomni " + omniJa.getAbsolutePath());
+                .invoke(builder, (Object) new String[]{"-greomni", geckoPackage.getAbsolutePath()});
+            Log.d(TAG, "Set arguments: -greomni " + geckoPackage.getAbsolutePath());
         } catch (Exception e) {
             Log.w(TAG, "arguments() failed", e);
         }
