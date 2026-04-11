@@ -148,14 +148,16 @@ public class GeckoBrowserManager {
             if (isVisible) return;
             try {
                 ensureGeckoRuntime();
+                Log.d(TAG, "Runtime ready, creating overlay...");
                 createOverlay();
+                Log.d(TAG, "Overlay created");
                 String url = currentUrl.isEmpty() ? defaultUrl : currentUrl;
                 if (!url.isEmpty()) {
                     doLoadUrl(url);
                 }
                 isVisible = true;
                 Log.d(TAG, "Browser shown");
-            } catch (Exception e) {
+            } catch (Throwable e) {
                 Log.e(TAG, "Failed to show browser", e);
                 showToast("GeckoView: " + e.getMessage());
             }
@@ -544,7 +546,7 @@ public class GeckoBrowserManager {
 
         try {
             createGeckoView();
-        } catch (Exception e) {
+        } catch (Throwable e) {
             Log.w(TAG, "GeckoView creation failed, fallback to WebView", e);
             createFallbackWebView();
         }
@@ -576,23 +578,31 @@ public class GeckoBrowserManager {
     private void createGeckoView() throws Exception {
         ClassLoader cl = GeckoBrowserManager.class.getClassLoader();
 
+        Log.d(TAG, "Loading GeckoView class...");
         Class<?> viewClass = cl.loadClass(GECKO_VIEW_CLASS);
         Constructor<?> ctor = viewClass.getConstructor(Context.class);
+        Log.d(TAG, "Creating GeckoView instance...");
         geckoView = ctor.newInstance(context);
+        Log.d(TAG, "GeckoView instance created");
 
+        Log.d(TAG, "Creating GeckoSession...");
         Class<?> sessionClass = cl.loadClass(GECKO_SESSION_CLASS);
         geckoSession = sessionClass.getConstructor().newInstance();
+        Log.d(TAG, "GeckoSession created");
 
+        Log.d(TAG, "Opening session...");
         Class<?> runtimeClass = cl.loadClass(GECKO_RUNTIME_CLASS);
         Method openMethod = sessionClass.getMethod("open", runtimeClass);
         openMethod.invoke(geckoSession, geckoRuntime);
+        Log.d(TAG, "Session opened");
 
         Method setSessionMethod = viewClass.getMethod("setSession", sessionClass);
         setSessionMethod.invoke(geckoView, geckoSession);
+        Log.d(TAG, "Session attached to view");
 
         containerView.addView((View) geckoView, new FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
-        Log.d(TAG, "GeckoView created");
+        Log.d(TAG, "GeckoView added to container");
     }
 
     private void createFallbackWebView() {
