@@ -421,15 +421,20 @@ public class GeckoBrowserManager {
 
         Class<?> runtimeClass = cl.loadClass(GECKO_RUNTIME_CLASS);
 
-        // Try to reuse existing runtime (only one per process)
+        // Check if a runtime already exists via sDefaultRuntime field (NOT getDefault()
+        // which triggers init() with empty settings and prematurely launches GeckoThread)
         try {
-            Method getDefault = runtimeClass.getMethod("getDefault", Context.class);
-            geckoRuntime = getDefault.invoke(null, context);
-            if (geckoRuntime != null) {
-                Log.d(TAG, "Reusing existing GeckoRuntime");
+            java.lang.reflect.Field sDefaultField = runtimeClass.getDeclaredField("sDefaultRuntime");
+            sDefaultField.setAccessible(true);
+            Object existing = sDefaultField.get(null);
+            if (existing != null) {
+                geckoRuntime = existing;
+                Log.d(TAG, "Reusing existing GeckoRuntime (sDefaultRuntime)");
                 return;
             }
-        } catch (Exception ignored) {}
+        } catch (Exception e) {
+            Log.d(TAG, "Could not check sDefaultRuntime: " + e.getMessage());
+        }
 
         // Build settings with single-process mode
         Class<?> builderClass = cl.loadClass(GECKO_SETTINGS_BUILDER);
