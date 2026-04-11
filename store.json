@@ -38,7 +38,7 @@
     {
       "id": "tuya-s8e-support",
       "name": "Tuya S8E",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "author": "Ava",
       "description": "Dedicated screen and small-screen backlight controls for Tuya S8E devices",
       "path": "mods/devices/tuya-s8e-support/"
