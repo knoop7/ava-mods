@@ -1,0 +1,65 @@
+{
+  "id": "tuya-s8e-support",
+  "name": "Tuya S8E",
+  "version": "1.0.0",
+  "author": "Ava",
+  "description": "Dedicated screen and small-screen backlight controls for Tuya S8E devices",
+  "icon": "mdi:tablet-dashboard",
+  "libs": [
+    "libs/tuya-s8e-support.jar"
+  ],
+  "manager": "com.ava.mods.tuyas8e.TuyaS8EManager",
+  "jar_hash": "8ad6d5c21976f9a1cfa60680d5fa6a52",
+  "entities": [
+    {
+      "type": "switch",
+      "id": "screen_backlight",
+      "name": "Screen Backlight",
+      "icon": "mdi:monitor",
+      "on": "setScreenBacklight:true",
+      "off": "setScreenBacklight:false",
+      "read": "isScreenBacklightOn"
+    },
+    {
+      "type": "switch",
+      "id": "small_screen_backlight",
+      "name": "Small Screen Backlight",
+      "icon": "mdi:monitor-small",
+      "on": "setSmallScreenBacklight:true",
+      "off": "setSmallScreenBacklight:false",
+      "read": "isSmallScreenBacklightOn"
+    },
+    {
+      "type": "binary_sensor",
+      "id": "screen_backlight_state",
+      "name": "Screen Backlight State",
+      "icon": "mdi:monitor",
+      "read": "isScreenBacklightOn"
+    },
+    {
+      "type": "binary_sensor",
+      "id": "small_screen_backlight_state",
+      "name": "Small Screen Backlight State",
+      "icon": "mdi:monitor-small",
+      "read": "isSmallScreenBacklightOn"
+    },
+    {
+      "type": "sensor",
+      "id": "temperature",
+      "name": "Temperature",
+      "icon": "mdi:thermometer",
+      "unit": "°C",
+      "class": "temperature",
+      "read": "getTemperature"
+    },
+    {
+      "type": "sensor",
+      "id": "humidity",
+      "name": "Humidity",
+      "icon": "mdi:water-percent",
+      "unit": "%",
+      "class": "humidity",
+      "read": "getHumidity"
+    }
+  ]
+}

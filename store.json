@@ -36,6 +36,14 @@
       "jar_hash": "5597854afed43b5d5c48145d82132556"
     },
     {
+      "id": "tuya-s8e-support",
+      "name": "Tuya S8E",
+      "version": "1.0.0",
+      "author": "Ava",
+      "description": "Dedicated screen and small-screen backlight controls for Tuya S8E devices",
+      "path": "mods/devices/tuya-s8e-support/"
+    },
+    {
       "id": "flashlight-mod",
       "name": "Flashlight",
       "version": "1.0.0",
