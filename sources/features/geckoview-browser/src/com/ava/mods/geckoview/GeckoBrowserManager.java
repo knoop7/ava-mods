@@ -60,6 +60,7 @@ public class GeckoBrowserManager {
     private final Context context;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
+    private final Object runtimeInitLock = new Object();
 
     private Object geckoRuntime;
     private Object geckoSession;
@@ -339,6 +340,202 @@ public class GeckoBrowserManager {
     // ---------------------------------------------------------------
 
     private void ensureGeckoRuntime() throws Exception {
+        if (geckoRuntime != null) {
+            return;
+        }
+        synchronized (runtimeInitLock) {
+            if (geckoRuntime != null) {
+                return;
+            }
+            initGeckoRuntime();
+        }
+    }
+
+    private void initGeckoRuntime() throws Exception {
+        final File geckoDir = getGeckoDir();
+        final File nativeDir = getNativeLibDir();
+        final File assetsDir = new File(geckoDir, "assets");
+        final File omniJa = new File(assetsDir, "omni.ja");
+        final String nativePath = nativeDir.getAbsolutePath();
+
+        requirePath(nativeDir, "native library directory");
+        requirePath(new File(nativeDir, "libmozglue.so"), "libmozglue.so");
+        requirePath(new File(nativeDir, "libxul.so"), "libxul.so");
+        requirePath(assetsDir, "assets directory");
+        requirePath(omniJa, "omni.ja");
+
+        final ClassLoader cl = GeckoBrowserManager.class.getClassLoader();
+        injectNativeLibPathStrict(cl, nativePath);
+
+        final ClassLoader contextCl = context.getClassLoader();
+        if (contextCl != cl) {
+            injectNativeLibPathStrict(contextCl, nativePath);
+        }
+
+        final ClassLoader threadCl = Thread.currentThread().getContextClassLoader();
+        if (threadCl != null && threadCl != cl && threadCl != contextCl) {
+            injectNativeLibPathStrict(threadCl, nativePath);
+        }
+
+        final String origNativeLibDir = context.getApplicationInfo().nativeLibraryDir;
+        try {
+            context.getApplicationInfo().nativeLibraryDir = nativePath;
+            Log.d(TAG, "Patched applicationInfo.nativeLibraryDir: " + origNativeLibDir + " -> " + nativePath);
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to patch nativeLibraryDir", e);
+        }
+
+        Log.d(TAG, "Initializing GeckoRuntime with external assets: " + omniJa.getAbsolutePath());
+
+        final Class<?> runtimeClass = cl.loadClass(GECKO_RUNTIME_CLASS);
+
+        try {
+            final java.lang.reflect.Field sDefaultField = runtimeClass.getDeclaredField("sDefaultRuntime");
+            sDefaultField.setAccessible(true);
+            final Object existing = sDefaultField.get(null);
+            if (existing != null) {
+                geckoRuntime = existing;
+                Log.d(TAG, "Reusing existing GeckoRuntime (sDefaultRuntime)");
+                return;
+            }
+        } catch (Exception e) {
+            Log.d(TAG, "Could not inspect sDefaultRuntime: " + e.getMessage());
+        }
+
+        try {
+            final Class<?> loaderClass = cl.loadClass("org.mozilla.gecko.mozglue.GeckoLoader");
+            final java.lang.reflect.Field greDirField = loaderClass.getDeclaredField("sGREDir");
+            greDirField.setAccessible(true);
+            greDirField.set(null, assetsDir);
+            Log.d(TAG, "Pinned GeckoLoader.sGREDir to " + assetsDir.getAbsolutePath());
+        } catch (Exception e) {
+            Log.w(TAG, "Failed to pin GeckoLoader.sGREDir", e);
+        }
+
+        final Class<?> builderClass = cl.loadClass(GECKO_SETTINGS_BUILDER);
+        final Object builder = builderClass.getConstructor().newInstance();
+
+        try {
+            builderClass.getMethod("useContentProcessHint", boolean.class).invoke(builder, false);
+            Log.d(TAG, "Set useContentProcessHint(false)");
+        } catch (Exception e) {
+            Log.w(TAG, "useContentProcessHint not available", e);
+        }
+
+        try {
+            builderClass.getMethod("javaScriptEnabled", boolean.class).invoke(builder, javascriptEnabled);
+        } catch (NoSuchMethodException ignored) {
+        }
+
+        try {
+            builderClass.getMethod("arguments", String[].class)
+                    .invoke(builder, (Object) new String[]{"-greomni", omniJa.getAbsolutePath()});
+            Log.d(TAG, "Pinned runtime args to external omni.ja");
+        } catch (Exception e) {
+            Log.w(TAG, "arguments() failed", e);
+        }
+
+        try {
+            builderClass.getMethod("crashHandler", Class.class).invoke(builder, (Object) null);
+        } catch (Exception ignored) {
+        }
+
+        final Method buildMethod = builderClass.getMethod("build");
+        final Object settings = buildMethod.invoke(builder);
+        final Class<?> settingsClass = cl.loadClass(GECKO_SETTINGS_CLASS);
+        final Method createMethod = runtimeClass.getMethod("create", Context.class, settingsClass);
+        geckoRuntime = createMethod.invoke(null, context, settings);
+
+        if (geckoRuntime == null) {
+            throw new IllegalStateException("GeckoRuntime.create returned null");
+        }
+
+        Log.d(TAG, "GeckoRuntime created with strict bootstrap path");
+
+        // Restore nativeLibraryDir after GeckoThread finishes loading native libs.
+        // GeckoThread loads libs asynchronously (loadSQLiteLibs, loadNSSLibs, loadGeckoLibs)
+        // and reads applicationInfo.nativeLibraryDir during that process.
+        // Delay restore by 5 seconds to ensure all native loading is complete.
+        final String restorePath = origNativeLibDir;
+        mainHandler.postDelayed(() -> {
+            context.getApplicationInfo().nativeLibraryDir = restorePath;
+            Log.d(TAG, "Restored applicationInfo.nativeLibraryDir: " + restorePath);
+        }, 5000);
+    }
+
+    private void injectNativeLibPathStrict(ClassLoader classLoader, String nativePath) throws Exception {
+        final java.lang.reflect.Field pathListField = findField(classLoader.getClass(), "pathList");
+        pathListField.setAccessible(true);
+        final Object pathList = pathListField.get(classLoader);
+
+        final java.lang.reflect.Field nativeLibField =
+                pathList.getClass().getDeclaredField("nativeLibraryDirectories");
+        nativeLibField.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        final java.util.List<File> nativeLibDirs =
+                (java.util.List<File>) nativeLibField.get(pathList);
+
+        final File dir = new File(nativePath);
+        if (!nativeLibDirs.contains(dir)) {
+            nativeLibDirs.add(0, dir);
+        }
+
+        try {
+            final java.lang.reflect.Field elementsField =
+                    pathList.getClass().getDeclaredField("nativeLibraryPathElements");
+            elementsField.setAccessible(true);
+            final Object[] oldElements = (Object[]) elementsField.get(pathList);
+            final Object[] newElements = makeNativePathElements(pathList, nativeLibDirs);
+
+            if (oldElements == null || oldElements.length == 0) {
+                elementsField.set(pathList, newElements);
+            } else {
+                final Object[] merged =
+                        java.util.Arrays.copyOf(newElements, newElements.length + oldElements.length);
+                System.arraycopy(oldElements, 0, merged, newElements.length, oldElements.length);
+                elementsField.set(pathList, merged);
+            }
+        } catch (NoSuchFieldException ignored) {
+            Log.d(TAG, "nativeLibraryPathElements not present on this runtime");
+        }
+
+        Log.d(TAG, "Injected native lib path: " + nativePath);
+    }
+
+    private Object[] makeNativePathElements(Object pathList, java.util.List<File> nativeLibDirs)
+            throws Exception {
+        try {
+            final Method makeMethod =
+                    pathList.getClass().getDeclaredMethod("makePathElements", java.util.List.class);
+            makeMethod.setAccessible(true);
+            return (Object[]) makeMethod.invoke(null, nativeLibDirs);
+        } catch (NoSuchMethodException ignored) {
+        }
+
+        try {
+            final Method makeMethod = pathList.getClass().getDeclaredMethod(
+                    "makePathElements", java.util.List.class, File.class, java.util.List.class);
+            makeMethod.setAccessible(true);
+            final java.util.ArrayList<java.io.IOException> suppressed = new java.util.ArrayList<>();
+            final Object[] elements =
+                    (Object[]) makeMethod.invoke(null, nativeLibDirs, null, suppressed);
+            if (!suppressed.isEmpty()) {
+                throw suppressed.get(0);
+            }
+            return elements;
+        } catch (NoSuchMethodException ignored) {
+        }
+
+        throw new NoSuchMethodException("Unsupported DexPathList.makePathElements signature");
+    }
+
+    private void requirePath(File file, String label) {
+        if (!file.exists()) {
+            throw new IllegalStateException("Missing Gecko runtime " + label + ": " + file.getAbsolutePath());
+        }
+    }
+
+    private void ensureGeckoRuntimeLegacy() throws Exception {
         if (geckoRuntime != null) return;
 
         File geckoDir = getGeckoDir();

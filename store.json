@@ -79,7 +79,7 @@
     {
       "id": "geckoview-browser",
       "name": "GeckoView Browser",
-      "version": "3.2.0",
+      "version": "1.0.0",
       "author": "Ava",
       "description": "Independent Firefox-engine browser overlay with HA entity sync",
       "path": "mods/features/geckoview-browser/"
