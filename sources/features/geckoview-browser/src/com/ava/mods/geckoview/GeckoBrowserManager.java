@@ -9,6 +9,9 @@ import android.os.Looper;
 import android.util.Log;
 import android.view.Gravity;
 import android.view.MotionEvent;
+import android.view.Surface;
+import android.view.SurfaceHolder;
+import android.view.SurfaceView;
 import android.view.View;
 import android.view.WindowManager;
 import android.widget.FrameLayout;
@@ -61,6 +64,8 @@ public class GeckoBrowserManager {
     private Object geckoRuntime;
     private Object geckoSession;
     private Object geckoView;
+    private Object geckoDisplay;  // GeckoDisplay from acquireDisplay()
+    private SurfaceView surfaceView;
 
     private WindowManager windowManager;
     private FrameLayout containerView;
@@ -578,18 +583,12 @@ public class GeckoBrowserManager {
     private void createGeckoView() throws Exception {
         ClassLoader cl = GeckoBrowserManager.class.getClassLoader();
 
-        Log.d(TAG, "Loading GeckoView class...");
-        Class<?> viewClass = cl.loadClass(GECKO_VIEW_CLASS);
-        Constructor<?> ctor = viewClass.getConstructor(Context.class);
-        Log.d(TAG, "Creating GeckoView instance...");
-        try {
-            geckoView = ctor.newInstance(context);
-        } catch (java.lang.reflect.InvocationTargetException ite) {
-            Throwable cause = ite.getCause();
-            Log.e(TAG, "GeckoView constructor failed: " + cause, cause);
-            throw ite;
-        }
-        Log.d(TAG, "GeckoView instance created");
+        // Skip the GeckoView class (crashes with native SIGSEGV in overlay context).
+        // Instead: plain SurfaceView + GeckoSession + GeckoDisplay API.
+        Log.d(TAG, "Creating SurfaceView...");
+        surfaceView = new SurfaceView(context);
+        surfaceView.setZOrderOnTop(false);
+        Log.d(TAG, "SurfaceView created");
 
         Log.d(TAG, "Creating GeckoSession...");
         Class<?> sessionClass = cl.loadClass(GECKO_SESSION_CLASS);
@@ -602,13 +601,51 @@ public class GeckoBrowserManager {
         openMethod.invoke(geckoSession, geckoRuntime);
         Log.d(TAG, "Session opened");
 
-        Method setSessionMethod = viewClass.getMethod("setSession", sessionClass);
-        setSessionMethod.invoke(geckoView, geckoSession);
-        Log.d(TAG, "Session attached to view");
+        // Acquire GeckoDisplay from session
+        Log.d(TAG, "Acquiring GeckoDisplay...");
+        Method acquireDisplay = sessionClass.getMethod("acquireDisplay");
+        geckoDisplay = acquireDisplay.invoke(geckoSession);
+        Log.d(TAG, "GeckoDisplay acquired");
 
-        containerView.addView((View) geckoView, new FrameLayout.LayoutParams(
+        // Connect SurfaceView's Surface to GeckoDisplay via SurfaceHolder callback
+        surfaceView.getHolder().addCallback(new SurfaceHolder.Callback() {
+            @Override
+            public void surfaceCreated(SurfaceHolder holder) {
+                Log.d(TAG, "Surface created");
+            }
+
+            @Override
+            public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {
+                Log.d(TAG, "Surface changed: " + width + "x" + height);
+                if (geckoDisplay != null) {
+                    try {
+                        Method surfaceChangedMethod = geckoDisplay.getClass()
+                            .getMethod("surfaceChanged", Surface.class, int.class, int.class);
+                        surfaceChangedMethod.invoke(geckoDisplay, holder.getSurface(), width, height);
+                        Log.d(TAG, "GeckoDisplay.surfaceChanged called");
+                    } catch (Exception e) {
+                        Log.e(TAG, "surfaceChanged failed", e);
+                    }
+                }
+            }
+
+            @Override
+            public void surfaceDestroyed(SurfaceHolder holder) {
+                Log.d(TAG, "Surface destroyed");
+                if (geckoDisplay != null) {
+                    try {
+                        geckoDisplay.getClass().getMethod("surfaceDestroyed").invoke(geckoDisplay);
+                    } catch (Exception e) {
+                        Log.w(TAG, "surfaceDestroyed failed", e);
+                    }
+                }
+            }
+        });
+
+        geckoView = surfaceView;
+        containerView.addView(surfaceView, new FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
-        Log.d(TAG, "GeckoView added to container");
+        Log.d(TAG, "SurfaceView added to container");
     }
 
     private void createFallbackWebView() {
@@ -636,7 +673,7 @@ public class GeckoBrowserManager {
     private void removeOverlay() {
         if (containerView != null) {
             try {
-                if (geckoView instanceof View) containerView.removeView((View) geckoView);
+                containerView.removeAllViews();
                 windowManager.removeView(containerView);
             } catch (Exception e) { Log.w(TAG, "Error removing overlay", e); }
             containerView = null;
@@ -646,12 +683,20 @@ public class GeckoBrowserManager {
     }
 
     private void closeSession() {
+        if (geckoDisplay != null && geckoSession != null) {
+            try {
+                geckoSession.getClass().getMethod("releaseDisplay",
+                    geckoDisplay.getClass()).invoke(geckoSession, geckoDisplay);
+            } catch (Exception ignored) {}
+            geckoDisplay = null;
+        }
         if (geckoSession != null) {
             try { geckoSession.getClass().getMethod("close").invoke(geckoSession); }
             catch (Exception ignored) {}
             geckoSession = null;
         }
         geckoView = null;
+        surfaceView = null;
     }
 
     private void makeFocusable(WindowManager.LayoutParams params) {
