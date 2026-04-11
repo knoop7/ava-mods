@@ -84,11 +84,19 @@ public class TuyaS8EManager {
     }
 
     public boolean setScreenBacklight(boolean enabled) {
-        return writeSysfs(SCREEN_BACKLIGHT_PATH, enabled ? "0" : "1");
+        boolean ok = writeSysfs(SCREEN_BACKLIGHT_PATH, enabled ? "0" : "1");
+        if (ok) {
+            notifyStateListeners("screen_backlight", Boolean.valueOf(enabled));
+        }
+        return ok;
     }
 
     public boolean setSmallScreenBacklight(boolean enabled) {
-        return writeSysfs(SMALL_SCREEN_BACKLIGHT_PATH, enabled ? "1" : "0");
+        boolean ok = writeSysfs(SMALL_SCREEN_BACKLIGHT_PATH, enabled ? "1" : "0");
+        if (ok) {
+            notifyStateListeners("small_screen_backlight", Boolean.valueOf(enabled));
+        }
+        return ok;
     }
 
     public boolean isScreenBacklightOn() {

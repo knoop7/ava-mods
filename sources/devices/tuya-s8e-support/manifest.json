@@ -1,7 +1,7 @@
 {
   "id": "tuya-s8e-support",
   "name": "Tuya S8E",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "author": "Ava",
   "description": "Device support for Tuya S8E with screen backlight, small display control, and climate readings",
   "icon": "mdi:tablet-dashboard",
@@ -9,7 +9,7 @@
     "libs/tuya-s8e-support.jar"
   ],
   "manager": "com.ava.mods.tuyas8e.TuyaS8EManager",
-  "jar_hash": "733253ba5add817269811fd865f9423a",
+  "jar_hash": "c2e894bbcec4f6b61be8a4c5f34e7211",
   "entities": [
     {
       "type": "switch",
@@ -18,7 +18,8 @@
       "icon": "mdi:monitor",
       "on": "setScreenBacklight:true",
       "off": "setScreenBacklight:false",
-      "read": "isScreenBacklightOn"
+      "read": "isScreenBacklightOn",
+      "refresh_interval_ms": 30000
     },
     {
       "type": "switch",
@@ -27,7 +28,8 @@
       "icon": "mdi:monitor-small",
       "on": "setSmallScreenBacklight:true",
       "off": "setSmallScreenBacklight:false",
-      "read": "isSmallScreenBacklightOn"
+      "read": "isSmallScreenBacklightOn",
+      "refresh_interval_ms": 30000
     },
     {
       "type": "sensor",
