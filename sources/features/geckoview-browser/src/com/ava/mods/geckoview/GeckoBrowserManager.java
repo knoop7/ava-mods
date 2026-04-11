@@ -483,15 +483,19 @@ public class GeckoBrowserManager {
 
         Class<?> settingsClass = cl.loadClass(GECKO_SETTINGS_CLASS);
         Method createMethod = runtimeClass.getMethod("create", Context.class, settingsClass);
-        try {
-            geckoRuntime = createMethod.invoke(null, context, settings);
-        } finally {
-            // Restore original nativeLibraryDir so other app components still work
-            context.getApplicationInfo().nativeLibraryDir = origNativeLibDir;
-            Log.d(TAG, "Restored applicationInfo.nativeLibraryDir: " + origNativeLibDir);
-        }
+        geckoRuntime = createMethod.invoke(null, context, settings);
 
         Log.d(TAG, "GeckoRuntime v68 created (single-process)");
+
+        // Restore nativeLibraryDir after GeckoThread finishes loading native libs.
+        // GeckoThread loads libs asynchronously (loadSQLiteLibs, loadNSSLibs, loadGeckoLibs)
+        // and reads applicationInfo.nativeLibraryDir during that process.
+        // Delay restore by 5 seconds to ensure all native loading is complete.
+        final String restorePath = origNativeLibDir;
+        mainHandler.postDelayed(() -> {
+            context.getApplicationInfo().nativeLibraryDir = restorePath;
+            Log.d(TAG, "Restored applicationInfo.nativeLibraryDir: " + restorePath);
+        }, 5000);
     }
 
     private void addNativeLibPath(ClassLoader classLoader, String nativePath) {
