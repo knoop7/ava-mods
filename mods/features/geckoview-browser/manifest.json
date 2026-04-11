@@ -1,7 +1,7 @@
 {
   "id": "geckoview-browser",
   "name": "GeckoView Browser",
-  "version": "3.0.0",
+  "version": "3.1.0",
   "author": "Ava",
   "description": "Independent Firefox-engine browser overlay with HA entity sync. Requires GeckoView AAR in libs/.",
   "icon": "mdi:firefox",

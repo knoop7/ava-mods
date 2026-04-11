@@ -156,12 +156,13 @@ public class GeckoBrowserManager {
                 Log.d(TAG, "Runtime ready, creating overlay...");
                 createOverlay();
                 Log.d(TAG, "Overlay created");
-                String url = currentUrl.isEmpty() ? defaultUrl : currentUrl;
-                if (!url.isEmpty()) {
-                    doLoadUrl(url);
-                }
                 isVisible = true;
                 Log.d(TAG, "Browser shown");
+                // Delay URL loading to let Gecko engine finish initializing
+                String url = currentUrl.isEmpty() ? defaultUrl : currentUrl;
+                if (!url.isEmpty()) {
+                    mainHandler.postDelayed(() -> doLoadUrl(url), 2000);
+                }
             } catch (Throwable e) {
                 Log.e(TAG, "Failed to show browser", e);
                 showToast("GeckoView: " + e.getMessage());
@@ -365,12 +366,12 @@ public class GeckoBrowserManager {
         // CRITICAL FIX: GeckoLoader.loadLibsSetupLocked() internally does:
         //   putenv("MOZ_ANDROID_LIBDIR=" + context.getApplicationInfo().nativeLibraryDir)
         // This overwrites any putenv we set beforehand with the APK's lib dir.
-        // Solution: Patch applicationInfo.nativeLibraryDir to point to OUR native dir
-        // so GeckoLoader picks up the correct path when it reads it.
+        // Solution: Temporarily patch applicationInfo.nativeLibraryDir during init,
+        // then restore it so other app components (WebView, etc.) still work.
+        String origNativeLibDir = context.getApplicationInfo().nativeLibraryDir;
         try {
-            String origNativeDir = context.getApplicationInfo().nativeLibraryDir;
             context.getApplicationInfo().nativeLibraryDir = nativePath;
-            Log.d(TAG, "Patched applicationInfo.nativeLibraryDir: " + origNativeDir + " -> " + nativePath);
+            Log.d(TAG, "Patched applicationInfo.nativeLibraryDir: " + origNativeLibDir + " -> " + nativePath);
         } catch (Exception e) {
             Log.e(TAG, "Failed to patch nativeLibraryDir", e);
         }
@@ -482,7 +483,13 @@ public class GeckoBrowserManager {
 
         Class<?> settingsClass = cl.loadClass(GECKO_SETTINGS_CLASS);
         Method createMethod = runtimeClass.getMethod("create", Context.class, settingsClass);
-        geckoRuntime = createMethod.invoke(null, context, settings);
+        try {
+            geckoRuntime = createMethod.invoke(null, context, settings);
+        } finally {
+            // Restore original nativeLibraryDir so other app components still work
+            context.getApplicationInfo().nativeLibraryDir = origNativeLibDir;
+            Log.d(TAG, "Restored applicationInfo.nativeLibraryDir: " + origNativeLibDir);
+        }
 
         Log.d(TAG, "GeckoRuntime v68 created (single-process)");
     }
@@ -555,6 +562,21 @@ public class GeckoBrowserManager {
             Log.w(TAG, "GeckoView creation failed, fallback to WebView", e);
             createFallbackWebView();
         }
+
+        // Close button (top-right corner)
+        TextView closeBtn = new TextView(context);
+        closeBtn.setText("  X  ");
+        closeBtn.setTextColor(Color.WHITE);
+        closeBtn.setTextSize(18f);
+        closeBtn.setBackgroundColor(Color.parseColor("#88FF0000"));
+        closeBtn.setPadding(24, 12, 24, 12);
+        closeBtn.setOnClickListener(v -> hideBrowser());
+        FrameLayout.LayoutParams closeLp = new FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT);
+        closeLp.gravity = Gravity.TOP | Gravity.END;
+        closeLp.topMargin = 48;
+        closeLp.rightMargin = 16;
+        containerView.addView(closeBtn, closeLp);
 
         WindowManager.LayoutParams params = new WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT,
