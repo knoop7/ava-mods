@@ -32,7 +32,6 @@ public class TuyaS8EManager {
     private static final float TEMPERATURE_OFFSET = -4.0f;
     private static final float HUMIDITY_OFFSET = 4.0f;
     private static final int GESTURE_THRESHOLD = 20;
-    private static final long ROTARY_RESET_DELAY_MS = 1200L;
     private static final long GESTURE_RESET_DELAY_MS = 250L;
     private static final int INPUT_EVENT_SIZE =
             (Build.SUPPORTED_64_BIT_ABIS != null && Build.SUPPORTED_64_BIT_ABIS.length > 0) ? 24 : 16;
@@ -51,7 +50,6 @@ public class TuyaS8EManager {
     private final AtomicBoolean listenersStarted = new AtomicBoolean(false);
     private final Map<String, CopyOnWriteArrayList<Object>> stateListeners = new ConcurrentHashMap<String, CopyOnWriteArrayList<Object>>();
     private final AtomicInteger rotaryPosition = new AtomicInteger(0);
-    private final AtomicInteger rotaryResetToken = new AtomicInteger(0);
     private final AtomicInteger gestureResetToken = new AtomicInteger(0);
     private volatile float lastTemperature = 0.0f;
     private volatile float lastHumidity = 0.0f;
@@ -177,6 +175,12 @@ public class TuyaS8EManager {
     public String getRotaryPositionText() {
         startListenersIfNeeded();
         return String.valueOf(rotaryPosition.get());
+    }
+
+    public boolean resetRotaryPosition() {
+        rotaryPosition.set(0);
+        notifyStateListeners("rotary_position", Integer.valueOf(0));
+        return true;
     }
 
     public String getGestureDirection() {
@@ -331,16 +335,6 @@ public class TuyaS8EManager {
     private void updateRotaryPosition(int delta) {
         int current = rotaryPosition.addAndGet(delta);
         notifyStateListeners("rotary_position", Integer.valueOf(current));
-        final int token = rotaryResetToken.incrementAndGet();
-        resetExecutor.schedule(new Runnable() {
-            @Override
-            public void run() {
-                if (rotaryResetToken.get() == token) {
-                    rotaryPosition.set(0);
-                    notifyStateListeners("rotary_position", Integer.valueOf(0));
-                }
-            }
-        }, ROTARY_RESET_DELAY_MS, TimeUnit.MILLISECONDS);
     }
 
     private void updateGestureDirection(int startX, int startY, int endX, int endY) {

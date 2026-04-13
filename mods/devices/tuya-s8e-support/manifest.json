@@ -1,7 +1,7 @@
 {
   "id": "tuya-s8e-support",
   "name": "Tuya S8E",
-  "version": "1.0.9",
+  "version": "1.0.10",
   "author": "Ava",
   "description": "Device support for Tuya S8E with screen backlight, small display control, and climate readings",
   "icon": "mdi:tablet-dashboard",
@@ -9,7 +9,7 @@
     "libs/tuya-s8e-support.jar"
   ],
   "manager": "com.ava.mods.tuyas8e.TuyaS8EManager",
-  "jar_hash": "7707405070d4459df1f31a2cf68c8807",
+  "jar_hash": "07a9deb9686f9067954ca68f5b094567",
   "entities": [
     {
       "type": "switch",
@@ -58,6 +58,14 @@
       "icon": "mdi:rotate-3d-variant",
       "read": "getRotaryPositionText",
       "refresh_interval_ms": 500
+    },
+    {
+      "type": "button",
+      "id": "reset_rotary_position",
+      "name": "Reset Rotary Position",
+      "icon": "mdi:restart",
+      "category": "diagnostic",
+      "press": "resetRotaryPosition"
     },
     {
       "type": "text_sensor",

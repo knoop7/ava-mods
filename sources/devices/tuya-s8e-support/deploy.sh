@@ -76,24 +76,23 @@ git add \
 
 COMMIT_MSG_FILE="$(mktemp)"
 cat > "$COMMIT_MSG_FILE" <<EOF
-Make Tuya S8E mod sensors push rotary and gesture updates in real time
+Keep Tuya S8E rotary state persistent while adding manual diagnostic reset
 
-This release keeps the rotary sensor as an automation-friendly counter
-while adding listener-based state push hooks so Ava can reflect rotary
-and gesture changes immediately instead of waiting for the default mod
-polling interval. The rotary value still resets to 0 after inactivity,
-and gesture direction still returns to idle after touch end.
+This release removes the rotary sensor's automatic reset-to-zero behavior
+so the counter can stay stable for automations and diagnostics. A new
+diagnostic button lets Home Assistant reset the rotary state on demand,
+while gesture direction behavior remains unchanged.
 
-Constraint: Ava's default mod entity refresh cadence is too slow for interactive rotary feedback
-Constraint: Tuya S8E rotary input arrives as repeated KEY_F2/KEY_F3 pulses rather than absolute positions
-Rejected: Increase global Ava polling frequency | risks unnecessary system-wide overhead
-Rejected: Revert rotary sensor to transient direction pulses | breaks automation scenarios that need accumulated state
+Constraint: Rotary input arrives as repeated KEY_F2/KEY_F3 pulses rather than an absolute hardware position
+Constraint: Reset behavior must remain accessible from Home Assistant without restoring automatic zeroing
+Rejected: Keep inactivity-based auto reset | hides persistent rotary state needed for automation logic
+Rejected: Remove reset entirely | makes it harder to recover counter state during diagnostics
 Confidence: high
-Scope-risk: moderate
+Scope-risk: narrow
 Reversibility: clean
-Directive: Keep listener callbacks aligned with entity ids rotary_position and gesture_direction unless Ava's listener bridge changes
-Tested: sources/devices/tuya-s8e-support/build.sh 1.0.5; JSON validation for manifests and store.json; adb input event capture on 192.168.0.60:5555
-Not-tested: End-to-end Ava listener bridge behavior on-device after both sides are installed
+Directive: Keep the manual reset button bound to rotary_position semantics unless the entity model changes in Ava/HASS
+Tested: sources/devices/tuya-s8e-support/build.sh 1.0.10; JSON validation for manifests and store.json
+Not-tested: End-to-end Home Assistant button press against an installed 1.0.10 package
 EOF
 
 git commit -F "$COMMIT_MSG_FILE"
