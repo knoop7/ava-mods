@@ -53,6 +53,15 @@
       "path": "mods/features/qualcomm-audio-concurrency-fix/"
     },
     {
+      "id": "portal-support",
+      "name": "Meta Portal Support",
+      "version": "1.1.0",
+      "author": "Ava",
+      "description": "Meta Portal ambient sensors, presence detection, sound level, screen timeout, and alert tones",
+      "path": "mods/devices/portal-support/",
+      "jar_hash": "18fa1044ff012f555fa470a6746f154c"
+    },
+    {
       "id": "tuya-s8e-support",
       "name": "Tuya S8E",
       "version": "1.0.10",

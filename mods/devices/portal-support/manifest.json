@@ -1,0 +1,290 @@
+{
+  "id": "portal-support",
+  "name": "Meta Portal Support",
+  "version": "1.1.0",
+  "author": "Ava",
+  "description": "Meta Portal ambient sensors, presence detection, sound level, screen timeout, and alert tones for Home Assistant",
+  "icon": "mdi:tablet-dashboard",
+  "libs": [
+    "libs/portal-support.jar"
+  ],
+  "manager": "com.ava.mods.portal.PortalSupportManager",
+  "jar_hash": "18fa1044ff012f555fa470a6746f154c",
+  "permissions": [
+    "android.permission.READ_LOGS",
+    "android.permission.CAMERA",
+    "android.permission.RECORD_AUDIO",
+    "android.permission.WRITE_SECURE_SETTINGS"
+  ],
+  "entities": [
+    {
+      "type": "binary_sensor",
+      "id": "portal_presence",
+      "name": "Portal Presence",
+      "icon": "mdi:account-eye",
+      "class": "occupancy",
+      "read": "isPortalPresent",
+      "enabledWhen": "enable_presence"
+    },
+    {
+      "type": "switch",
+      "id": "presence_detection",
+      "name": "Presence Detection",
+      "icon": "mdi:account-eye-outline",
+      "on": "setPresenceDetection:true",
+      "off": "setPresenceDetection:false",
+      "read": "isPresenceDetectionEnabled",
+      "enabledWhen": "enable_presence"
+    },
+    {
+      "type": "sensor",
+      "id": "ambient_light",
+      "name": "Ambient Light",
+      "icon": "mdi:brightness-5",
+      "unit": "lx",
+      "class": "illuminance",
+      "read": "getAmbientLight",
+      "enabledWhen": "enable_ambient_light"
+    },
+    {
+      "type": "sensor",
+      "id": "light_red",
+      "name": "Light Red",
+      "icon": "mdi:palette",
+      "unit": "lx",
+      "read": "getLightRed",
+      "enabledWhen": "enable_light_rgb"
+    },
+    {
+      "type": "sensor",
+      "id": "light_green",
+      "name": "Light Green",
+      "icon": "mdi:palette",
+      "unit": "lx",
+      "read": "getLightGreen",
+      "enabledWhen": "enable_light_rgb"
+    },
+    {
+      "type": "sensor",
+      "id": "light_blue",
+      "name": "Light Blue",
+      "icon": "mdi:palette",
+      "unit": "lx",
+      "read": "getLightBlue",
+      "enabledWhen": "enable_light_rgb"
+    },
+    {
+      "type": "sensor",
+      "id": "temperature",
+      "name": "Temperature",
+      "icon": "mdi:thermometer",
+      "unit": "°C",
+      "class": "temperature",
+      "read": "getTemperature",
+      "enabledWhen": "enable_temperature"
+    },
+    {
+      "type": "number",
+      "id": "temperature_offset",
+      "name": "Temperature Offset",
+      "icon": "mdi:thermometer-lines",
+      "unit": "°C",
+      "min": -20,
+      "max": 20,
+      "step": 0.5,
+      "set": "setTemperatureOffset",
+      "read": "getTemperatureOffset",
+      "enabledWhen": "enable_temperature"
+    },
+    {
+      "type": "text_sensor",
+      "id": "tap_tilt",
+      "name": "Tap Tilt",
+      "icon": "mdi:gesture-tap",
+      "read": "getTapTiltDirection",
+      "enabledWhen": "enable_tap_tilt"
+    },
+    {
+      "type": "number",
+      "id": "tap_tilt_sensitivity",
+      "name": "Tap Tilt Sensitivity",
+      "icon": "mdi:tune-vertical",
+      "min": 2,
+      "max": 15,
+      "step": 0.5,
+      "set": "setTapTiltSensitivity",
+      "read": "getTapTiltSensitivity",
+      "enabledWhen": "enable_tap_tilt"
+    },
+    {
+      "type": "sensor",
+      "id": "accel_x",
+      "name": "Accel X",
+      "icon": "mdi:axis-x-arrow",
+      "unit": "m/s²",
+      "read": "getAccelX",
+      "enabledWhen": "enable_accelerometer"
+    },
+    {
+      "type": "sensor",
+      "id": "accel_y",
+      "name": "Accel Y",
+      "icon": "mdi:axis-y-arrow",
+      "unit": "m/s²",
+      "read": "getAccelY",
+      "enabledWhen": "enable_accelerometer"
+    },
+    {
+      "type": "sensor",
+      "id": "accel_z",
+      "name": "Accel Z",
+      "icon": "mdi:axis-z-arrow",
+      "unit": "m/s²",
+      "read": "getAccelZ",
+      "enabledWhen": "enable_accelerometer"
+    },
+    {
+      "type": "sensor",
+      "id": "sound_level",
+      "name": "Sound Level",
+      "icon": "mdi:microphone",
+      "unit": "%",
+      "read": "getSoundLevel",
+      "enabledWhen": "enable_sound_level"
+    },
+    {
+      "type": "button",
+      "id": "doorbell",
+      "name": "Doorbell",
+      "icon": "mdi:bell-ring",
+      "press": "playDoorbell",
+      "enabledWhen": "enable_doorbell_alert"
+    },
+    {
+      "type": "button",
+      "id": "alert",
+      "name": "Alert",
+      "icon": "mdi:alert",
+      "press": "playAlert",
+      "enabledWhen": "enable_doorbell_alert"
+    },
+    {
+      "type": "switch",
+      "id": "screen_timeout",
+      "name": "Screen Timeout",
+      "icon": "mdi:timer-off",
+      "on": "setScreenTimeout:true",
+      "off": "setScreenTimeout:false",
+      "read": "isScreenTimeoutEnabled",
+      "enabledWhen": "enable_screen_timeout"
+    },
+    {
+      "type": "number",
+      "id": "screen_timeout_minutes",
+      "name": "Screen Timeout Minutes",
+      "icon": "mdi:timer-cog",
+      "unit": "min",
+      "min": 1,
+      "max": 240,
+      "step": 1,
+      "set": "setScreenTimeoutMinutes",
+      "read": "getScreenTimeoutMinutes",
+      "enabledWhen": "enable_screen_timeout"
+    }
+  ],
+  "config": [
+    {
+      "type": "switch",
+      "key": "enable_presence",
+      "label": "Portal Presence",
+      "description": "Expose Portal presence detection entities in Home Assistant",
+      "defaultValue": "false"
+    },
+    {
+      "type": "switch",
+      "key": "enable_ambient_light",
+      "label": "Ambient Light",
+      "description": "Expose ambient light lux sensor (TCS34x0)",
+      "defaultValue": "false"
+    },
+    {
+      "type": "switch",
+      "key": "enable_light_rgb",
+      "label": "Light RGB",
+      "description": "Expose RGB colour channel sensors (hardware dependent)",
+      "defaultValue": "false"
+    },
+    {
+      "type": "switch",
+      "key": "enable_temperature",
+      "label": "Temperature",
+      "description": "Expose ambient temperature sensor (hardware dependent)",
+      "defaultValue": "false"
+    },
+    {
+      "type": "switch",
+      "key": "enable_tap_tilt",
+      "label": "Tap Tilt",
+      "description": "Expose tap/tilt gesture direction sensor",
+      "defaultValue": "false"
+    },
+    {
+      "type": "switch",
+      "key": "enable_accelerometer",
+      "label": "Accelerometer",
+      "description": "Expose raw accelerometer X/Y/Z sensors",
+      "defaultValue": "false"
+    },
+    {
+      "type": "switch",
+      "key": "enable_sound_level",
+      "label": "Sound Level",
+      "description": "Expose ambient sound level sensor (mic released during Portal calls)",
+      "defaultValue": "false"
+    },
+    {
+      "type": "switch",
+      "key": "enable_doorbell_alert",
+      "label": "Doorbell and Alert",
+      "description": "Expose doorbell and alert tone buttons in Home Assistant",
+      "defaultValue": "false"
+    },
+    {
+      "type": "switch",
+      "key": "enable_screen_timeout",
+      "label": "Screen Timeout",
+      "description": "Expose idle screen-off timer linked to presence detection",
+      "defaultValue": "false"
+    },
+    {
+      "type": "number",
+      "key": "tap_tilt_sensitivity",
+      "label": "Tap Tilt Sensitivity",
+      "description": "Tap/tilt detection threshold",
+      "defaultValue": "4",
+      "min": 2,
+      "max": 15,
+      "step": 0.5
+    },
+    {
+      "type": "number",
+      "key": "temperature_offset",
+      "label": "Temperature Offset",
+      "description": "Offset applied to ambient temperature readings",
+      "defaultValue": "0",
+      "min": -20,
+      "max": 20,
+      "step": 0.5
+    },
+    {
+      "type": "number",
+      "key": "screen_timeout_minutes",
+      "label": "Screen Timeout Minutes",
+      "description": "Minutes of idle time before the screen sleeps",
+      "defaultValue": "5",
+      "min": 1,
+      "max": 240,
+      "step": 1
+    }
+  ]
+}
