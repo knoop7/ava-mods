@@ -1,9 +1,9 @@
 {
   "id": "portal-support",
-  "name": "Meta Portal Support",
-  "version": "1.1.0",
+  "name": "Facebook Portal",
+  "version": "1.1.1",
   "author": "Ava",
-  "description": "Meta Portal ambient sensors, presence detection, sound level, screen timeout, and alert tones for Home Assistant",
+  "description": "Facebook Portal ambient sensors, presence detection, sound level, screen timeout, and alert tones for Home Assistant",
   "icon": "mdi:tablet-dashboard",
   "libs": [
     "libs/portal-support.jar"

@@ -1,10 +1,10 @@
-# Meta Portal Support
+# Facebook Portal
 
-Expose Meta Portal hardware sensors and controls to Home Assistant through Ava. Sensor logic is adapted from [portal-ha-bridge](https://github.com/RoadRunner-1024/portal-ha-bridge) without MQTT.
+Expose Facebook Portal hardware sensors and controls to Home Assistant through Ava. Sensor logic is adapted from [portal-ha-bridge](https://github.com/RoadRunner-1024/portal-ha-bridge) without MQTT.
 
 ## Supported devices
 
-Meta Portal family on Android 9–10: Portal (10"), Portal Mini, Portal+ (1st and 2nd gen).
+Facebook Portal family on Android 9–10: Portal (10"), Portal Mini, Portal+ (1st and 2nd gen).
 
 ## Entities
 
@@ -63,7 +63,7 @@ Release artifacts are copied to `mods/devices/portal-support/`.
 
 ## Usage
 
-1. Install the mod in Ava on a Meta Portal device.
+1. Install the mod in Ava on a Facebook Portal device.
 2. Run `provision.sh` with your Ava package name.
 3. Open mod settings and enable the features you need.
 4. For presence or screen timeout, also turn on the corresponding switch in Home Assistant.
