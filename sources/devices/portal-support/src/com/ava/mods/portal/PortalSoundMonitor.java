@@ -41,9 +41,12 @@ class PortalSoundMonitor {
             return;
         }
         if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-            running.set(false);
-            Log.w(TAG, "RECORD_AUDIO not granted — sound level disabled");
-            return;
+            Log.w(TAG, "RECORD_AUDIO not granted — requesting and retrying");
+            new PortalPermissionHelper(context).ensurePermission(Manifest.permission.RECORD_AUDIO);
+            if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                running.set(false);
+                return;
+            }
         }
         int minBuf = AudioRecord.getMinBufferSize(
                 SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT);

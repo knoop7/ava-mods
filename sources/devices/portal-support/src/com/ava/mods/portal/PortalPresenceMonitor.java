@@ -16,6 +16,7 @@ class PortalPresenceMonitor {
     }
 
     private final Listener listener;
+    private final android.content.Context context;
     private volatile boolean running;
     private volatile long lastBeatMs;
     private volatile boolean present;
@@ -24,7 +25,8 @@ class PortalPresenceMonitor {
     private final HandlerThread checkThread = new HandlerThread("portal-presence");
     private Handler checkHandler;
 
-    PortalPresenceMonitor(Listener listener) {
+    PortalPresenceMonitor(android.content.Context context, Listener listener) {
+        this.context = context.getApplicationContext();
         this.listener = listener;
     }
 
@@ -85,7 +87,17 @@ class PortalPresenceMonitor {
             java.io.BufferedReader reader = new java.io.BufferedReader(
                     new java.io.InputStreamReader(process.getInputStream())
             );
-            String line;
+            String line = reader.readLine();
+            if (line == null && process.waitFor() != 0) {
+                Log.w(TAG, "logcat exited immediately — requesting READ_LOGS via Shizuku/root");
+                if (context != null) {
+                    new PortalPermissionHelper(context).ensurePermission("android.permission.READ_LOGS");
+                }
+                process = builder.start();
+                reader = new java.io.BufferedReader(
+                        new java.io.InputStreamReader(process.getInputStream())
+                );
+            }
             while (running && (line = reader.readLine()) != null) {
                 if (!line.toLowerCase().contains("presence")) {
                     continue;

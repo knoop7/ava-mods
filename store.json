@@ -55,11 +55,11 @@
     {
       "id": "portal-support",
       "name": "Facebook Portal",
-      "version": "1.1.1",
+      "version": "1.1.2",
       "author": "Ava",
       "description": "Facebook Portal ambient sensors, presence detection, sound level, screen timeout, and alert tones",
       "path": "mods/devices/portal-support/",
-      "jar_hash": "18fa1044ff012f555fa470a6746f154c"
+      "jar_hash": "e1c7a95910d79a3f650929c3bb644be9"
     },
     {
       "id": "tuya-s8e-support",

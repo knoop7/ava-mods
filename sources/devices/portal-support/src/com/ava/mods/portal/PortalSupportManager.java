@@ -325,7 +325,7 @@ public class PortalSupportManager implements PortalSensorBridge.Listener, Portal
                 permissionHelper.ensurePermission("android.permission.READ_LOGS");
             }
             if (presenceMonitor == null) {
-                presenceMonitor = new PortalPresenceMonitor(this);
+                presenceMonitor = new PortalPresenceMonitor(context, this);
             }
             presenceMonitor.start();
             return;

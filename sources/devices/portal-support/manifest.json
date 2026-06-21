@@ -9,7 +9,7 @@
     "libs/portal-support.jar"
   ],
   "manager": "com.ava.mods.portal.PortalSupportManager",
-  "jar_hash": "cad98d548c14fdaf25b67d7ea6579578",
+  "jar_hash": "e1c7a95910d79a3f650929c3bb644be9",
   "permissions": [
     "android.permission.READ_LOGS",
     "android.permission.CAMERA",
