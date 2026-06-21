@@ -5,7 +5,6 @@ import android.content.pm.PackageManager;
 import android.os.PowerManager;
 import android.util.Log;
 
-import java.io.DataOutputStream;
 import java.lang.reflect.Method;
 
 class PortalScreenControl {
@@ -29,11 +28,13 @@ class PortalScreenControl {
             Log.i(TAG, "sleep: AccessibilityBridge lock");
             return true;
         }
-        if (tryShellSleep()) {
-            Log.i(TAG, "sleep: shell keyevent");
+        PortalPermissionHelper helper = new PortalPermissionHelper(context);
+        int code = helper.executeShell("input keyevent 26");
+        if (code == 0) {
+            Log.i(TAG, "sleep: shell keyevent (exit=" + code + ")");
             return true;
         }
-        Log.w(TAG, "sleep: no method available — grant WRITE_SECURE_SETTINGS and enable accessibility, or use root");
+        Log.w(TAG, "sleep: no method available — enable accessibility or grant Shizuku/root");
         return false;
     }
 
@@ -72,19 +73,6 @@ class PortalScreenControl {
             return bridgeClass.getField("INSTANCE").get(null);
         } catch (Exception e) {
             return bridgeClass.getDeclaredConstructor().newInstance();
-        }
-    }
-
-    private static boolean tryShellSleep() {
-        try {
-            Process process = Runtime.getRuntime().exec("su");
-            try (DataOutputStream os = new DataOutputStream(process.getOutputStream())) {
-                os.writeBytes("input keyevent 26\n");
-                os.writeBytes("exit\n");
-            }
-            return process.waitFor() == 0;
-        } catch (Exception e) {
-            return false;
         }
     }
 }

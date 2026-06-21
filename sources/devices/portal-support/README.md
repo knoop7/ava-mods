@@ -28,7 +28,7 @@ All features are disabled by default. Enable each one in the mod settings before
 
 ## Permissions
 
-These cannot be granted from the Portal UI. Use ADB or root:
+The mod auto-requests permissions at runtime through Shizuku first, then root, then falls back to a manual provision. You no longer need to run `provision.sh` if Shizuku or root is available on the device.
 
 | Permission / app-op | Used for |
 |---------------------|----------|
@@ -39,7 +39,7 @@ These cannot be granted from the Portal UI. Use ADB or root:
 | `WRITE_SETTINGS` (app-op) | Brightness control |
 | `SYSTEM_ALERT_WINDOW` (app-op) | Background overlay access |
 
-Provision with Ava connected over USB:
+Manual provision (only needed when Shizuku/root are unavailable):
 
 ```bash
 ./provision.sh com.example.ava

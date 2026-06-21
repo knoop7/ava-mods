@@ -6,7 +6,6 @@ import android.content.pm.PackageManager;
 import android.os.Build;
 import android.util.Log;
 
-import java.io.DataOutputStream;
 import java.lang.reflect.Method;
 import java.util.List;
 import java.util.Map;
@@ -41,10 +40,12 @@ public class PortalSupportManager implements PortalSensorBridge.Listener, Portal
     private PortalSensorBridge sensorBridge;
     private PortalSoundMonitor soundMonitor;
     private PortalScreenTimeoutController screenTimeoutController;
+    private PortalPermissionHelper permissionHelper;
     private volatile boolean portalPresent;
 
     private PortalSupportManager(Context context) {
         this.context = context.getApplicationContext();
+        this.permissionHelper = new PortalPermissionHelper(this.context);
     }
 
     public static PortalSupportManager getInstance(Context context) {
@@ -245,23 +246,9 @@ public class PortalSupportManager implements PortalSensorBridge.Listener, Portal
     }
 
     public boolean grantPortalPermissionsIfNeeded(Context context) {
-        String pkg = context.getPackageName();
-        try {
-            Process process = Runtime.getRuntime().exec("su");
-            try (DataOutputStream os = new DataOutputStream(process.getOutputStream())) {
-                os.writeBytes("pm grant " + pkg + " android.permission.WRITE_SECURE_SETTINGS\n");
-                os.writeBytes("pm grant " + pkg + " android.permission.RECORD_AUDIO\n");
-                os.writeBytes("pm grant " + pkg + " android.permission.CAMERA\n");
-                os.writeBytes("pm grant " + pkg + " android.permission.READ_LOGS\n");
-                os.writeBytes("appops set " + pkg + " WRITE_SETTINGS allow\n");
-                os.writeBytes("appops set " + pkg + " SYSTEM_ALERT_WINDOW allow\n");
-                os.writeBytes("exit\n");
-            }
-            return process.waitFor() == 0;
-        } catch (Exception e) {
-            Log.w(TAG, "Failed to grant Portal permissions via su", e);
-            return false;
-        }
+        boolean granted = permissionHelper.grantAll();
+        permissionHelper.ensureAppOps();
+        return granted;
     }
 
     public boolean grantOverlayPermissionIfNeeded() {
@@ -334,10 +321,8 @@ public class PortalSupportManager implements PortalSensorBridge.Listener, Portal
     private void updatePresenceSubsystem() {
         if (enablePresence && presenceDetectionEnabled) {
             if (!hasReadLogs()) {
-                portalPresent = false;
-                notifyStateListeners("portal_presence", Boolean.FALSE);
-                Log.w(TAG, "presence enabled but READ_LOGS not granted — run provision.sh");
-                return;
+                Log.w(TAG, "presence enabled but READ_LOGS missing — requesting via Shizuku/root");
+                permissionHelper.ensurePermission("android.permission.READ_LOGS");
             }
             if (presenceMonitor == null) {
                 presenceMonitor = new PortalPresenceMonitor(this);
@@ -356,8 +341,8 @@ public class PortalSupportManager implements PortalSensorBridge.Listener, Portal
     private void updateSoundSubsystem() {
         if (enableSoundLevel) {
             if (!hasRecordAudio()) {
-                Log.w(TAG, "sound level enabled but RECORD_AUDIO not granted — run provision.sh");
-                return;
+                Log.w(TAG, "sound level enabled but RECORD_AUDIO missing — requesting via Shizuku/root");
+                permissionHelper.ensurePermission(Manifest.permission.RECORD_AUDIO);
             }
             if (soundMonitor == null) {
                 soundMonitor = new PortalSoundMonitor(context, this);
