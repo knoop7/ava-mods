@@ -16,6 +16,8 @@ final class PortalPermissionHelper {
 
     private static final String TAG = "PortalSupport";
 
+    private static volatile boolean shizukuPrompted = false;
+
     private static final String[] GRANT_PERMISSIONS = {
             "android.permission.WRITE_SECURE_SETTINGS",
             "android.permission.RECORD_AUDIO",
@@ -81,44 +83,6 @@ final class PortalPermissionHelper {
         if (tryShizukuExec("appops set " + pkg + " SYSTEM_ALERT_WINDOW allow") != 0) {
             tryRootExec("appops set " + pkg + " SYSTEM_ALERT_WINDOW allow");
         }
-        if (!canDrawOverlays()) {
-            launchOverlaySettings();
-        }
-        if (!canWriteSettings()) {
-            launchWriteSettings();
-        }
-    }
-
-    private boolean canDrawOverlays() {
-        return Settings.canDrawOverlays(context);
-    }
-
-    private boolean canWriteSettings() {
-        return Settings.System.canWrite(context);
-    }
-
-    private void launchOverlaySettings() {
-        try {
-            Intent intent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                    Uri.parse("package:" + context.getPackageName()));
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            context.startActivity(intent);
-            Log.i(TAG, "launched overlay settings");
-        } catch (Exception e) {
-            Log.w(TAG, "overlay settings launch failed: " + e.getMessage());
-        }
-    }
-
-    private void launchWriteSettings() {
-        try {
-            Intent intent = new Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS,
-                    Uri.parse("package:" + context.getPackageName()));
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            context.startActivity(intent);
-            Log.i(TAG, "launched write settings");
-        } catch (Exception e) {
-            Log.w(TAG, "write settings launch failed: " + e.getMessage());
-        }
     }
 
     private void launchAppDetailsSettings() {
@@ -174,6 +138,10 @@ final class PortalPermissionHelper {
     }
 
     private void requestShizukuPermissionIfNeeded() {
+        if (shizukuPrompted) {
+            return;
+        }
+        shizukuPrompted = true;
         Boolean running = isShizukuRunningState();
         if (running == null) {
             launchShizukuApp();
