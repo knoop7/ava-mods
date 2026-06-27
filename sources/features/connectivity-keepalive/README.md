@@ -57,6 +57,17 @@ chmod +x build.sh
 
 Release artifacts are copied to `mods/features/connectivity-keepalive/`.
 
+Every `./build.sh` run must keep these **4 places** in sync:
+
+| # | Path |
+|---|------|
+| 1 | `sources/features/connectivity-keepalive/manifest.json` |
+| 2 | `sources/features/connectivity-keepalive/libs/*.jar` |
+| 3 | `mods/features/connectivity-keepalive/manifest.json` + `libs/*.jar` |
+| 4 | `store.json` entry (`version` + `jar_hash`) |
+
+`build.sh` updates all four automatically.
+
 ## Usage
 
 1. Install and enable the mod in Ava.

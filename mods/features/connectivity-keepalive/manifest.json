@@ -9,7 +9,7 @@
     "libs/connectivity-keepalive.jar"
   ],
   "manager": "com.ava.mods.connectivity.ConnectivityKeepAliveManager",
-  "jar_hash": "5960db524b14d3b79608ab7e3adab472",
+  "jar_hash": "cb0138a98d4d8c320997c1ee64dc9875",
   "permissions": [
     "android.permission.ACCESS_WIFI_STATE",
     "android.permission.CHANGE_WIFI_STATE",

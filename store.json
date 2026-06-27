@@ -26,7 +26,7 @@
       "author": "Ava",
       "description": "Keep WiFi and ADB debugging alive across crashes and reboots. Root preferred, Shizuku fallback.",
       "path": "mods/features/connectivity-keepalive/",
-      "jar_hash": "5960db524b14d3b79608ab7e3adab472"
+      "jar_hash": "cb0138a98d4d8c320997c1ee64dc9875"
     },
     {
       "id": "flashlight-mod",

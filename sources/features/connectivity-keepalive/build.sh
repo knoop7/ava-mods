@@ -84,8 +84,12 @@ else
   \"jar_hash\": \"$JAR_HASH\",/" manifest.json
 fi
 
+MOD_VERSION=$(python3 -c "import json; print(json.load(open('manifest.json'))['version'])")
+
 if grep -q "\"id\": \"$MOD_ID\"" "$STORE_JSON"; then
+    perl -i -0pe "s/(\"id\": \"$MOD_ID\".*?\"version\": \")[^\"]*(\")/\${1}$MOD_VERSION\${2}/s" "$STORE_JSON"
     perl -i -0pe "s/(\"id\": \"$MOD_ID\".*?\"jar_hash\": \")[^\"]*(\")/\${1}$JAR_HASH\${2}/s" "$STORE_JSON"
 fi
 
 echo "Release package copied to $MODS_DIR"
+echo "Synced 4 places: sources+mods manifest (v$MOD_VERSION, hash $JAR_HASH) and store.json"
