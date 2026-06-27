@@ -2,13 +2,16 @@ package com.ava.mods.connectivity;
 
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.database.ContentObserver;
+import android.net.Uri;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.Settings;
 import android.util.Log;
 
 /**
- * Keeps USB/wireless ADB debugging enabled and preserves authorization state.
- * Turning the guard off only stops monitoring; it never revokes ADB or clears keys.
+ * Observes global ADB settings and polls as backup.
+ * Re-enables USB/wireless ADB immediately when turned off.
  */
 final class AdbKeepAliveGuard {
 
@@ -17,7 +20,7 @@ final class AdbKeepAliveGuard {
     private static final String KEY_WIRELESS = "wireless_adb_enabled";
     private static final String KEY_WIRELESS_PORT = "wireless_adb_port";
     private static final String ADB_KEYS_PATH = "/data/misc/adb/adb_keys";
-    private static final long CHECK_INTERVAL_MS = 30_000L;
+    private static final long POLL_INTERVAL_MS = 10_000L;
 
     private final Context context;
     private final PrivilegedShell shell;
@@ -25,14 +28,17 @@ final class AdbKeepAliveGuard {
     private final Handler handler = new Handler(Looper.getMainLooper());
 
     private volatile boolean running;
-    private final Runnable tickRunnable = new Runnable() {
+    private volatile boolean lastKnownAdbEnabled;
+    private ContentObserver settingsObserver;
+
+    private final Runnable pollRunnable = new Runnable() {
         @Override
         public void run() {
             if (!running) {
                 return;
             }
-            tick();
-            handler.postDelayed(this, CHECK_INTERVAL_MS);
+            tick("poll");
+            handler.postDelayed(this, POLL_INTERVAL_MS);
         }
     };
 
@@ -47,14 +53,18 @@ final class AdbKeepAliveGuard {
             return;
         }
         running = true;
+        lastKnownAdbEnabled = isAdbEnabled();
+        registerSettingsObserver();
         snapshotAdbState();
-        handler.post(tickRunnable);
-        Log.i(TAG, "ADB keep-alive started");
+        handler.post(pollRunnable);
+        handler.post(() -> tick("start"));
+        Log.i(TAG, "ADB keep-alive started (observe + poll)");
     }
 
     void stop() {
         running = false;
-        handler.removeCallbacks(tickRunnable);
+        unregisterSettingsObserver();
+        handler.removeCallbacks(pollRunnable);
         Log.i(TAG, "ADB keep-alive stopped (ADB left unchanged)");
     }
 
@@ -62,12 +72,66 @@ final class AdbKeepAliveGuard {
         return running;
     }
 
-    private void tick() {
+    private void registerSettingsObserver() {
+        if (settingsObserver != null) {
+            return;
+        }
+        settingsObserver = new ContentObserver(handler) {
+            @Override
+            public void onChange(boolean selfChange) {
+                onChange(selfChange, null);
+            }
+
+            @Override
+            public void onChange(boolean selfChange, Uri uri) {
+                if (!running) {
+                    return;
+                }
+                boolean enabled = isAdbEnabled();
+                if (!enabled && lastKnownAdbEnabled) {
+                    Log.w(TAG, "ADB turned off — reacting immediately");
+                    tick("settings_observer");
+                } else if (enabled) {
+                    snapshotAdbState();
+                }
+                lastKnownAdbEnabled = enabled;
+            }
+        };
+
+        try {
+            context.getContentResolver().registerContentObserver(
+                    Settings.Global.getUriFor(Settings.Global.ADB_ENABLED),
+                    false,
+                    settingsObserver);
+            context.getContentResolver().registerContentObserver(
+                    Settings.Global.getUriFor("adb_wifi_enabled"),
+                    false,
+                    settingsObserver);
+        } catch (Exception e) {
+            Log.w(TAG, "settings observer registration failed: " + e.getMessage());
+        }
+    }
+
+    private void unregisterSettingsObserver() {
+        if (settingsObserver != null) {
+            try {
+                context.getContentResolver().unregisterContentObserver(settingsObserver);
+            } catch (Exception ignored) {
+            }
+            settingsObserver = null;
+        }
+    }
+
+    private void tick(String reason) {
+        if (!running) {
+            return;
+        }
         snapshotAdbState();
 
         if (!isAdbEnabled()) {
-            Log.w(TAG, "ADB debugging is off — re-enabling");
+            Log.w(TAG, "ADB off (" + reason + ") — re-enabling");
             enableAdb();
+            lastKnownAdbEnabled = true;
         }
 
         if (prefs.getBoolean(KEY_WIRELESS, false)) {
@@ -89,6 +153,7 @@ final class AdbKeepAliveGuard {
                 }
             }
             editor.apply();
+            lastKnownAdbEnabled = true;
         }
     }
 
@@ -114,7 +179,6 @@ final class AdbKeepAliveGuard {
         }
         String exists = shell.captureOutput("test -f " + ADB_KEYS_PATH + " && echo present");
         if (exists == null || !exists.contains("present")) {
-            Log.w(TAG, "ADB keys file missing — authorization may require re-approval on next host connect");
             return;
         }
         shell.execute("chmod 640 " + ADB_KEYS_PATH);

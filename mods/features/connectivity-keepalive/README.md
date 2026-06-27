@@ -2,46 +2,41 @@
 
 Prevent accidental loss of WiFi connectivity and ADB authorization on headless or kiosk-style Ava devices. All features are **off by default**.
 
-## Four switches
+## Two switches (mod settings only)
 
-| Switch | Location | Default | Purpose |
-|--------|----------|---------|---------|
-| WiFi Keep-Alive | Mod settings | Off | Expose the WiFi guard in Home Assistant |
-| ADB Keep-Alive | Mod settings | Off | Expose the ADB guard in Home Assistant |
-| WiFi Keep-Alive | Home Assistant | Off | Keep WiFi on and reconnect to the last known network |
-| ADB Keep-Alive | Home Assistant | Off | Keep USB/wireless ADB on and preserve authorization keys |
+| Switch | Default | Purpose |
+|--------|---------|---------|
+| WiFi Keep-Alive | Off | Keep WiFi on and reconnect to the last known network |
+| ADB Keep-Alive | Off | Keep USB/wireless ADB on and preserve host authorization |
 
-Both layers must be enabled for a guard to run:
-
-1. Turn on the feature in **Ava mod settings** (config switch).
-2. Turn on the matching **Home Assistant** switch.
+No Home Assistant entities — control everything from **Ava mod settings**.
 
 ## Behaviour
 
 ### WiFi
 
-- Records the last connected SSID and network ID while connected.
-- Every 30 seconds, if WiFi was turned off, re-enables it.
-- If WiFi is on but disconnected (crash, reboot, flaky driver), attempts reconnect to the saved network.
-- Uses `WifiManager` when possible; falls back to `svc wifi`, `settings put`, and `cmd wifi` via privileged shell.
+- **Listens** for `WIFI_STATE_CHANGED` and network disconnect — reacts immediately when WiFi is turned off
+- **Polls** every 10 seconds as backup
+- Records the last connected SSID and network ID, then reconnects automatically
+- Restores guard state on mod load without waiting for service restart
 
 ### ADB
 
-- Keeps `adb_enabled` and developer settings on.
-- Remembers whether wireless ADB was active and restores it.
-- With root or Shizuku, verifies `/data/misc/adb/adb_keys` permissions so host authorization survives restarts.
+- **Observes** `adb_enabled` / `adb_wifi_enabled` — reacts immediately when ADB is turned off
+- **Polls** every 10 seconds as backup
+- Preserves authorization keys via root/Shizuku
 
 ### Safety
 
-This mod **never** turns WiFi or ADB off. Disabling a guard only stops monitoring.
+This mod **never** turns WiFi or ADB off. Disabling a switch only stops monitoring.
 
 ## Privileged access
 
-Shizuku authorization is requested **once per Ava process** when a guard starts. After that the mod silently uses public APIs if permission was not granted — it will not keep popping dialogs every 30 seconds.
+Shizuku authorization is requested **once per Ava process** when a guard starts.
 
 ## Permissions
 
-This mod declares **no runtime permissions**. WiFi and ADB maintenance use Ava's existing network access plus root or Shizuku shell — avoid listing `ACCESS_WIFI_STATE` / `CHANGE_WIFI_STATE` in the mod manifest, because Ava's host APK does not declare them and the mod store would loop on a permanent-denial settings toast.
+Declares **no runtime permissions** — uses root or Shizuku shell for WiFi/ADB maintenance.
 
 ## Build
 
@@ -53,7 +48,7 @@ chmod +x build.sh
 
 Release artifacts are copied to `mods/features/connectivity-keepalive/`.
 
-Every `./build.sh` run must keep these **4 places** in sync:
+Every `./build.sh` run keeps these **4 places** in sync:
 
 | # | Path |
 |---|------|
@@ -62,11 +57,8 @@ Every `./build.sh` run must keep these **4 places** in sync:
 | 3 | `mods/features/connectivity-keepalive/manifest.json` + `libs/*.jar` |
 | 4 | `store.json` entry (`version` + `jar_hash`) |
 
-`build.sh` updates all four automatically.
-
 ## Usage
 
 1. Install and enable the mod in Ava.
-2. Open mod settings; enable **WiFi Keep-Alive** and/or **ADB Keep-Alive** as needed.
-3. In Home Assistant, turn on the corresponding switches.
-4. Connect WiFi and authorize ADB once while the guards are active so the mod can snapshot state.
+2. Open mod settings; turn on **WiFi Keep-Alive** and/or **ADB Keep-Alive**.
+3. Connect WiFi and authorize ADB once so the mod can snapshot state.
