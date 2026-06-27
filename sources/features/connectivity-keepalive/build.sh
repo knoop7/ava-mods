@@ -10,6 +10,7 @@ BUILD_DIR="build"
 OUTPUT_JAR="libs/connectivity-keepalive.jar"
 MOD_ID="connectivity-keepalive"
 MODS_DIR="$REPO_ROOT/mods/features/$MOD_ID"
+STORE_JSON="$REPO_ROOT/store.json"
 
 cd "$SCRIPT_DIR"
 
@@ -78,6 +79,13 @@ fi
 
 if grep -q '"jar_hash"' manifest.json; then
     sed -i '' "s/\"jar_hash\": \"[^\"]*\"/\"jar_hash\": \"$JAR_HASH\"/" manifest.json
+else
+    sed -i '' "s/\"manager\": \"com.ava.mods.connectivity.ConnectivityKeepAliveManager\",/\"manager\": \"com.ava.mods.connectivity.ConnectivityKeepAliveManager\",\\
+  \"jar_hash\": \"$JAR_HASH\",/" manifest.json
+fi
+
+if grep -q "\"id\": \"$MOD_ID\"" "$STORE_JSON"; then
+    perl -i -0pe "s/(\"id\": \"$MOD_ID\".*?\"jar_hash\": \")[^\"]*(\")/\${1}$JAR_HASH\${2}/s" "$STORE_JSON"
 fi
 
 echo "Release package copied to $MODS_DIR"
