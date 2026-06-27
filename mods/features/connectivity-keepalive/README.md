@@ -9,7 +9,7 @@ Prevent accidental loss of WiFi connectivity and ADB authorization on headless o
 | WiFi Keep-Alive | Off | Keep WiFi on and reconnect to the last known network |
 | ADB Keep-Alive | Off | Keep USB/wireless ADB on and preserve host authorization |
 
-No Home Assistant entities — control everything from **Ava mod settings**.
+No Home Assistant entities — control everything from **Ava mod settings**. The manager bootstraps via Ava's `ModDeviceSupport` path and reads `mod_configs/connectivity-keepalive.json` directly (Ava only calls `applyConfig` when HA entities exist).
 
 ## Behaviour
 

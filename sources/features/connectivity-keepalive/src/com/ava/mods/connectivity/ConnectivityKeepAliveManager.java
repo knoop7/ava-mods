@@ -4,15 +4,22 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.util.Log;
 
+import org.json.JSONObject;
+
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileReader;
+
 /**
  * WiFi + ADB keep-alive mod manager.
  *
- * Two mod-setting switches only (no Home Assistant entities).
- * Guards start immediately when enabled and restore on manager init.
+ * No Home Assistant entities — Ava only calls applyConfig when entities exist,
+ * so we bootstrap via ModDeviceSupport hooks and read mod_configs/*.json directly.
  */
 public class ConnectivityKeepAliveManager {
 
     private static final String TAG = "ConnKeepAlive";
+    private static final String MOD_ID = "connectivity-keepalive";
     private static final String PREFS = "connectivity_keepalive_manager";
     private static final String KEY_ENABLE_WIFI = "enable_wifi_keepalive";
     private static final String KEY_ENABLE_ADB = "enable_adb_keepalive";
@@ -35,18 +42,50 @@ public class ConnectivityKeepAliveManager {
         this.wifiGuard = new WifiKeepAliveGuard(this.context, shell);
         this.adbGuard = new AdbKeepAliveGuard(this.context, shell);
         migrateLegacyState();
-        restorePersistedState();
+        bootstrapFromAvaConfig();
+        Log.i(TAG, "manager ready wifi=" + enableWifiKeepalive + " adb=" + enableAdbKeepalive);
     }
 
     public static ConnectivityKeepAliveManager getInstance(Context context) {
-        if (instance == null) {
+        ConnectivityKeepAliveManager current = instance;
+        if (current == null) {
             synchronized (ConnectivityKeepAliveManager.class) {
-                if (instance == null) {
-                    instance = new ConnectivityKeepAliveManager(context);
+                current = instance;
+                if (current == null) {
+                    current = new ConnectivityKeepAliveManager(context);
+                    instance = current;
                 }
             }
+        } else {
+            current.bootstrapFromAvaConfig();
         }
-        return instance;
+        return current;
+    }
+
+    /** ModDeviceSupport hook — keeps manager alive without HA entities. */
+    public boolean isSupported() {
+        return true;
+    }
+
+    public boolean isSupported(Context context) {
+        return true;
+    }
+
+    /** Called during VoiceSatelliteService startup; re-sync config after restarts. */
+    public boolean grantOverlayPermissionIfNeeded() {
+        bootstrapFromAvaConfig();
+        return false;
+    }
+
+    public boolean grantOverlayPermissionIfNeeded(Context context) {
+        return grantOverlayPermissionIfNeeded();
+    }
+
+    public void onDestroy() {
+        Log.i(TAG, "onDestroy");
+        wifiGuard.stop();
+        adbGuard.stop();
+        instance = null;
     }
 
     public void applyConfig(String key, String value) {
@@ -66,6 +105,53 @@ public class ConnectivityKeepAliveManager {
                 break;
             default:
                 break;
+        }
+    }
+
+    private void bootstrapFromAvaConfig() {
+        if (syncFromAvaConfigStore()) {
+            return;
+        }
+        restorePersistedState();
+    }
+
+    private boolean syncFromAvaConfigStore() {
+        File configFile = new File(context.getFilesDir(), "mod_configs/" + MOD_ID + ".json");
+        if (!configFile.exists()) {
+            return false;
+        }
+
+        try {
+            String json = readAll(configFile);
+            if (json.trim().isEmpty()) {
+                return false;
+            }
+
+            JSONObject root = new JSONObject(json);
+            boolean wifi = root.has(KEY_ENABLE_WIFI)
+                    ? parseBoolean(root.getString(KEY_ENABLE_WIFI))
+                    : prefs.getBoolean(KEY_ENABLE_WIFI, false);
+            boolean adb = root.has(KEY_ENABLE_ADB)
+                    ? parseBoolean(root.getString(KEY_ENABLE_ADB))
+                    : prefs.getBoolean(KEY_ENABLE_ADB, false);
+
+            boolean changed = wifi != enableWifiKeepalive || adb != enableAdbKeepalive;
+            enableWifiKeepalive = wifi;
+            enableAdbKeepalive = adb;
+            prefs.edit()
+                    .putBoolean(KEY_ENABLE_WIFI, wifi)
+                    .putBoolean(KEY_ENABLE_ADB, adb)
+                    .apply();
+
+            if (changed) {
+                Log.i(TAG, "synced Ava mod config wifi=" + wifi + " adb=" + adb);
+            }
+            updateWifiSubsystem();
+            updateAdbSubsystem();
+            return true;
+        } catch (Exception e) {
+            Log.w(TAG, "failed to read Ava mod config: " + e.getMessage());
+            return false;
         }
     }
 
@@ -102,7 +188,7 @@ public class ConnectivityKeepAliveManager {
     private void restorePersistedState() {
         enableWifiKeepalive = prefs.getBoolean(KEY_ENABLE_WIFI, false);
         enableAdbKeepalive = prefs.getBoolean(KEY_ENABLE_ADB, false);
-        Log.i(TAG, "restored state wifi=" + enableWifiKeepalive + " adb=" + enableAdbKeepalive);
+        Log.i(TAG, "restored prefs wifi=" + enableWifiKeepalive + " adb=" + enableAdbKeepalive);
         updateWifiSubsystem();
         updateAdbSubsystem();
     }
@@ -127,6 +213,20 @@ public class ConnectivityKeepAliveManager {
         } else if (!enableAdbKeepalive && adbGuard.isRunning()) {
             adbGuard.stop();
         }
+    }
+
+    private static String readAll(File file) throws Exception {
+        StringBuilder sb = new StringBuilder();
+        BufferedReader reader = new BufferedReader(new FileReader(file));
+        try {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                sb.append(line);
+            }
+        } finally {
+            reader.close();
+        }
+        return sb.toString();
     }
 
     private boolean parseBoolean(String value) {
