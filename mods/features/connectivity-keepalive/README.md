@@ -6,19 +6,18 @@ Prevent accidental loss of WiFi connectivity and ADB authorization on headless o
 
 | Switch | Default | Purpose |
 |--------|---------|---------|
-| WiFi Keep-Alive | Off | Keep WiFi on and reconnect to the last known network |
+| WiFi Keep-Alive | Off | Keep the WiFi radio on when something turns it off |
 | ADB Keep-Alive | Off | Keep USB/wireless ADB on and preserve host authorization |
 
-No Home Assistant entities — control everything from **Ava mod settings**. The manager bootstraps via Ava's `ModDeviceSupport` path and reads `mod_configs/connectivity-keepalive.json` directly (Ava only calls `applyConfig` when HA entities exist).
+No Home Assistant entities — control everything from **Ava mod settings**.
 
 ## Behaviour
 
 ### WiFi
 
-- **Listens** for `WIFI_STATE_CHANGED` and network disconnect — reacts immediately when WiFi is turned off
+- **Listens** for `WIFI_STATE_CHANGED` — turns the radio back on if the WiFi switch is turned off
 - **Polls** every 10 seconds as backup
-- Records the last connected SSID and network ID, then reconnects automatically
-- Restores guard state on mod load without waiting for service restart
+- **Does not** force reconnect or call `cmd wifi connect-network` — Android reconnects to saved networks on its own
 
 ### ADB
 
@@ -61,4 +60,4 @@ Every `./build.sh` run keeps these **4 places** in sync:
 
 1. Install and enable the mod in Ava.
 2. Open mod settings; turn on **WiFi Keep-Alive** and/or **ADB Keep-Alive**.
-3. Connect WiFi and authorize ADB once so the mod can snapshot state.
+3. Connect WiFi and authorize ADB once while the guards are active.
