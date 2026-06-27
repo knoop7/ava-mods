@@ -201,6 +201,72 @@ final class PrivilegedShell {
         return tryShizukuCapture(command);
     }
 
+    /** Read connected SSID without ACCESS_WIFI_STATE — uses shell when needed. */
+    String readConnectedWifiSsid() {
+        String status = captureOutput("cmd wifi status");
+        String ssid = parseSsidFromWifiStatus(status);
+        if (ssid != null) {
+            return ssid;
+        }
+        String dumpsys = captureOutput("dumpsys wifi");
+        return parseSsidFromDumpsys(dumpsys);
+    }
+
+    private String parseSsidFromWifiStatus(String output) {
+        if (output == null || output.isEmpty()) {
+            return null;
+        }
+        for (String line : output.split("\n")) {
+            String trimmed = line.trim();
+            int quoteStart = trimmed.indexOf('"');
+            if (quoteStart >= 0) {
+                int quoteEnd = trimmed.indexOf('"', quoteStart + 1);
+                if (quoteEnd > quoteStart) {
+                    String candidate = trimmed.substring(quoteStart + 1, quoteEnd);
+                    if (!candidate.isEmpty() && !"<unknown ssid>".equalsIgnoreCase(candidate)) {
+                        return candidate;
+                    }
+                }
+            }
+            int ssidIdx = trimmed.toLowerCase().indexOf("ssid:");
+            if (ssidIdx >= 0) {
+                String value = trimmed.substring(ssidIdx + 5).trim();
+                if (value.startsWith("\"") && value.endsWith("\"") && value.length() >= 2) {
+                    value = value.substring(1, value.length() - 1);
+                }
+                if (!value.isEmpty() && !"<unknown ssid>".equalsIgnoreCase(value)) {
+                    return value;
+                }
+            }
+        }
+        return null;
+    }
+
+    private String parseSsidFromDumpsys(String output) {
+        if (output == null || output.isEmpty()) {
+            return null;
+        }
+        for (String line : output.split("\n")) {
+            String trimmed = line.trim();
+            if (!trimmed.toLowerCase().contains("ssid")) {
+                continue;
+            }
+            int quoteStart = trimmed.indexOf('"');
+            if (quoteStart >= 0) {
+                int quoteEnd = trimmed.indexOf('"', quoteStart + 1);
+                if (quoteEnd > quoteStart) {
+                    String candidate = trimmed.substring(quoteStart + 1, quoteEnd);
+                    if (!candidate.isEmpty()
+                            && !"<unknown ssid>".equalsIgnoreCase(candidate)
+                            && !"null".equalsIgnoreCase(candidate)) {
+                        return candidate;
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
     private int tryRootExec(String command) {
         if (!isRootAvailable()) {
             return -1;

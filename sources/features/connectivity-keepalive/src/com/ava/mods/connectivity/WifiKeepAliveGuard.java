@@ -18,11 +18,11 @@ import android.util.Log;
 
 /**
  * Listens for WiFi off/disconnect events and polls as backup.
- * Re-enables WiFi and reconnects to the last known network immediately.
+ * Never calls WifiManager without a fallback — Ava host lacks ACCESS_WIFI_STATE.
  */
 final class WifiKeepAliveGuard {
 
-    private static final String TAG = "WifiKeepAlive";
+    private static final String TAG = "ConnKeepAlive";
     private static final String PREFS = "connectivity_keepalive_wifi";
     private static final String KEY_SSID = "last_ssid";
     private static final String KEY_NETWORK_ID = "last_network_id";
@@ -36,6 +36,7 @@ final class WifiKeepAliveGuard {
     private final Handler handler = new Handler(Looper.getMainLooper());
 
     private volatile boolean running;
+    private volatile boolean wifiManagerUsable = true;
     private BroadcastReceiver wifiReceiver;
     private ConnectivityManager.NetworkCallback networkCallback;
 
@@ -45,7 +46,7 @@ final class WifiKeepAliveGuard {
             if (!running) {
                 return;
             }
-            tick("poll");
+            safeTick("poll");
             handler.postDelayed(this, POLL_INTERVAL_MS);
         }
     };
@@ -64,9 +65,9 @@ final class WifiKeepAliveGuard {
         }
         running = true;
         registerListeners();
-        rememberCurrentNetwork();
+        safeRememberCurrentNetwork();
         handler.post(pollRunnable);
-        handler.post(() -> tick("start"));
+        handler.post(() -> safeTick("start"));
         Log.i(TAG, "WiFi keep-alive started (listen + poll)");
     }
 
@@ -89,23 +90,27 @@ final class WifiKeepAliveGuard {
                     if (!running || intent == null) {
                         return;
                     }
-                    String action = intent.getAction();
-                    if (WifiManager.WIFI_STATE_CHANGED_ACTION.equals(action)) {
-                        int state = intent.getIntExtra(WifiManager.EXTRA_WIFI_STATE, WifiManager.WIFI_STATE_UNKNOWN);
-                        if (state == WifiManager.WIFI_STATE_DISABLED || state == WifiManager.WIFI_STATE_DISABLING) {
-                            Log.w(TAG, "WiFi switch turned off — reacting immediately");
-                            handler.post(() -> tick("wifi_off"));
-                        } else if (state == WifiManager.WIFI_STATE_ENABLED) {
-                            handler.postDelayed(() -> tick("wifi_on"), 2_000L);
-                        }
-                    } else if (WifiManager.NETWORK_STATE_CHANGED_ACTION.equals(action)) {
-                        handler.post(() -> {
-                            if (running && isWifiEnabled() && !isWifiConnected()) {
-                                tick("network_lost");
-                            } else {
-                                rememberCurrentNetwork();
+                    try {
+                        String action = intent.getAction();
+                        if (WifiManager.WIFI_STATE_CHANGED_ACTION.equals(action)) {
+                            int state = intent.getIntExtra(WifiManager.EXTRA_WIFI_STATE, WifiManager.WIFI_STATE_UNKNOWN);
+                            if (state == WifiManager.WIFI_STATE_DISABLED || state == WifiManager.WIFI_STATE_DISABLING) {
+                                Log.w(TAG, "WiFi switch turned off — reacting immediately");
+                                handler.post(() -> safeTick("wifi_off"));
+                            } else if (state == WifiManager.WIFI_STATE_ENABLED) {
+                                handler.postDelayed(() -> safeTick("wifi_on"), 2_000L);
                             }
-                        });
+                        } else if (WifiManager.NETWORK_STATE_CHANGED_ACTION.equals(action)) {
+                            handler.post(() -> {
+                                if (running && isWifiEnabled() && !isWifiConnected()) {
+                                    safeTick("network_lost");
+                                } else {
+                                    safeRememberCurrentNetwork();
+                                }
+                            });
+                        }
+                    } catch (Exception e) {
+                        Log.w(TAG, "wifi broadcast handler failed: " + e.getMessage());
                     }
                 }
             };
@@ -114,10 +119,14 @@ final class WifiKeepAliveGuard {
         IntentFilter filter = new IntentFilter();
         filter.addAction(WifiManager.WIFI_STATE_CHANGED_ACTION);
         filter.addAction(WifiManager.NETWORK_STATE_CHANGED_ACTION);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            context.registerReceiver(wifiReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
-        } else {
-            context.registerReceiver(wifiReceiver, filter);
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                context.registerReceiver(wifiReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
+            } else {
+                context.registerReceiver(wifiReceiver, filter);
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "wifi broadcast registration failed: " + e.getMessage());
         }
 
         if (networkCallback == null) {
@@ -125,14 +134,14 @@ final class WifiKeepAliveGuard {
                 @Override
                 public void onLost(Network network) {
                     if (running) {
-                        handler.post(() -> tick("network_callback_lost"));
+                        handler.post(() -> safeTick("network_callback_lost"));
                     }
                 }
 
                 @Override
                 public void onCapabilitiesChanged(Network network, NetworkCapabilities caps) {
                     if (running && caps != null && caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
-                        handler.post(() -> rememberCurrentNetwork());
+                        handler.post(() -> safeRememberCurrentNetwork());
                     }
                 }
             };
@@ -167,11 +176,19 @@ final class WifiKeepAliveGuard {
         }
     }
 
+    private void safeTick(String reason) {
+        try {
+            tick(reason);
+        } catch (Exception e) {
+            Log.w(TAG, "tick failed (" + reason + "): " + e.getMessage());
+        }
+    }
+
     private void tick(String reason) {
         if (!running) {
             return;
         }
-        rememberCurrentNetwork();
+        safeRememberCurrentNetwork();
 
         if (!isWifiEnabled()) {
             Log.w(TAG, "WiFi off (" + reason + ") — re-enabling");
@@ -186,29 +203,63 @@ final class WifiKeepAliveGuard {
         }
     }
 
+    private void safeRememberCurrentNetwork() {
+        try {
+            rememberCurrentNetwork();
+        } catch (Exception e) {
+            Log.w(TAG, "rememberCurrentNetwork failed: " + e.getMessage());
+        }
+    }
+
     private void rememberCurrentNetwork() {
         if (!isWifiConnected()) {
             return;
         }
-        WifiInfo info = wifiManager.getConnectionInfo();
-        if (info == null) {
-            return;
+
+        WifiInfo info = safeGetConnectionInfo();
+        if (info != null) {
+            String ssid = normalizeSsid(info.getSSID());
+            if (ssid != null && !ssid.isEmpty() && !"<unknown ssid>".equalsIgnoreCase(ssid)) {
+                prefs.edit()
+                        .putString(KEY_SSID, ssid)
+                        .putInt(KEY_NETWORK_ID, info.getNetworkId())
+                        .apply();
+                return;
+            }
         }
-        String ssid = normalizeSsid(info.getSSID());
-        if (ssid == null || ssid.isEmpty() || "<unknown ssid>".equalsIgnoreCase(ssid)) {
-            return;
+
+        String shellSsid = shell.readConnectedWifiSsid();
+        if (shellSsid != null && !shellSsid.isEmpty()) {
+            prefs.edit().putString(KEY_SSID, shellSsid).apply();
         }
-        prefs.edit()
-                .putString(KEY_SSID, ssid)
-                .putInt(KEY_NETWORK_ID, info.getNetworkId())
-                .apply();
+    }
+
+    private WifiInfo safeGetConnectionInfo() {
+        if (!wifiManagerUsable || wifiManager == null) {
+            return null;
+        }
+        try {
+            return wifiManager.getConnectionInfo();
+        } catch (SecurityException e) {
+            wifiManagerUsable = false;
+            Log.w(TAG, "WifiManager denied (no ACCESS_WIFI_STATE) — using shell/connectivity fallbacks");
+            return null;
+        } catch (Exception e) {
+            Log.w(TAG, "getConnectionInfo failed: " + e.getMessage());
+            return null;
+        }
     }
 
     private void enableWifi() {
-        try {
-            wifiManager.setWifiEnabled(true);
-        } catch (Exception e) {
-            Log.w(TAG, "WifiManager.setWifiEnabled failed: " + e.getMessage());
+        if (wifiManagerUsable && wifiManager != null) {
+            try {
+                wifiManager.setWifiEnabled(true);
+            } catch (SecurityException e) {
+                wifiManagerUsable = false;
+                Log.w(TAG, "setWifiEnabled denied: " + e.getMessage());
+            } catch (Exception e) {
+                Log.w(TAG, "WifiManager.setWifiEnabled failed: " + e.getMessage());
+            }
         }
         shell.execute("svc wifi enable");
         shell.setGlobalSetting("wifi_on", "1");
@@ -218,13 +269,16 @@ final class WifiKeepAliveGuard {
         String savedSsid = prefs.getString(KEY_SSID, null);
         int savedNetworkId = prefs.getInt(KEY_NETWORK_ID, -1);
 
-        if (savedNetworkId >= 0) {
+        if (wifiManagerUsable && wifiManager != null && savedNetworkId >= 0) {
             try {
                 if (wifiManager.enableNetwork(savedNetworkId, true)) {
                     wifiManager.reconnect();
                     Log.i(TAG, "reconnect via networkId=" + savedNetworkId + " (" + reason + ")");
                     return;
                 }
+            } catch (SecurityException e) {
+                wifiManagerUsable = false;
+                Log.w(TAG, "enableNetwork denied: " + e.getMessage());
             } catch (Exception e) {
                 Log.w(TAG, "enableNetwork failed: " + e.getMessage());
             }
@@ -236,22 +290,37 @@ final class WifiKeepAliveGuard {
             if (shell.hasPrivilegedAccess()) {
                 shell.execute("cmd wifi connect-network \"" + escapeShell(savedSsid) + "\" open");
             }
-            try {
-                wifiManager.reconnect();
-            } catch (Exception e) {
-                Log.w(TAG, "wifiManager.reconnect failed: " + e.getMessage());
+            if (wifiManagerUsable && wifiManager != null) {
+                try {
+                    wifiManager.reconnect();
+                } catch (SecurityException e) {
+                    wifiManagerUsable = false;
+                    Log.w(TAG, "reconnect denied: " + e.getMessage());
+                } catch (Exception e) {
+                    Log.w(TAG, "wifiManager.reconnect failed: " + e.getMessage());
+                }
             }
             Log.i(TAG, "reconnect requested for ssid=" + savedSsid + " (" + reason + ")");
         }
     }
 
     private boolean isWifiEnabled() {
-        try {
-            return wifiManager.isWifiEnabled();
-        } catch (Exception e) {
-            String value = shell.readSetting("wifi_on");
-            return "1".equals(value);
+        if (wifiManagerUsable && wifiManager != null) {
+            try {
+                return wifiManager.isWifiEnabled();
+            } catch (SecurityException e) {
+                wifiManagerUsable = false;
+                Log.w(TAG, "isWifiEnabled denied: " + e.getMessage());
+            } catch (Exception e) {
+                Log.w(TAG, "isWifiEnabled failed: " + e.getMessage());
+            }
         }
+        String value = shell.readSetting("wifi_on");
+        if ("1".equals(value)) {
+            return true;
+        }
+        String status = shell.captureOutput("cmd wifi status");
+        return status != null && status.toLowerCase().contains("wifi is enabled");
     }
 
     private boolean isWifiConnected() {
@@ -263,12 +332,8 @@ final class WifiKeepAliveGuard {
             NetworkCapabilities caps = connectivityManager.getNetworkCapabilities(network);
             return caps != null && caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI);
         } catch (Exception e) {
-            WifiInfo info = wifiManager.getConnectionInfo();
-            if (info == null) {
-                return false;
-            }
-            String ssid = normalizeSsid(info.getSSID());
-            return ssid != null && !ssid.isEmpty() && !"<unknown ssid>".equalsIgnoreCase(ssid);
+            Log.w(TAG, "connectivity check failed: " + e.getMessage());
+            return false;
         }
     }
 
