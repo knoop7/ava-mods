@@ -27,6 +27,7 @@ final class WifiKeepAliveGuard {
     private static final String KEY_SSID = "last_ssid";
     private static final String KEY_NETWORK_ID = "last_network_id";
     private static final long POLL_INTERVAL_MS = 10_000L;
+    private static final long RECONNECT_COOLDOWN_MS = 30_000L;
 
     private final Context context;
     private final WifiManager wifiManager;
@@ -37,6 +38,7 @@ final class WifiKeepAliveGuard {
 
     private volatile boolean running;
     private volatile boolean wifiManagerUsable = true;
+    private long lastReconnectAttemptMs;
     private BroadcastReceiver wifiReceiver;
     private ConnectivityManager.NetworkCallback networkCallback;
 
@@ -193,14 +195,38 @@ final class WifiKeepAliveGuard {
         if (!isWifiEnabled()) {
             Log.w(TAG, "WiFi off (" + reason + ") — re-enabling");
             enableWifi();
-            handler.postDelayed(() -> attemptReconnect("after_enable"), 2_000L);
+            scheduleReconnectAfterEnable();
             return;
         }
 
         if (!isWifiConnected()) {
+            if (!shouldAttemptReconnect(reason)) {
+                return;
+            }
             Log.w(TAG, "WiFi disconnected (" + reason + ") — reconnecting");
             attemptReconnect(reason);
         }
+    }
+
+    private void scheduleReconnectAfterEnable() {
+        handler.postDelayed(() -> attemptReconnect("after_enable_3s"), 3_000L);
+        handler.postDelayed(() -> attemptReconnect("after_enable_8s"), 8_000L);
+        handler.postDelayed(() -> attemptReconnect("after_enable_15s"), 15_000L);
+    }
+
+    private boolean shouldAttemptReconnect(String reason) {
+        if (isWifiConnected()) {
+            return false;
+        }
+        boolean urgent = reason.contains("wifi_off")
+                || reason.contains("after_enable")
+                || reason.contains("start")
+                || reason.contains("network_lost")
+                || reason.contains("network_callback");
+        if (urgent) {
+            return true;
+        }
+        return System.currentTimeMillis() - lastReconnectAttemptMs >= RECONNECT_COOLDOWN_MS;
     }
 
     private void safeRememberCurrentNetwork() {
@@ -220,17 +246,28 @@ final class WifiKeepAliveGuard {
         if (info != null) {
             String ssid = normalizeSsid(info.getSSID());
             if (ssid != null && !ssid.isEmpty() && !"<unknown ssid>".equalsIgnoreCase(ssid)) {
-                prefs.edit()
+                int networkId = shell.findNetworkIdBySsid(ssid);
+                SharedPreferences.Editor editor = prefs.edit()
                         .putString(KEY_SSID, ssid)
-                        .putInt(KEY_NETWORK_ID, info.getNetworkId())
-                        .apply();
+                        .putInt(KEY_NETWORK_ID, info.getNetworkId());
+                if (networkId >= 0) {
+                    editor.putInt(KEY_NETWORK_ID, networkId);
+                }
+                editor.apply();
+                Log.d(TAG, "remembered ssid=" + ssid + " networkId=" + prefs.getInt(KEY_NETWORK_ID, -1));
                 return;
             }
         }
 
         String shellSsid = shell.readConnectedWifiSsid();
         if (shellSsid != null && !shellSsid.isEmpty()) {
-            prefs.edit().putString(KEY_SSID, shellSsid).apply();
+            int networkId = shell.findNetworkIdBySsid(shellSsid);
+            SharedPreferences.Editor editor = prefs.edit().putString(KEY_SSID, shellSsid);
+            if (networkId >= 0) {
+                editor.putInt(KEY_NETWORK_ID, networkId);
+            }
+            editor.apply();
+            Log.d(TAG, "remembered ssid=" + shellSsid + " networkId=" + networkId);
         }
     }
 
@@ -266,14 +303,25 @@ final class WifiKeepAliveGuard {
     }
 
     private void attemptReconnect(String reason) {
+        if (isWifiConnected()) {
+            return;
+        }
+
         String savedSsid = prefs.getString(KEY_SSID, null);
         int savedNetworkId = prefs.getInt(KEY_NETWORK_ID, -1);
+
+        if (savedSsid == null || savedSsid.isEmpty()) {
+            Log.w(TAG, "no saved SSID to reconnect (" + reason + ")");
+            return;
+        }
+
+        lastReconnectAttemptMs = System.currentTimeMillis();
 
         if (wifiManagerUsable && wifiManager != null && savedNetworkId >= 0) {
             try {
                 if (wifiManager.enableNetwork(savedNetworkId, true)) {
                     wifiManager.reconnect();
-                    Log.i(TAG, "reconnect via networkId=" + savedNetworkId + " (" + reason + ")");
+                    Log.i(TAG, "reconnect via WifiManager networkId=" + savedNetworkId + " (" + reason + ")");
                     return;
                 }
             } catch (SecurityException e) {
@@ -284,23 +332,16 @@ final class WifiKeepAliveGuard {
             }
         }
 
-        if (savedSsid != null && !savedSsid.isEmpty()) {
-            shell.execute("cmd wifi reconnect");
-            shell.execute("cmd -w wifi reconnect");
-            if (shell.hasPrivilegedAccess()) {
-                shell.execute("cmd wifi connect-network \"" + escapeShell(savedSsid) + "\" open");
-            }
-            if (wifiManagerUsable && wifiManager != null) {
-                try {
-                    wifiManager.reconnect();
-                } catch (SecurityException e) {
-                    wifiManagerUsable = false;
-                    Log.w(TAG, "reconnect denied: " + e.getMessage());
-                } catch (Exception e) {
-                    Log.w(TAG, "wifiManager.reconnect failed: " + e.getMessage());
-                }
-            }
-            Log.i(TAG, "reconnect requested for ssid=" + savedSsid + " (" + reason + ")");
+        boolean connected = shell.reconnectToSavedNetwork(savedSsid, savedNetworkId);
+        if (connected) {
+            Log.i(TAG, "shell reconnect initiated for ssid=" + savedSsid + " (" + reason + ")");
+        } else {
+            Log.w(TAG, "shell reconnect attempted for ssid=" + savedSsid + " (" + reason + ")");
+        }
+
+        int resolvedId = shell.findNetworkIdBySsid(savedSsid);
+        if (resolvedId >= 0 && resolvedId != savedNetworkId) {
+            prefs.edit().putInt(KEY_NETWORK_ID, resolvedId).apply();
         }
     }
 
@@ -346,9 +387,5 @@ final class WifiKeepAliveGuard {
             ssid = ssid.substring(1, ssid.length() - 1);
         }
         return ssid;
-    }
-
-    private String escapeShell(String value) {
-        return value.replace("\"", "\\\"");
     }
 }
