@@ -41,11 +41,7 @@ Shizuku authorization is requested **once per Ava process** when a guard starts.
 
 ## Permissions
 
-| Permission | Used for |
-|------------|----------|
-| `ACCESS_WIFI_STATE` | Read WiFi state |
-| `CHANGE_WIFI_STATE` | Re-enable WiFi via API |
-| `ACCESS_NETWORK_STATE` | Detect active WiFi connection |
+This mod declares **no runtime permissions**. WiFi and ADB maintenance use Ava's existing network access plus root or Shizuku shell — avoid listing `ACCESS_WIFI_STATE` / `CHANGE_WIFI_STATE` in the mod manifest, because Ava's host APK does not declare them and the mod store would loop on a permanent-denial settings toast.
 
 ## Build
 

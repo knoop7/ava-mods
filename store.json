@@ -22,11 +22,11 @@
     {
       "id": "connectivity-keepalive",
       "name": "WiFi & ADB Keep-Alive",
-      "version": "1.0.3",
+      "version": "1.0.4",
       "author": "Ava",
       "description": "Keep WiFi and ADB debugging alive across crashes and reboots. Root preferred, Shizuku fallback.",
       "path": "mods/features/connectivity-keepalive/",
-      "jar_hash": "cb0138a98d4d8c320997c1ee64dc9875"
+      "jar_hash": "6442e3c9b0207f545a190e04d9e549f4"
     },
     {
       "id": "flashlight-mod",
