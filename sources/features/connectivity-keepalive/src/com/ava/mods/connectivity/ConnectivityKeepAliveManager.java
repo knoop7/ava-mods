@@ -85,7 +85,8 @@ public class ConnectivityKeepAliveManager {
         boolean shouldRun = enableWifiKeepalive && wifiKeepaliveActive;
         if (shouldRun && !wifiGuard.isRunning()) {
             if (!shell.hasPrivilegedAccess()) {
-                Log.w(TAG, "WiFi keep-alive needs root or Shizuku for full protection");
+                Log.w(TAG, "WiFi keep-alive needs root or Shizuku — requesting Shizuku authorization");
+                shell.ensurePrivilegedAccess();
             }
             wifiGuard.start();
         } else if (!shouldRun && wifiGuard.isRunning()) {
@@ -97,7 +98,8 @@ public class ConnectivityKeepAliveManager {
         boolean shouldRun = enableAdbKeepalive && adbKeepaliveActive;
         if (shouldRun && !adbGuard.isRunning()) {
             if (!shell.hasPrivilegedAccess()) {
-                Log.w(TAG, "ADB keep-alive needs root or Shizuku for full protection");
+                Log.w(TAG, "ADB keep-alive needs root or Shizuku — requesting Shizuku authorization");
+                shell.ensurePrivilegedAccess();
             }
             adbGuard.start();
         } else if (!shouldRun && adbGuard.isRunning()) {

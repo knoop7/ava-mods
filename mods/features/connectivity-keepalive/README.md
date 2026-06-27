@@ -37,9 +37,13 @@ This mod **never** turns WiFi or ADB off. Disabling a guard only stops monitorin
 
 ## Privileged access
 
-Shell commands prefer **root**, then **Shizuku**. Without either, WiFi reconnect uses public APIs only and ADB key maintenance is skipped.
+Shell commands prefer **root**, then **Shizuku**. When Shizuku is needed, the mod:
 
-Install Shizuku and grant Ava permission, or use a rooted device, for full protection.
+1. Brings **Ava MainActivity** to the foreground (penetrates kiosk overlays)
+2. Calls `ShizukuUtils.requestPermission(1003)` on the **main thread**
+3. Falls back to launching the Shizuku app if the service is not running
+
+Without granting Shizuku, WiFi reconnect and ADB maintenance use limited public APIs only.
 
 ## Permissions
 
