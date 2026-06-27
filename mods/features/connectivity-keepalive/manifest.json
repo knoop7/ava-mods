@@ -1,0 +1,56 @@
+{
+  "id": "connectivity-keepalive",
+  "name": "WiFi & ADB Keep-Alive",
+  "version": "1.0.0",
+  "author": "Ava",
+  "description": "Keep WiFi and ADB debugging alive across crashes and reboots. Root preferred, Shizuku fallback. Never disables WiFi or ADB.",
+  "icon": "mdi:lan-connect",
+  "libs": [
+    "libs/connectivity-keepalive.jar"
+  ],
+  "manager": "com.ava.mods.connectivity.ConnectivityKeepAliveManager",
+  "jar_hash": "94c526af836a2bc0b09e7e6963238f2f",
+  "permissions": [
+    "android.permission.ACCESS_WIFI_STATE",
+    "android.permission.CHANGE_WIFI_STATE",
+    "android.permission.ACCESS_NETWORK_STATE"
+  ],
+  "entities": [
+    {
+      "type": "switch",
+      "id": "wifi_keepalive",
+      "name": "WiFi Keep-Alive",
+      "icon": "mdi:wifi-sync",
+      "on": "setWifiKeepalive:true",
+      "off": "setWifiKeepalive:false",
+      "read": "isWifiKeepaliveEnabled",
+      "enabledWhen": "enable_wifi_keepalive"
+    },
+    {
+      "type": "switch",
+      "id": "adb_keepalive",
+      "name": "ADB Keep-Alive",
+      "icon": "mdi:usb-port",
+      "on": "setAdbKeepalive:true",
+      "off": "setAdbKeepalive:false",
+      "read": "isAdbKeepaliveEnabled",
+      "enabledWhen": "enable_adb_keepalive"
+    }
+  ],
+  "config": [
+    {
+      "type": "switch",
+      "key": "enable_wifi_keepalive",
+      "label": "WiFi Keep-Alive",
+      "description": "Expose WiFi keep-alive switch in Home Assistant",
+      "defaultValue": "false"
+    },
+    {
+      "type": "switch",
+      "key": "enable_adb_keepalive",
+      "label": "ADB Keep-Alive",
+      "description": "Expose ADB keep-alive switch in Home Assistant",
+      "defaultValue": "false"
+    }
+  ]
+}
