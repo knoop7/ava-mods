@@ -12,9 +12,7 @@ import java.lang.reflect.Method;
 
 /**
  * Executes shell commands with root first, then Shizuku.
- * Shizuku authorization brings Ava MainActivity to the foreground, then calls
- * ShizukuUtils.requestPermission(requestCode) on the main thread (required for
- * the system dialog to appear above kiosk overlays).
+ * Shizuku authorization is requested at most once per process lifetime.
  */
 final class PrivilegedShell {
 
@@ -22,12 +20,17 @@ final class PrivilegedShell {
     private static final String SHIZUKU_PACKAGE = "moe.shizuku.privileged.api";
     private static final String HOST_MAIN_ACTIVITY = "com.example.ava.MainActivity";
     private static final int SHIZUKU_PERMISSION_REQUEST_CODE = 1003;
-    private static final long SHIZUKU_PROMPT_COOLDOWN_MS = 5 * 60 * 1000L;
     private static final long SHIZUKU_DIALOG_DELAY_MS = 500L;
+
+    private static final int ROOT_UNKNOWN = 0;
+    private static final int ROOT_AVAILABLE = 1;
+    private static final int ROOT_UNAVAILABLE = 2;
+
+    private static volatile boolean shizukuPrompted;
+    private static volatile int rootState = ROOT_UNKNOWN;
 
     private final Context context;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
-    private volatile long lastShizukuPromptAt;
 
     PrivilegedShell(Context context) {
         this.context = context.getApplicationContext();
@@ -40,9 +43,6 @@ final class PrivilegedShell {
         int code = tryRootExec(command);
         if (code >= 0) {
             return code;
-        }
-        if (!isShizukuGranted()) {
-            requestShizukuAccessIfNeeded();
         }
         return tryShizukuExec(command);
     }
@@ -64,18 +64,32 @@ final class PrivilegedShell {
     }
 
     boolean isRootAvailable() {
+        if (rootState == ROOT_AVAILABLE) {
+            return true;
+        }
+        if (rootState == ROOT_UNAVAILABLE) {
+            return false;
+        }
         try {
             Class<?> rootUtils = loadHostClass("com.example.ava.utils.RootUtils");
             Object instance = getKotlinObjectInstance(rootUtils);
             if (instance != null) {
+                Boolean binaryPresent = (Boolean) rootUtils.getMethod("isRootBinaryPresent").invoke(instance);
+                if (binaryPresent != null && !binaryPresent) {
+                    rootState = ROOT_UNAVAILABLE;
+                    return false;
+                }
                 Boolean available = (Boolean) rootUtils.getMethod("isRootAvailable").invoke(instance);
-                if (available != null && available) {
-                    return true;
+                if (available != null) {
+                    rootState = available ? ROOT_AVAILABLE : ROOT_UNAVAILABLE;
+                    return available;
                 }
             }
         } catch (Exception ignored) {
         }
-        return probeRoot();
+        boolean probed = probeRootOnce();
+        rootState = probed ? ROOT_AVAILABLE : ROOT_UNAVAILABLE;
+        return probed;
     }
 
     boolean isShizukuGranted() {
@@ -93,28 +107,20 @@ final class PrivilegedShell {
     }
 
     void ensurePrivilegedAccess() {
-        if (isRootAvailable()) {
-            return;
-        }
-        requestShizukuAccessIfNeeded(true);
-    }
-
-    void requestShizukuAccessIfNeeded() {
-        requestShizukuAccessIfNeeded(false);
-    }
-
-    private void requestShizukuAccessIfNeeded(boolean force) {
         if (isRootAvailable() || isShizukuGranted()) {
             return;
         }
-        long now = System.currentTimeMillis();
-        if (!force && now - lastShizukuPromptAt < SHIZUKU_PROMPT_COOLDOWN_MS) {
+        requestShizukuAccessOnce();
+    }
+
+    private void requestShizukuAccessOnce() {
+        if (shizukuPrompted) {
             return;
         }
-        lastShizukuPromptAt = now;
+        shizukuPrompted = true;
 
         if (!isShizukuRunning()) {
-            Log.i(TAG, "Shizuku not running — launching Shizuku app");
+            Log.i(TAG, "Shizuku not running — launching Shizuku app once");
             launchShizukuApp();
             scheduleShizukuPermissionRequest();
             return;
@@ -124,6 +130,9 @@ final class PrivilegedShell {
     }
 
     private void scheduleShizukuPermissionRequest() {
+        if (isShizukuGranted()) {
+            return;
+        }
         bringHostActivityToFront();
         mainHandler.postDelayed(new Runnable() {
             @Override
@@ -138,7 +147,7 @@ final class PrivilegedShell {
             return;
         }
         if (!isShizukuRunning()) {
-            Log.i(TAG, "Shizuku still not running after prompt");
+            Log.i(TAG, "Shizuku still not running after one-time prompt");
             return;
         }
         try {
@@ -151,10 +160,9 @@ final class PrivilegedShell {
             ensureShizukuInitialized(shizukuUtils, instance);
             Method requestMethod = shizukuUtils.getMethod("requestPermission", int.class);
             requestMethod.invoke(instance, SHIZUKU_PERMISSION_REQUEST_CODE);
-            Log.i(TAG, "ShizukuUtils.requestPermission(" + SHIZUKU_PERMISSION_REQUEST_CODE + ") on main thread");
+            Log.i(TAG, "one-time ShizukuUtils.requestPermission(" + SHIZUKU_PERMISSION_REQUEST_CODE + ")");
         } catch (Exception e) {
             Log.w(TAG, "ShizukuUtils.requestPermission failed: " + e.getMessage());
-            launchShizukuApp();
         }
     }
 
@@ -179,7 +187,7 @@ final class PrivilegedShell {
                     | Intent.FLAG_ACTIVITY_SINGLE_TOP
                     | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
             context.startActivity(intent);
-            Log.i(TAG, "brought MainActivity to front for Shizuku authorization");
+            Log.i(TAG, "brought MainActivity to front for one-time Shizuku authorization");
         } catch (Exception e) {
             Log.w(TAG, "failed to bring MainActivity to front: " + e.getMessage());
         }
@@ -189,9 +197,6 @@ final class PrivilegedShell {
         String rootOutput = tryRootCapture(command);
         if (rootOutput != null) {
             return rootOutput;
-        }
-        if (!isShizukuGranted()) {
-            requestShizukuAccessIfNeeded();
         }
         return tryShizukuCapture(command);
     }
@@ -320,7 +325,7 @@ final class PrivilegedShell {
         }
     }
 
-    private boolean probeRoot() {
+    private boolean probeRootOnce() {
         Process process = null;
         try {
             process = Runtime.getRuntime().exec(new String[]{"su", "-c", "id"});

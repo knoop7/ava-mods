@@ -37,13 +37,7 @@ This mod **never** turns WiFi or ADB off. Disabling a guard only stops monitorin
 
 ## Privileged access
 
-Shell commands prefer **root**, then **Shizuku**. When Shizuku is needed, the mod:
-
-1. Brings **Ava MainActivity** to the foreground (penetrates kiosk overlays)
-2. Calls `ShizukuUtils.requestPermission(1003)` on the **main thread**
-3. Falls back to launching the Shizuku app if the service is not running
-
-Without granting Shizuku, WiFi reconnect and ADB maintenance use limited public APIs only.
+Shizuku authorization is requested **once per Ava process** when a guard starts. After that the mod silently uses public APIs if permission was not granted — it will not keep popping dialogs every 30 seconds.
 
 ## Permissions
 
