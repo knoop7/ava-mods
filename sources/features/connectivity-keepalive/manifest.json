@@ -1,7 +1,7 @@
 {
   "id": "connectivity-keepalive",
   "name": "WiFi & ADB Keep-Alive",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "author": "Ava",
   "description": "Keep WiFi radio and ADB debugging alive across crashes and reboots. Root preferred, Shizuku fallback. Never disables WiFi or ADB.",
   "icon": "mdi:lan-connect",
@@ -9,7 +9,7 @@
     "libs/connectivity-keepalive.jar"
   ],
   "manager": "com.ava.mods.connectivity.ConnectivityKeepAliveManager",
-  "jar_hash": "49d60dcc8a4da0a1ee3a37fe8653f767",
+  "jar_hash": "ae93c92f263812760a524d191b001530",
   "permissions": [],
   "entities": [],
   "config": [

@@ -4,15 +4,17 @@ import android.content.Context;
 import android.content.Intent;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.Settings;
 import android.util.Log;
 
 import java.io.BufferedReader;
+import java.io.DataOutputStream;
 import java.io.InputStreamReader;
 import java.lang.reflect.Method;
 
 /**
- * Executes shell commands with root first, then Shizuku.
- * Shizuku authorization is requested at most once per process lifetime.
+ * Reads settings via ContentResolver / SystemProperties (no root).
+ * Writes use ContentResolver when allowed; root/Shizuku only for privileged shell commands.
  */
 final class PrivilegedShell {
 
@@ -36,6 +38,57 @@ final class PrivilegedShell {
         this.context = context.getApplicationContext();
     }
 
+    /** Read global setting — no root. */
+    String readSetting(String key) {
+        if (key == null || key.isEmpty()) {
+            return null;
+        }
+        try {
+            String value = Settings.Global.getString(context.getContentResolver(), key);
+            if (value == null || value.isEmpty() || "null".equalsIgnoreCase(value)) {
+                return null;
+            }
+            return value;
+        } catch (Exception e) {
+            Log.w(TAG, "Settings.Global.getString(" + key + ") failed: " + e.getMessage());
+            return null;
+        }
+    }
+
+    /** Read system property — no root. */
+    String getSystemProperty(String key) {
+        if (key == null || key.isEmpty()) {
+            return null;
+        }
+        try {
+            Class<?> clazz = Class.forName("android.os.SystemProperties");
+            Method get = clazz.getMethod("get", String.class);
+            Object result = get.invoke(null, key);
+            if (!(result instanceof String)) {
+                return null;
+            }
+            String value = ((String) result).trim();
+            return value.isEmpty() ? null : value;
+        } catch (Exception e) {
+            Log.w(TAG, "SystemProperties.get(" + key + ") failed: " + e.getMessage());
+            return null;
+        }
+    }
+
+    boolean setGlobalSetting(String key, String value) {
+        if (key == null || value == null) {
+            return false;
+        }
+        try {
+            if (Settings.Global.putString(context.getContentResolver(), key, value)) {
+                return true;
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Settings.Global.putString(" + key + ") failed: " + e.getMessage());
+        }
+        return execute("settings put global " + key + " " + value) == 0;
+    }
+
     int execute(String command) {
         if (command == null || command.trim().isEmpty()) {
             return -1;
@@ -47,20 +100,22 @@ final class PrivilegedShell {
         return tryShizukuExec(command);
     }
 
-    String readSetting(String key) {
-        String output = captureOutput("settings get global " + key);
-        if (output == null) {
-            return null;
+    int executePrivilegedBatch(String[] commands) {
+        if (commands == null || commands.length == 0) {
+            return -1;
         }
-        String trimmed = output.trim();
-        if (trimmed.isEmpty() || "null".equalsIgnoreCase(trimmed)) {
-            return null;
+        if (isRootAvailable()) {
+            return tryRootExecBatch(commands);
         }
-        return trimmed;
-    }
-
-    boolean setGlobalSetting(String key, String value) {
-        return execute("settings put global " + key + " " + value) == 0;
+        if (isShizukuGranted()) {
+            for (String command : commands) {
+                if (tryShizukuExec(command) != 0) {
+                    return -1;
+                }
+            }
+            return 0;
+        }
+        return -1;
     }
 
     boolean isRootAvailable() {
@@ -193,14 +248,6 @@ final class PrivilegedShell {
         }
     }
 
-    String captureOutput(String command) {
-        String rootOutput = tryRootCapture(command);
-        if (rootOutput != null) {
-            return rootOutput;
-        }
-        return tryShizukuCapture(command);
-    }
-
     private int tryRootExec(String command) {
         if (!isRootAvailable()) {
             return -1;
@@ -214,25 +261,33 @@ final class PrivilegedShell {
         }
     }
 
-    private String tryRootCapture(String command) {
-        if (!isRootAvailable()) {
-            return null;
-        }
+    private int tryRootExecBatch(String[] commands) {
         Process process = null;
+        DataOutputStream os = null;
         try {
-            process = Runtime.getRuntime().exec(new String[]{"su", "-c", command});
-            String output = readProcessOutput(process);
-            if (process.waitFor() == 0) {
-                return output;
+            process = Runtime.getRuntime().exec("su");
+            os = new DataOutputStream(process.getOutputStream());
+            for (String command : commands) {
+                os.writeBytes(command);
+                os.writeBytes("\n");
             }
+            os.writeBytes("exit\n");
+            os.flush();
+            return process.waitFor();
         } catch (Exception e) {
-            Log.w(TAG, "root capture failed: " + e.getMessage());
+            Log.w(TAG, "root batch exec failed: " + e.getMessage());
+            return -1;
         } finally {
+            if (os != null) {
+                try {
+                    os.close();
+                } catch (Exception ignored) {
+                }
+            }
             if (process != null) {
                 process.destroy();
             }
         }
-        return null;
     }
 
     private int tryShizukuExec(String command) {
@@ -258,32 +313,6 @@ final class PrivilegedShell {
             Log.w(TAG, "shizuku exec failed: " + e.getMessage());
             return -1;
         }
-    }
-
-    private String tryShizukuCapture(String command) {
-        try {
-            Class<?> shizukuUtils = loadHostClass("com.example.ava.utils.ShizukuUtils");
-            Object instance = getKotlinObjectInstance(shizukuUtils);
-            if (instance == null) {
-                return null;
-            }
-            Boolean granted = (Boolean) shizukuUtils.getMethod("isShizukuPermissionGranted").invoke(instance);
-            if (granted == null || !granted) {
-                return null;
-            }
-            Object pair = shizukuUtils.getMethod("executeCommand", String.class).invoke(instance, command);
-            if (pair == null) {
-                return null;
-            }
-            Integer code = (Integer) pair.getClass().getMethod("getFirst").invoke(pair);
-            String output = (String) pair.getClass().getMethod("getSecond").invoke(pair);
-            if (code != null && code == 0) {
-                return output;
-            }
-        } catch (Exception e) {
-            Log.w(TAG, "shizuku capture failed: " + e.getMessage());
-        }
-        return null;
     }
 
     private void launchShizukuApp() {
@@ -344,20 +373,6 @@ final class PrivilegedShell {
                 process.destroy();
             }
         }
-    }
-
-    private String readProcessOutput(Process process) throws Exception {
-        BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
-        StringBuilder sb = new StringBuilder();
-        String line;
-        while ((line = reader.readLine()) != null) {
-            if (sb.length() > 0) {
-                sb.append('\n');
-            }
-            sb.append(line);
-        }
-        reader.close();
-        return sb.toString();
     }
 
     private Object getKotlinObjectInstance(Class<?> clazz) {

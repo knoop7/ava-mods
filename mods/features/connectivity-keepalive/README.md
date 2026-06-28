@@ -16,14 +16,14 @@ No Home Assistant entities — control everything from **Ava mod settings**.
 ### WiFi
 
 - **Listens** for `WIFI_STATE_CHANGED` — turns the radio back on if the WiFi switch is turned off
-- **Polls** every 10 seconds as backup
-- **Does not** force reconnect or call `cmd wifi connect-network` — Android reconnects to saved networks on its own
+- **Polls** every 60 seconds as backup (reads need no root)
+- **Does not** force reconnect — Android reconnects to saved networks on its own
 
 ### ADB
 
-- **Observes** `adb_enabled` / `adb_wifi_enabled` — reacts immediately when ADB is turned off
-- **Polls** every 10 seconds as backup
-- Preserves authorization keys via root/Shizuku
+- **Observes** `adb_enabled` / `adb_wifi_enabled` via ContentResolver — reacts when ADB is turned off
+- **Polls** every 60 seconds as backup; reads use ContentResolver / SystemProperties (no `su`)
+- Root/Shizuku only when re-enabling ADB or fixing `adb_keys` permissions
 
 ### Safety
 

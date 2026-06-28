@@ -9,18 +9,20 @@ import android.os.Looper;
 import android.provider.Settings;
 import android.util.Log;
 
+import java.io.File;
+
 /**
- * Observes global ADB settings and polls as backup.
- * Re-enables USB/wireless ADB immediately when turned off.
+ * Observes global ADB settings; poll is a 60s fallback only.
+ * Reads via ContentResolver — root/Shizuku only when re-enabling ADB.
  */
 final class AdbKeepAliveGuard {
 
-    private static final String TAG = "AdbKeepAlive";
+    private static final String TAG = "ConnKeepAlive";
     private static final String PREFS = "connectivity_keepalive_adb";
     private static final String KEY_WIRELESS = "wireless_adb_enabled";
     private static final String KEY_WIRELESS_PORT = "wireless_adb_port";
     private static final String ADB_KEYS_PATH = "/data/misc/adb/adb_keys";
-    private static final long POLL_INTERVAL_MS = 10_000L;
+    private static final long POLL_INTERVAL_MS = 60_000L;
 
     private final Context context;
     private final PrivilegedShell shell;
@@ -57,8 +59,10 @@ final class AdbKeepAliveGuard {
         registerSettingsObserver();
         snapshotAdbState();
         handler.post(pollRunnable);
-        handler.post(() -> tick("start"));
-        Log.i(TAG, "ADB keep-alive started (observe + poll)");
+        if (!lastKnownAdbEnabled) {
+            handler.post(() -> tick("start"));
+        }
+        Log.i(TAG, "ADB keep-alive started (observe + 60s poll, no su on read)");
     }
 
     void stop() {
@@ -126,42 +130,45 @@ final class AdbKeepAliveGuard {
         if (!running) {
             return;
         }
-        snapshotAdbState();
 
-        if (!isAdbEnabled()) {
-            Log.w(TAG, "ADB off (" + reason + ") — re-enabling");
-            enableAdb();
+        if (isAdbEnabled()) {
             lastKnownAdbEnabled = true;
+            return;
         }
 
+        Log.w(TAG, "ADB off (" + reason + ") — re-enabling");
+        enableAdb();
         if (prefs.getBoolean(KEY_WIRELESS, false)) {
             ensureWirelessAdb();
         }
-
         ensureAuthorizationKeys();
+        lastKnownAdbEnabled = true;
     }
 
     private void snapshotAdbState() {
-        if (isAdbEnabled()) {
-            String wireless = shell.readSetting("adb_wifi_enabled");
-            boolean wirelessOn = "1".equals(wireless);
-            SharedPreferences.Editor editor = prefs.edit().putBoolean(KEY_WIRELESS, wirelessOn);
-            if (wirelessOn) {
-                String port = shell.readSetting("adb_wifi_port");
-                if (port != null && !port.isEmpty()) {
-                    editor.putString(KEY_WIRELESS_PORT, port);
-                }
-            }
-            editor.apply();
-            lastKnownAdbEnabled = true;
+        if (!isAdbEnabled()) {
+            return;
         }
+        String wireless = shell.readSetting("adb_wifi_enabled");
+        boolean wirelessOn = "1".equals(wireless);
+        SharedPreferences.Editor editor = prefs.edit().putBoolean(KEY_WIRELESS, wirelessOn);
+        if (wirelessOn) {
+            String port = shell.readSetting("adb_wifi_port");
+            if (port != null && !port.isEmpty()) {
+                editor.putString(KEY_WIRELESS_PORT, port);
+            }
+        }
+        editor.apply();
+        lastKnownAdbEnabled = true;
     }
 
     private void enableAdb() {
-        shell.setGlobalSetting("adb_enabled", "1");
-        shell.setGlobalSetting("development_settings_enabled", "1");
-        shell.execute("setprop persist.sys.usb.config adb");
-        shell.execute("setprop sys.usb.config adb");
+        shell.setGlobalSetting(Settings.Global.ADB_ENABLED, "1");
+        shell.setGlobalSetting(Settings.Global.DEVELOPMENT_SETTINGS_ENABLED, "1");
+        shell.executePrivilegedBatch(new String[]{
+                "setprop persist.sys.usb.config adb",
+                "setprop sys.usb.config adb"
+        });
     }
 
     private void ensureWirelessAdb() {
@@ -177,21 +184,20 @@ final class AdbKeepAliveGuard {
         if (!shell.hasPrivilegedAccess()) {
             return;
         }
-        String exists = shell.captureOutput("test -f " + ADB_KEYS_PATH + " && echo present");
-        if (exists == null || !exists.contains("present")) {
+        if (!new File(ADB_KEYS_PATH).exists()) {
             return;
         }
-        shell.execute("chmod 640 " + ADB_KEYS_PATH);
-        shell.execute("chown system:shell " + ADB_KEYS_PATH);
-        shell.execute("restorecon " + ADB_KEYS_PATH);
+        shell.executePrivilegedBatch(new String[]{
+                "chmod 640 " + ADB_KEYS_PATH,
+                "chown system:shell " + ADB_KEYS_PATH,
+                "restorecon " + ADB_KEYS_PATH
+        });
     }
 
     private boolean isAdbEnabled() {
-        String value = shell.readSetting("adb_enabled");
-        if ("1".equals(value)) {
+        if ("1".equals(shell.readSetting(Settings.Global.ADB_ENABLED))) {
             return true;
         }
-        String prop = shell.captureOutput("getprop init.svc.adbd");
-        return prop != null && prop.trim().equals("running");
+        return "running".equals(shell.getSystemProperty("init.svc.adbd"));
     }
 }

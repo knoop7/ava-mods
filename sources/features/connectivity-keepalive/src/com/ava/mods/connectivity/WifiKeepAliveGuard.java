@@ -17,7 +17,7 @@ import android.util.Log;
 final class WifiKeepAliveGuard {
 
     private static final String TAG = "ConnKeepAlive";
-    private static final long POLL_INTERVAL_MS = 10_000L;
+    private static final long POLL_INTERVAL_MS = 60_000L;
 
     private final Context context;
     private final WifiManager wifiManager;
@@ -53,7 +53,7 @@ final class WifiKeepAliveGuard {
         registerWifiStateListener();
         safeEnsureWifiEnabled("start");
         handler.post(pollRunnable);
-        Log.i(TAG, "WiFi keep-alive started (radio only — system handles reconnect)");
+        Log.i(TAG, "WiFi keep-alive started (radio only, 60s poll fallback)");
     }
 
     void stop() {
