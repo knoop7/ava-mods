@@ -202,8 +202,12 @@ Supported optional methods:
 - `int getMinBrightness()` or `int getMinBrightness(Context context)`
 - `boolean isLowEndBleChip()` or `boolean isLowEndBleChip(Context context)`
 - `boolean grantOverlayPermissionIfNeeded()` or `boolean grantOverlayPermissionIfNeeded(Context context)`
+- `boolean sleepScreenForDark(Context context)` — screensaver dark-off; mod tries Shizuku/root on supported hardware only
+- `boolean wakeScreenFromDark(Context context)` — restore screen after dark-off
 
 These methods are optional. Mods that only expose entities do not need to implement them.
+
+When `sleepScreenForDark` / `wakeScreenFromDark` are absent or return `false`, Ava core uses its default screen control path.
 
 ## Publishing
 
@@ -219,3 +223,73 @@ Before publishing, test your mod locally:
 1. Copy `manifest.json` to device: `/data/data/com.example.ava/files/mods/your-mod/`
 2. Enable in Ava settings
 3. Check Home Assistant for entities
+
+## Voice pipeline API (opt-in, zero cost when unused)
+
+Use this when a mod (or a separate APK) must react to satellite lifecycle — e.g. LED ring on wake, thinking, TTS.
+
+**Ava does nothing** unless:
+
+1. An **enabled mod** sets `"voice_pipeline": true` in `manifest.json` **and** implements `onVoicePipelineEvent`, **or**
+2. Another installed app registers a manifest receiver for `com.example.ava.VOICE_PIPELINE_EVENT`.
+
+### Manifest
+
+```json
+{
+  "id": "echo-dot-led",
+  "name": "Echo Dot LED",
+  "voice_pipeline": true,
+  "manager": "com.example.EchoDotLedManager",
+  "libs": ["libs/echo-dot-led.jar"]
+}
+```
+
+### Java manager
+
+```java
+public class EchoDotLedManager {
+    private static EchoDotLedManager instance;
+
+    public static EchoDotLedManager getInstance(Context context) {
+        if (instance == null) instance = new EchoDotLedManager();
+        return instance;
+    }
+
+    public void onVoicePipelineEvent(Context context, String event, android.os.Bundle extras) {
+        switch (event) {
+            case "wake_detected":
+                // extras: wake_word, wake_word_id, wake_confidence, synthetic_wake
+                break;
+            case "listening_started":
+                // extras: accent_color
+                break;
+            case "stt_vad_start":
+            case "stt_end":       // extras: stt_text
+            case "processing_started":
+            case "tts_start":     // extras: tts_text (optional)
+            case "tts_playback_started":
+            case "tts_finished":
+            case "session_ended":
+            case "run_start":
+            case "run_end":
+            case "pipeline_error": // extras: error_code, error_message
+                break;
+        }
+    }
+}
+```
+
+### External app (broadcast only)
+
+```xml
+<receiver android:name=".AvaVoiceReceiver" android:exported="true">
+  <intent-filter>
+    <action android:name="com.example.ava.VOICE_PIPELINE_EVENT" />
+  </intent-filter>
+</receiver>
+```
+
+Intent extras: `event` (string) plus event-specific keys (`stt_text`, `tts_text`, `wake_word`, …).
+
+No mod and no external receiver → **no ClassLoader load, no broadcast, no background thread**.

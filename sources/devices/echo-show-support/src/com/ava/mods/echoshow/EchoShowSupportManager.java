@@ -70,6 +70,28 @@ public class EchoShowSupportManager {
         return grantOverlayPermissionIfNeeded(context);
     }
 
+    /**
+     * ModDeviceSupport hook: screensaver "turn off in dark".
+     * Only runs when this mod is enabled and {@link #isSupported()} is true.
+     * Tries Shizuku display power off, then root keyevents, then min brightness.
+     */
+    public boolean sleepScreenForDark(Context context) {
+        if (!isSupported()) {
+            return false;
+        }
+        return EchoShowScreenControl.sleepForDark(context);
+    }
+
+    /**
+     * ModDeviceSupport hook: restore screen after dark sleep.
+     */
+    public boolean wakeScreenFromDark(Context context) {
+        if (!isSupported()) {
+            return false;
+        }
+        return EchoShowScreenControl.wakeFromDark(context);
+    }
+
     private String safeLower(String value) {
         return value == null ? "" : value.toLowerCase();
     }
