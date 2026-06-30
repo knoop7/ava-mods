@@ -1,7 +1,7 @@
 {
   "id": "ha-stt-engine",
   "name": "HA STT Engine",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "author": "Ava",
   "description": "Local Wyoming STT for Home Assistant (zh/en offline).",
   "detail_description": "First run downloads a ~230MB SenseVoice model to app storage. Wyoming TCP on port 10300 for Home Assistant voice pipelines.",
@@ -97,6 +97,7 @@
       "id": "last_emotion",
       "name": "STT Emotion",
       "icon": "mdi:emoticon-outline",
+      "enabledByConfig": "show_emotion_sensor",
       "read": "getLastEmotion"
     },
     {
@@ -104,6 +105,7 @@
       "id": "last_audio_event",
       "name": "STT Audio Event",
       "icon": "mdi:speaker-wireless",
+      "enabledByConfig": "show_audio_event_sensor",
       "read": "getLastAudioEvent"
     },
     {
@@ -178,10 +180,24 @@
     },
     {
       "type": "switch",
+      "key": "show_emotion_sensor",
+      "label": "Show Emotion Sensor",
+      "description": "Expose STT Emotion as a separate Home Assistant text sensor.",
+      "defaultValue": "true"
+    },
+    {
+      "type": "switch",
+      "key": "show_audio_event_sensor",
+      "label": "Show Audio Event Sensor",
+      "description": "Expose STT Audio Event as a separate Home Assistant text sensor.",
+      "defaultValue": "true"
+    },
+    {
+      "type": "switch",
       "key": "show_diagnostic_entities",
       "label": "Show Diagnostic Entities",
       "description": "Expose server, model status, download progress, and control buttons in Home Assistant.",
-      "dialogHint": "Off by default. STT Emotion and STT Audio Event stay visible as separate sensors.",
+      "dialogHint": "Off by default. Emotion and audio event sensors have their own toggles above.",
       "defaultValue": "false"
     },
     {
@@ -193,6 +209,6 @@
       "defaultValue": "true"
     }
   ],
-  "jar_hash": "66e8de87b3f8f04b41b915c5422e3322"
+  "jar_hash": "f7b6a2aaf8ed7de14a4e31a13d83a1e5"
 }
 
