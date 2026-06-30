@@ -27,11 +27,15 @@ if [ ! -f "$D8_TOOL" ]; then
     exit 1
 fi
 
-export JAVA_HOME=$(/usr/libexec/java_home -v 17 2>/dev/null || /usr/libexec/java_home -v 11 2>/dev/null)
+export JAVA_HOME=$(/usr/libexec/java_home -v 17 2>/dev/null || /usr/libexec/java_home -v 11 2>/dev/null || /usr/libexec/java_home -v 1.8 2>/dev/null)
+JAVAC_BIN="${JAVAC8:-$(/usr/libexec/java_home -v 1.8 2>/dev/null)}/bin/javac"
+if [ ! -x "$JAVAC_BIN" ]; then
+    JAVAC_BIN="javac"
+fi
 export PATH="$JAVA_HOME/bin:$PATH"
 
 rm -rf "$BUILD_DIR"
-mkdir -p "$BUILD_DIR" libs libs/jni/arm64-v8a libs/jni/armeabi-v7a
+mkdir -p "$BUILD_DIR/classes" libs libs/jni/arm64-v8a libs/jni/armeabi-v7a
 
 if [ ! -f "$SHERPA_JAR" ] || [ ! -f libs/jni/arm64-v8a/libsherpa-onnx-jni.so ]; then
     echo "Fetching sherpa-onnx ${SHERPA_VERSION}..."
@@ -61,7 +65,7 @@ elif [ ! -f "$SHERPA_CLASSES_JAR" ]; then
 fi
 
 echo "Compiling Java sources..."
-javac -source 1.8 -target 1.8 \
+"$JAVAC_BIN" -source 1.8 -target 1.8 \
     -cp "$ANDROID_JAR:$SHERPA_CLASSES_JAR" \
     -d "$BUILD_DIR/classes" \
     src/com/ava/mods/hasttengine/*.java

@@ -15,11 +15,7 @@ final class WyomingWire {
     private WyomingWire() {
     }
 
-    static WyomingEvent readEvent(InputStream rawInput) throws Exception {
-        BufferedInputStream input = rawInput instanceof BufferedInputStream
-                ? (BufferedInputStream) rawInput
-                : new BufferedInputStream(rawInput);
-
+    static WyomingEvent readEvent(BufferedInputStream input) throws Exception {
         String line = readLine(input);
         if (line == null || line.trim().isEmpty()) {
             return null;
@@ -51,17 +47,14 @@ final class WyomingWire {
         return new WyomingEvent(type, data, payload);
     }
 
-    static void writeEvent(OutputStream rawOutput, WyomingEvent event) throws Exception {
-        BufferedOutputStream output = rawOutput instanceof BufferedOutputStream
-                ? (BufferedOutputStream) rawOutput
-                : new BufferedOutputStream(rawOutput);
-
+    static void writeEvent(BufferedOutputStream output, WyomingEvent event) throws Exception {
         JSONObject header = new JSONObject();
         header.put("type", event.type);
         header.put("version", VERSION);
 
-        byte[] dataBytes = event.data.toString().getBytes(StandardCharsets.UTF_8);
-        if (dataBytes.length > 0) {
+        byte[] dataBytes = new byte[0];
+        if (event.data.length() > 0) {
+            dataBytes = event.data.toString().getBytes(StandardCharsets.UTF_8);
             header.put("data_length", dataBytes.length);
         }
         if (event.payload != null && event.payload.length > 0) {
@@ -77,10 +70,6 @@ final class WyomingWire {
             output.write(event.payload);
         }
         output.flush();
-    }
-
-    static WyomingEvent describeEvent() {
-        return new WyomingEvent("describe", new JSONObject(), null);
     }
 
     static WyomingEvent infoEvent() {

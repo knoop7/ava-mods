@@ -40,11 +40,11 @@
     {
       "id": "ha-stt-engine",
       "name": "HA STT Engine",
-      "version": "1.0.1",
+      "version": "1.0.2",
       "author": "Ava",
       "description": "Wyoming offline STT for Home Assistant (zh/en).",
       "path": "mods/features/ha-stt-engine/",
-      "jar_hash": "e1beda33c47a817037d5fded9ed6b62a"
+      "jar_hash": "e000a942576ce211b2b8457854ea995d"
     },
     {
       "id": "gps-mod",

@@ -2,9 +2,9 @@ package com.ava.mods.hasttengine;
 
 import android.util.Log;
 
+import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
 import java.io.ByteArrayOutputStream;
-import java.io.InputStream;
-import java.io.OutputStream;
 import java.net.Socket;
 
 final class WyomingSessionHandler implements Runnable {
@@ -32,10 +32,13 @@ final class WyomingSessionHandler implements Runnable {
 
     @Override
     public void run() {
+        BufferedInputStream input = null;
+        BufferedOutputStream output = null;
         try {
+            socket.setTcpNoDelay(true);
             socket.setSoTimeout(0);
-            InputStream input = socket.getInputStream();
-            OutputStream output = socket.getOutputStream();
+            input = new BufferedInputStream(socket.getInputStream());
+            output = new BufferedOutputStream(socket.getOutputStream());
 
             while (!socket.isClosed()) {
                 WyomingEvent event = WyomingWire.readEvent(input);
@@ -57,6 +60,8 @@ final class WyomingSessionHandler implements Runnable {
                     sampleWidth = event.data.optInt("width", 2);
                     channels = event.data.optInt("channels", 1);
                     audioBuffer.reset();
+                    Log.d(TAG, "Audio stream started: " + sampleWidth * 8 + "bit "
+                            + sampleRate + "Hz " + channels + "ch");
                     continue;
                 }
 
@@ -72,8 +77,21 @@ final class WyomingSessionHandler implements Runnable {
                 }
 
                 if ("audio-stop".equals(event.type)) {
-                    RecognitionResult result = engine.transcribe(audioBuffer.toByteArray(), sampleRate);
-                    audioBuffer.reset();
+                    Log.d(TAG, "Audio stream stopped, bytes=" + audioBuffer.size()
+                            + " engineLoaded=" + engine.isLoaded());
+                    RecognitionResult result = RecognitionResult.empty();
+                    try {
+                        if (!engine.isLoaded()) {
+                            Log.w(TAG, "Recognizer not loaded, returning empty transcript");
+                        } else {
+                            result = engine.transcribe(audioBuffer.toByteArray(), sampleRate);
+                        }
+                    } catch (Exception e) {
+                        Log.e(TAG, "Transcription failed", e);
+                    } finally {
+                        audioBuffer.reset();
+                    }
+
                     callback.onTranscript(result);
                     WyomingWire.writeEvent(
                             output,
@@ -90,10 +108,24 @@ final class WyomingSessionHandler implements Runnable {
         } catch (Exception e) {
             Log.w(TAG, "Wyoming session ended with error", e);
         } finally {
-            try {
-                socket.close();
-            } catch (Exception ignored) {
+            closeQuietly(output, input);
+        }
+    }
+
+    private void closeQuietly(BufferedOutputStream output, BufferedInputStream input) {
+        try {
+            if (output != null) {
+                output.flush();
             }
+        } catch (Exception ignored) {
+        }
+        try {
+            socket.shutdownOutput();
+        } catch (Exception ignored) {
+        }
+        try {
+            socket.close();
+        } catch (Exception ignored) {
         }
     }
 }
