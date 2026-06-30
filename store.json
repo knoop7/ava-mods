@@ -38,6 +38,15 @@
       "path": "mods/features/flashlight-mod/"
     },
     {
+      "id": "ha-stt-engine",
+      "name": "HA STT Engine",
+      "version": "1.0.0",
+      "author": "Ava",
+      "description": "Local Wyoming ASR/STT server on your Ava device for Home Assistant. Uses SenseVoice (int8) with Chinese and English support and automatic language detection. Models are downloaded on demand to external app storage (~230MB). Exposes service status, last transcript, emotion, and audio-event sensors in Home Assistant.",
+      "path": "mods/features/ha-stt-engine/",
+      "jar_hash": "e1beda33c47a817037d5fded9ed6b62a"
+    },
+    {
       "id": "gps-mod",
       "name": "GPS Location",
       "version": "1.3.0",

@@ -1,0 +1,152 @@
+{
+  "id": "ha-stt-engine",
+  "name": "HA STT Engine",
+  "version": "1.0.0",
+  "author": "Ava",
+  "description": "On-device speech-to-text engine for Home Assistant via the Wyoming protocol. Downloads a SenseVoice int8 model on first use (Chinese and English, auto language detection) and runs offline recognition on the Ava device. Home Assistant connects to this mod as an ASR provider; audio is streamed during a voice session and transcribed when speech ends.",
+  "icon": "mdi:microphone-message",
+  "libs": [
+    "libs/ha-stt-engine-manager.jar",
+    "libs/sherpa-onnx.jar",
+    "libs/jni/arm64-v8a/libonnxruntime.so",
+    "libs/jni/arm64-v8a/libsherpa-onnx-c-api.so",
+    "libs/jni/arm64-v8a/libsherpa-onnx-cxx-api.so",
+    "libs/jni/arm64-v8a/libsherpa-onnx-jni.so",
+    "libs/jni/armeabi-v7a/libonnxruntime.so",
+    "libs/jni/armeabi-v7a/libsherpa-onnx-c-api.so",
+    "libs/jni/armeabi-v7a/libsherpa-onnx-cxx-api.so",
+    "libs/jni/armeabi-v7a/libsherpa-onnx-jni.so"
+  ],
+  "manager": "com.ava.mods.hasttengine.HaSttEngineManager",
+  "permissions": [
+    "android.permission.INTERNET",
+    "android.permission.ACCESS_NETWORK_STATE"
+  ],
+  "entities": [
+    {
+      "type": "binary_sensor",
+      "id": "server_running",
+      "name": "STT Server",
+      "icon": "mdi:server-network",
+      "class": "connectivity",
+      "category": "diagnostic",
+      "read": "isServerRunning"
+    },
+    {
+      "type": "text_sensor",
+      "id": "model_status",
+      "name": "Model Status",
+      "icon": "mdi:database",
+      "category": "diagnostic",
+      "read": "getModelStatus"
+    },
+    {
+      "type": "sensor",
+      "id": "download_progress",
+      "name": "Download Progress",
+      "icon": "mdi:download",
+      "unit": "%",
+      "category": "diagnostic",
+      "read": "getDownloadProgress"
+    },
+    {
+      "type": "text_sensor",
+      "id": "last_transcript",
+      "name": "Last Transcript",
+      "icon": "mdi:text",
+      "category": "diagnostic",
+      "read": "getLastTranscript"
+    },
+    {
+      "type": "text_sensor",
+      "id": "last_emotion",
+      "name": "Last Emotion",
+      "icon": "mdi:emoticon-outline",
+      "category": "diagnostic",
+      "read": "getLastEmotion"
+    },
+    {
+      "type": "text_sensor",
+      "id": "last_audio_event",
+      "name": "Last Audio Event",
+      "icon": "mdi:speaker-wireless",
+      "category": "diagnostic",
+      "read": "getLastAudioEvent"
+    },
+    {
+      "type": "button",
+      "id": "download_model",
+      "name": "Download Model",
+      "icon": "mdi:download",
+      "press": "downloadModel"
+    },
+    {
+      "type": "button",
+      "id": "restart_server",
+      "name": "Restart STT Server",
+      "icon": "mdi:restart",
+      "press": "restartServer"
+    },
+    {
+      "type": "button",
+      "id": "delete_model",
+      "name": "Delete Model",
+      "icon": "mdi:delete",
+      "press": "deleteModel"
+    }
+  ],
+  "config": [
+    {
+      "type": "number",
+      "key": "tcp_port",
+      "label": "TCP Port",
+      "description": "Wyoming protocol port for Home Assistant connections",
+      "dialogHint": "Default 10300 matches most Wyoming ASR add-ons",
+      "defaultValue": "10300",
+      "min": 1024,
+      "max": 65535,
+      "step": 1
+    },
+    {
+      "type": "text",
+      "key": "listen_address",
+      "label": "Listen Address",
+      "description": "IP address to bind the Wyoming TCP server",
+      "dialogHint": "Use 0.0.0.0 for LAN access or 127.0.0.1 for local only",
+      "defaultValue": "0.0.0.0"
+    },
+    {
+      "type": "switch",
+      "key": "auto_start",
+      "label": "Auto Start",
+      "description": "Start the Wyoming STT server when the mod is enabled",
+      "defaultValue": "true"
+    },
+    {
+      "type": "switch",
+      "key": "mdns_enabled",
+      "label": "mDNS Discovery",
+      "description": "Advertise the Wyoming service on the local network for Home Assistant auto-discovery",
+      "defaultValue": "true"
+    },
+    {
+      "type": "number",
+      "key": "num_threads",
+      "label": "Inference Threads",
+      "description": "CPU threads used by the SenseVoice recognizer",
+      "dialogHint": "2-4 is usually best on embedded devices",
+      "defaultValue": "2",
+      "min": 1,
+      "max": 8,
+      "step": 1
+    },
+    {
+      "type": "switch",
+      "key": "auto_download",
+      "label": "Auto Download Model",
+      "description": "Download the SenseVoice model automatically when the mod starts and files are missing",
+      "defaultValue": "true"
+    }
+  ],
+  "jar_hash": "e1beda33c47a817037d5fded9ed6b62a"
+}
