@@ -128,6 +128,9 @@ final class ModelDownloader {
                         int filePercent = (int) Math.min(100, (downloaded * 100L) / total);
                         int mapped = progressStart + ((progressEnd - progressStart) * filePercent) / 100;
                         notifyProgress(mapped);
+                    } else if (downloaded % (512 * 1024) < buffer.length) {
+                        int pulse = progressStart + (int) ((downloaded % 5_000_000L) * (progressEnd - progressStart) / 5_000_000L);
+                        notifyProgress(Math.max(progressStart + 1, pulse));
                     }
                 }
                 output.getFD().sync();

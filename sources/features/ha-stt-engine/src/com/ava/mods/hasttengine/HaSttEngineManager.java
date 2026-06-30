@@ -31,6 +31,7 @@ public class HaSttEngineManager {
     private volatile String lastTranscript = "";
     private volatile String lastEmotion = "";
     private volatile String lastAudioEvent = "";
+    private volatile String downloadErrorMessage = "";
 
     private HaSttEngineManager(Context context) {
         this.context = context.getApplicationContext();
@@ -39,7 +40,7 @@ public class HaSttEngineManager {
             @Override
             public void onStatus(String status) {
                 modelStatus = status;
-                notifyStateListeners("model_status", status);
+                notifyStateListeners("model_status", getModelStatusDisplay());
             }
 
             @Override
@@ -53,9 +54,11 @@ public class HaSttEngineManager {
                 if (success) {
                     loadRecognizer();
                     maybeStartServer();
+                    downloadErrorMessage = "";
                 } else {
                     modelStatus = "error";
-                    notifyStateListeners("model_status", modelStatus);
+                    downloadErrorMessage = message == null ? "Download failed" : message;
+                    notifyStateListeners("model_status", getModelStatusDisplay());
                 }
                 Log.i(TAG, "Model download finished success=" + success + " message=" + message);
             }
@@ -164,6 +167,21 @@ public class HaSttEngineManager {
         return modelStatus;
     }
 
+    public String getModelStatusDisplay() {
+        if ("ready".equals(modelStatus)) {
+            return "Ready";
+        }
+        if ("downloading".equals(modelStatus)) {
+            return "Downloading in background…";
+        }
+        if ("error".equals(modelStatus)) {
+            return downloadErrorMessage == null || downloadErrorMessage.isEmpty()
+                    ? "Download failed"
+                    : "Error: " + downloadErrorMessage;
+        }
+        return "Not downloaded";
+    }
+
     public float getDownloadProgress() {
         return downloadProgress;
     }
@@ -183,7 +201,7 @@ public class HaSttEngineManager {
     public boolean downloadModel() {
         if (ModelStore.isReady(context)) {
             modelStatus = "ready";
-            notifyStateListeners("model_status", modelStatus);
+            notifyStateListeners("model_status", getModelStatusDisplay());
             loadRecognizer();
             maybeStartServer();
             return true;
@@ -216,7 +234,8 @@ public class HaSttEngineManager {
         ModelStore.clear(context);
         modelStatus = "not_ready";
         downloadProgress = 0;
-        notifyStateListeners("model_status", modelStatus);
+        downloadErrorMessage = "";
+        notifyStateListeners("model_status", getModelStatusDisplay());
         notifyStateListeners("download_progress", Integer.valueOf(0));
         return true;
     }
@@ -241,7 +260,7 @@ public class HaSttEngineManager {
         if ("server_running".equals(entityId)) {
             notifySingleListener(callback, Boolean.valueOf(server.isRunning()));
         } else if ("model_status".equals(entityId)) {
-            notifySingleListener(callback, modelStatus);
+            notifySingleListener(callback, getModelStatusDisplay());
         } else if ("download_progress".equals(entityId)) {
             notifySingleListener(callback, Integer.valueOf(downloadProgress));
         } else if ("last_transcript".equals(entityId)) {
@@ -288,11 +307,11 @@ public class HaSttEngineManager {
                     numThreads
             );
             modelStatus = "ready";
-            notifyStateListeners("model_status", modelStatus);
+            notifyStateListeners("model_status", getModelStatusDisplay());
         } catch (Exception e) {
             Log.e(TAG, "Failed to load recognizer", e);
             modelStatus = "error";
-            notifyStateListeners("model_status", modelStatus);
+            notifyStateListeners("model_status", getModelStatusDisplay());
         }
     }
 

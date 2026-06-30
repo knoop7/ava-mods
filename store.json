@@ -40,11 +40,12 @@
     {
       "id": "ha-stt-engine",
       "name": "HA STT Engine",
-      "version": "1.0.2",
+      "version": "1.0.3",
       "author": "Ava",
       "description": "Wyoming offline STT for Home Assistant (zh/en).",
+      "detail_description": "First run downloads ~230MB SenseVoice model. Wyoming TCP port 10300 for HA voice.",
       "path": "mods/features/ha-stt-engine/",
-      "jar_hash": "5afb959e968997e1cce3fb5c9910b5ef"
+      "jar_hash": "66e8de87b3f8f04b41b915c5422e3322"
     },
     {
       "id": "gps-mod",
