@@ -1,9 +1,9 @@
 {
   "id": "ha-stt-engine",
   "name": "HA STT Engine",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "author": "Ava",
-  "description": "On-device speech-to-text engine for Home Assistant via the Wyoming protocol. Downloads a SenseVoice int8 model on first use (Chinese and English, auto language detection) and runs offline recognition on the Ava device. Home Assistant connects to this mod as an ASR provider; audio is streamed during a voice session and transcribed when speech ends.",
+  "description": "Local Wyoming STT for Home Assistant (zh/en offline).",
   "icon": "mdi:microphone-message",
   "libs": [
     "libs/ha-stt-engine-manager.jar",
@@ -100,8 +100,8 @@
       "type": "number",
       "key": "tcp_port",
       "label": "TCP Port",
-      "description": "Wyoming protocol port for Home Assistant connections",
-      "dialogHint": "Default 10300 matches most Wyoming ASR add-ons",
+      "description": "TCP port for Home Assistant Wyoming clients.",
+      "dialogHint": "Default 10300. Home Assistant Wyoming integration connects here after the model is ready.",
       "defaultValue": "10300",
       "min": 1024,
       "max": 65535,
@@ -111,30 +111,30 @@
       "type": "text",
       "key": "listen_address",
       "label": "Listen Address",
-      "description": "IP address to bind the Wyoming TCP server",
-      "dialogHint": "Use 0.0.0.0 for LAN access or 127.0.0.1 for local only",
+      "description": "Bind address for the Wyoming server.",
+      "dialogHint": "0.0.0.0 allows LAN clients (typical). Use 127.0.0.1 for local-only testing.",
       "defaultValue": "0.0.0.0"
     },
     {
       "type": "switch",
       "key": "auto_start",
       "label": "Auto Start",
-      "description": "Start the Wyoming STT server when the mod is enabled",
+      "description": "Start the STT server when this mod is enabled.",
       "defaultValue": "true"
     },
     {
       "type": "switch",
       "key": "mdns_enabled",
       "label": "mDNS Discovery",
-      "description": "Advertise the Wyoming service on the local network for Home Assistant auto-discovery",
+      "description": "Broadcast _wyoming._tcp for Home Assistant auto-discovery.",
       "defaultValue": "true"
     },
     {
       "type": "number",
       "key": "num_threads",
       "label": "Inference Threads",
-      "description": "CPU threads used by the SenseVoice recognizer",
-      "dialogHint": "2-4 is usually best on embedded devices",
+      "description": "CPU threads for SenseVoice inference.",
+      "dialogHint": "2 is a good default on speakers and tablets. Raise only if recognition is slow and CPU headroom is available.",
       "defaultValue": "2",
       "min": 1,
       "max": 8,
@@ -144,7 +144,8 @@
       "type": "switch",
       "key": "auto_download",
       "label": "Auto Download Model",
-      "description": "Download the SenseVoice model automatically when the mod starts and files are missing",
+      "description": "Download the SenseVoice model on first start.",
+      "dialogHint": "About 230MB to external app storage (Android/data/.../files/ha-stt-engine/). Disable if you prefer manual download from the Delete/Download buttons.",
       "defaultValue": "true"
     }
   ],

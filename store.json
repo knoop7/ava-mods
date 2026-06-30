@@ -40,9 +40,9 @@
     {
       "id": "ha-stt-engine",
       "name": "HA STT Engine",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "author": "Ava",
-      "description": "Local Wyoming ASR/STT server on your Ava device for Home Assistant. Uses SenseVoice (int8) with Chinese and English support and automatic language detection. Models are downloaded on demand to external app storage (~230MB). Exposes service status, last transcript, emotion, and audio-event sensors in Home Assistant.",
+      "description": "Wyoming offline STT for Home Assistant (zh/en).",
       "path": "mods/features/ha-stt-engine/",
       "jar_hash": "e1beda33c47a817037d5fded9ed6b62a"
     },

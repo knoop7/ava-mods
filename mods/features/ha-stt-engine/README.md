@@ -1,8 +1,8 @@
 # HA STT Engine
 
-Local Wyoming ASR/STT server on Ava for Home Assistant. Uses SenseVoice (int8) with Chinese and English support and automatic language detection.
+Local Wyoming offline STT for Home Assistant (zh/en).
 
-## Features
+## Overview
 
 - Wyoming protocol on TCP port 10300 (configurable)
 - mDNS discovery (`_wyoming._tcp`) for Home Assistant auto-discovery
