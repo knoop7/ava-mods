@@ -23,10 +23,18 @@ Local Wyoming offline STT for Home Assistant (zh/en).
 cd sources/features/ha-stt-engine
 chmod +x build.sh
 ./build.sh
-cp -R manifest.json libs ../../mods/features/ha-stt-engine/
 ```
 
-Requirements: Android SDK platform 34, Java 11+, network access for the first sherpa-onnx download.
+Every `./build.sh` run keeps these **4 places** in sync:
+
+| # | Path |
+|---|------|
+| 1 | `sources/features/ha-stt-engine/manifest.json` |
+| 2 | `sources/features/ha-stt-engine/libs/ha-stt-engine-manager.jar` |
+| 3 | `mods/features/ha-stt-engine/manifest.json` + `libs/` |
+| 4 | `store.json` entry (`version` + `jar_hash`) |
+
+Requirements: Android SDK platform 34, Java 8 (javac) + Java 11+ (d8), network access for the first sherpa-onnx download.
 
 ## Model Storage
 

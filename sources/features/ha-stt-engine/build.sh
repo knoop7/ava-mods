@@ -4,6 +4,14 @@ set -euo pipefail
 # Ava Mod Build Script - HA STT Engine
 # Compiles Java sources and bundles sherpa-onnx for DexClassLoader.
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+MOD_ID="ha-stt-engine"
+MODS_DIR="$REPO_ROOT/mods/features/$MOD_ID"
+STORE_JSON="$REPO_ROOT/store.json"
+
+cd "$SCRIPT_DIR"
+
 ANDROID_SDK="${ANDROID_HOME:-$HOME/Library/Android/sdk}"
 ANDROID_JAR="$ANDROID_SDK/platforms/android-34/android.jar"
 D8_TOOL="$ANDROID_SDK/build-tools/34.0.0/d8"
@@ -75,6 +83,31 @@ mkdir -p "$BUILD_DIR/mod-dex"
 "$D8_TOOL" --output "$BUILD_DIR/mod-dex" "$BUILD_DIR/classes/com/ava/mods/hasttengine/"*.class
 jar cf "$OUTPUT_JAR" -C "$BUILD_DIR/mod-dex" classes.dex
 
+JAR_HASH=$(md5 -q "$OUTPUT_JAR")
+MOD_VERSION=$(python3 -c "import json; print(json.load(open('manifest.json'))['version'])")
+
+mkdir -p "$MODS_DIR/libs/jni/arm64-v8a" "$MODS_DIR/libs/jni/armeabi-v7a"
+cp "$OUTPUT_JAR" "$MODS_DIR/libs/"
+cp "$SHERPA_JAR" "$MODS_DIR/libs/"
+cp libs/jni/arm64-v8a/*.so "$MODS_DIR/libs/jni/arm64-v8a/"
+cp libs/jni/armeabi-v7a/*.so "$MODS_DIR/libs/jni/armeabi-v7a/"
+cp manifest.json "$MODS_DIR/manifest.json"
+cp README.md "$MODS_DIR/README.md"
+
+for MANIFEST in manifest.json "$MODS_DIR/manifest.json"; do
+    if grep -q '"jar_hash"' "$MANIFEST"; then
+        sed -i '' "s/\"jar_hash\": \"[^\"]*\"/\"jar_hash\": \"$JAR_HASH\"/" "$MANIFEST"
+    fi
+done
+
+if grep -q "\"id\": \"$MOD_ID\"" "$STORE_JSON"; then
+    perl -i -0pe "s/(\"id\": \"$MOD_ID\".*?\"version\": \")[^\"]*(\")/\${1}$MOD_VERSION\${2}/s" "$STORE_JSON"
+    perl -i -0pe "s/(\"id\": \"$MOD_ID\".*?\"jar_hash\": \")[^\"]*(\")/\${1}$JAR_HASH\${2}/s" "$STORE_JSON"
+fi
+
 echo "Done."
+echo "JAR Hash: $JAR_HASH"
 ls -lh "$OUTPUT_JAR" "$SHERPA_JAR"
 ls -lh libs/jni/arm64-v8a/
+echo "Release package copied to $MODS_DIR"
+echo "Synced 4 places: sources+mods manifest (v$MOD_VERSION, hash $JAR_HASH) and store.json"
