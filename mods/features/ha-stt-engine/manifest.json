@@ -1,7 +1,7 @@
 {
   "id": "ha-stt-engine",
   "name": "HA STT Engine",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "author": "Ava",
   "description": "Local Wyoming STT for Home Assistant (multilingual offline).",
   "detail_description": "First run downloads a ~230MB SenseVoice model (zh/en/ja/ko/Cantonese). Wyoming TCP on port 10300 for Home Assistant voice pipelines.",
@@ -170,10 +170,10 @@
       "type": "select",
       "key": "recognition_language",
       "label": "Recognition Language",
-      "description": "Language hint for SenseVoice decoding.",
-      "dialogHint": "auto (default) auto-detects zh/en and also supports ja, ko, Cantonese (yue). Lock to one language if your home uses a single locale.",
-      "defaultValue": "auto",
-      "options": ["auto", "zh", "en", "ja", "ko", "yue"]
+      "description": "Fixed decode language for SenseVoice (zh and en are separate).",
+      "dialogHint": "en = English (default). zh = Mandarin only. auto = detect among zh/en/ja/ko/yue. ja/ko/yue lock to Japanese/Korean/Cantonese.",
+      "defaultValue": "en",
+      "options": ["en", "zh", "auto", "ja", "ko", "yue"]
     },
     {
       "type": "number",
@@ -217,6 +217,6 @@
       "defaultValue": "true"
     }
   ],
-  "jar_hash": "7b4a87203d11c9d49d69d0dd873a67b0"
+  "jar_hash": "ca18e5f40ddc4593bab1763a0ec54bb8"
 }
 

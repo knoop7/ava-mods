@@ -8,7 +8,7 @@ Local Wyoming offline STT for Home Assistant (multilingual: zh/en/ja/ko/Cantones
 - mDNS discovery (`_wyoming._tcp`) for Home Assistant auto-discovery
 - On-demand SenseVoice model download to external app storage (~230MB)
 - Offline recognition with emotion and audio-event metadata
-- Recognition language: auto (default), or lock to zh / en / ja / ko / yue (Cantonese)
+- Recognition language: en (default), zh, auto, ja, ko, yue — zh and en are independent fixed modes upstream
 - Home Assistant diagnostic entities for server status, download progress, and last transcript
 
 ## Home Assistant Setup

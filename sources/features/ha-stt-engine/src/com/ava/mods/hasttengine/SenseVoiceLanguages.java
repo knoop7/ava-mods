@@ -7,9 +7,9 @@ package com.ava.mods.hasttengine;
  * @see <a href="https://k2-fsa.github.io/sherpa/onnx/sense-voice/pretrained.html">sherpa SenseVoice docs</a>
  */
 final class SenseVoiceLanguages {
-    static final String DEFAULT = "auto";
+    static final String DEFAULT = "en";
 
-    private static final String[] DECODE_CODES = {"auto", "zh", "en", "ja", "ko", "yue"};
+    private static final String[] DECODE_CODES = {"en", "zh", "auto", "ja", "ko", "yue"};
     private static final String[] WYOMING_CODES = {"zh", "zh-CN", "en", "ja", "ko", "yue"};
 
     private SenseVoiceLanguages() {
