@@ -33,6 +33,7 @@ public class HaSttEngineManager {
     private volatile String lastEmotion = "";
     private volatile String lastAudioEvent = "";
     private volatile String downloadErrorMessage = "";
+    private volatile boolean autoStartConfigured = false;
 
     private HaSttEngineManager(Context context) {
         this.context = context.getApplicationContext();
@@ -85,7 +86,6 @@ public class HaSttEngineManager {
         if (ModelStore.isReady(this.context)) {
             if (ModelStore.matchesBundledLanguage(this.context, recognitionLanguage)) {
                 modelStatus = "ready";
-                loadRecognizer();
             } else {
                 modelStatus = "not_ready";
             }
@@ -95,7 +95,6 @@ public class HaSttEngineManager {
                 downloadModel();
             }
         }
-        maybeStartServer();
     }
 
     public static HaSttEngineManager getInstance(Context context) {
@@ -107,6 +106,16 @@ public class HaSttEngineManager {
             }
         }
         return instance;
+    }
+
+    /** Called by Ava when the mod is disabled or its ClassLoader is torn down. */
+    public void onDestroy() {
+        downloader.cancelDownload();
+        stopServer();
+        engine.release();
+        synchronized (HaSttEngineManager.class) {
+            instance = null;
+        }
     }
 
     public void applyConfig(String key, String value) {
@@ -130,11 +139,16 @@ public class HaSttEngineManager {
                 }
                 break;
             case "auto_start":
-                autoStart = "true".equalsIgnoreCase(value);
-                if (autoStart) {
-                    maybeStartServer();
-                } else if (server.isRunning()) {
-                    stopServer();
+                boolean parsedAutoStart = "true".equalsIgnoreCase(value);
+                boolean autoStartChanged = !autoStartConfigured || parsedAutoStart != autoStart;
+                autoStartConfigured = true;
+                autoStart = parsedAutoStart;
+                if (autoStartChanged) {
+                    if (autoStart) {
+                        maybeStartServer();
+                    } else if (server.isRunning()) {
+                        stopServer();
+                    }
                 }
                 break;
             case "mdns_enabled":
@@ -145,9 +159,10 @@ public class HaSttEngineManager {
                 break;
             case "num_threads":
                 int parsedThreads = parseInt(value, 2);
-                if (parsedThreads != numThreads) {
-                    numThreads = Math.max(1, Math.min(8, parsedThreads));
-                    if (ModelStore.isReady(context)) {
+                int clampedThreads = Math.max(1, Math.min(8, parsedThreads));
+                if (clampedThreads != numThreads) {
+                    numThreads = clampedThreads;
+                    if (engine.isLoaded()) {
                         loadRecognizer();
                     }
                 }
@@ -336,7 +351,16 @@ public class HaSttEngineManager {
     }
 
     private void maybeStartServer() {
-        if (!autoStart || !engine.isLoaded()) {
+        if (!autoStart) {
+            return;
+        }
+        if (!engine.isLoaded()) {
+            if (ModelStore.isReady(context)
+                    && ModelStore.matchesBundledLanguage(context, recognitionLanguage)) {
+                loadRecognizer();
+            }
+        }
+        if (!engine.isLoaded()) {
             return;
         }
         server.configure(listenAddress, tcpPort);
@@ -373,9 +397,10 @@ public class HaSttEngineManager {
             ModelStore.setBundledLanguage(context, recognitionLanguage);
             modelStatus = "ready";
             notifyStateListeners("model_status", getModelStatusDisplay());
-        } catch (Exception e) {
+        } catch (Throwable e) {
             Log.e(TAG, "Failed to load recognizer", e);
             modelStatus = "error";
+            downloadErrorMessage = e.getMessage() == null ? "Failed to load model" : e.getMessage();
             notifyStateListeners("model_status", getModelStatusDisplay());
         }
     }

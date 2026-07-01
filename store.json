@@ -38,6 +38,16 @@
       "path": "mods/features/flashlight-mod/"
     },
     {
+      "id": "ha-edge-tts",
+      "name": "HA Edge TTS",
+      "version": "1.0.0",
+      "author": "Ava",
+      "description": "Edge TTS for Home Assistant via Wyoming protocol.",
+      "detail_description": "Cloud-based TTS using Microsoft Edge TTS voices. 400+ voices in 40+ languages. Wyoming TCP port 10301.",
+      "path": "mods/features/ha-edge-tts/",
+      "jar_hash": "3aceb09bd262acd69885077201768e4f"
+    },
+    {
       "id": "ha-stt-engine",
       "name": "HA STT Engine",
       "version": "1.1.4",

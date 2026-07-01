@@ -1,0 +1,137 @@
+{
+  "id": "ha-edge-tts",
+  "name": "HA Edge TTS",
+  "version": "1.0.0",
+  "author": "Ava",
+  "description": "Edge TTS for Home Assistant via Wyoming protocol.",
+  "detail_description": "Cloud-based TTS using Microsoft Edge TTS voices. Wyoming TCP server for Home Assistant voice pipelines. 400+ voices in 40+ languages.",
+  "icon": "mdi:microsoft-edge",
+  "libs": [
+    "libs/ha-edge-tts-manager.jar"
+  ],
+  "manager": "com.ava.mods.edgetts.EdgeTtsManager",
+  "permissions": [
+    "android.permission.INTERNET",
+    "android.permission.ACCESS_NETWORK_STATE"
+  ],
+  "entities": [
+    {
+      "type": "binary_sensor",
+      "id": "server_running",
+      "name": "TTS Server",
+      "icon": "mdi:server-network",
+      "class": "connectivity",
+      "category": "diagnostic",
+      "enabledByConfig": "show_diagnostic_entities",
+      "read": "isServerRunning"
+    },
+    {
+      "type": "button",
+      "id": "restart_server",
+      "name": "Restart TTS Server",
+      "icon": "mdi:restart",
+      "enabledByConfig": "show_diagnostic_entities",
+      "press": "restartServer"
+    },
+    {
+      "type": "text_sensor",
+      "id": "last_text",
+      "name": "Last TTS Text",
+      "icon": "mdi:text",
+      "enabledByConfig": "show_last_text",
+      "read": "getLastText"
+    }
+  ],
+  "config": [
+    {
+      "type": "select",
+      "key": "voice",
+      "label": "Default Voice",
+      "description": "Microsoft Edge TTS voice for synthesis.",
+      "dialogHint": "zh-CN-XiaoxiaoNeural is a natural Chinese female voice. See full list at https://learn.microsoft.com/en-us/azure/ai-services/speech-service/language-support.",
+      "defaultValue": "zh-CN-XiaoxiaoNeural",
+      "options": [
+        "zh-CN-XiaoxiaoNeural",
+        "zh-CN-YunxiNeural",
+        "zh-CN-YunyangNeural",
+        "zh-CN-XiaoyiNeural",
+        "zh-CN-YunjianNeural",
+        "en-US-AriaNeural",
+        "en-US-DavisNeural",
+        "en-US-GuyNeural",
+        "en-US-JennyNeural",
+        "ja-JP-NanamiNeural",
+        "ko-KR-SunHiNeural"
+      ]
+    },
+    {
+      "type": "text",
+      "key": "rate",
+      "label": "Speech Rate",
+      "description": "Rate adjustment, e.g. +0%, +10%, -5%.",
+      "defaultValue": "+0%"
+    },
+    {
+      "type": "text",
+      "key": "volume",
+      "label": "Volume",
+      "description": "Volume adjustment, e.g. +0%, -10%.",
+      "defaultValue": "+0%"
+    },
+    {
+      "type": "text",
+      "key": "pitch",
+      "label": "Pitch",
+      "description": "Pitch adjustment, e.g. +0Hz, +2Hz.",
+      "defaultValue": "+0Hz"
+    },
+    {
+      "type": "number",
+      "key": "tcp_port",
+      "label": "TCP Port",
+      "description": "TCP port for Home Assistant Wyoming clients.",
+      "dialogHint": "Default 10301. Home Assistant Wyoming TTS integration connects here.",
+      "defaultValue": "10301",
+      "min": 1024,
+      "max": 65535,
+      "step": 1
+    },
+    {
+      "type": "text",
+      "key": "listen_address",
+      "label": "Listen Address",
+      "description": "Bind address for the Wyoming server.",
+      "dialogHint": "0.0.0.0 allows LAN clients (typical). Use 127.0.0.1 for local-only.",
+      "defaultValue": "0.0.0.0"
+    },
+    {
+      "type": "switch",
+      "key": "auto_start",
+      "label": "Auto Start",
+      "description": "Start the TTS server when this mod is enabled.",
+      "defaultValue": "true"
+    },
+    {
+      "type": "switch",
+      "key": "mdns_enabled",
+      "label": "mDNS Discovery",
+      "description": "Broadcast _wyoming._tcp for Home Assistant auto-discovery.",
+      "defaultValue": "true"
+    },
+    {
+      "type": "switch",
+      "key": "show_last_text",
+      "label": "Show Last TTS Text",
+      "description": "Expose last synthesized text as a Home Assistant text sensor.",
+      "defaultValue": "false"
+    },
+    {
+      "type": "switch",
+      "key": "show_diagnostic_entities",
+      "label": "Show Diagnostic Entities",
+      "description": "Expose server status and restart button in Home Assistant.",
+      "defaultValue": "false"
+    }
+  ],
+  "jar_hash": "3aceb09bd262acd69885077201768e4f"
+}

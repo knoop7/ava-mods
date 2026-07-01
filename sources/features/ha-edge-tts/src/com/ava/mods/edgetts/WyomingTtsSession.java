@@ -1,0 +1,153 @@
+package com.ava.mods.edgetts;
+
+import android.util.Log;
+
+import org.json.JSONObject;
+
+import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
+import java.net.Socket;
+
+final class WyomingTtsSession implements Runnable {
+    private static final String TAG = "EdgeTtsSession";
+
+    interface Callback {
+        void onSynthesized(String text);
+    }
+
+    private final Socket socket;
+    private final String defaultVoice;
+    private final String defaultRate;
+    private final String defaultVolume;
+    private final String defaultPitch;
+    private final Callback callback;
+
+    WyomingTtsSession(Socket socket, String voice, String rate, String volume, String pitch,
+                      Callback callback) {
+        this.socket = socket;
+        this.defaultVoice = voice;
+        this.defaultRate = rate;
+        this.defaultVolume = volume;
+        this.defaultPitch = pitch;
+        this.callback = callback;
+    }
+
+    @Override
+    public void run() {
+        BufferedInputStream input = null;
+        BufferedOutputStream output = null;
+        try {
+            socket.setTcpNoDelay(true);
+            socket.setSoTimeout(60000);
+            input = new BufferedInputStream(socket.getInputStream());
+            output = new BufferedOutputStream(socket.getOutputStream());
+
+            while (!socket.isClosed()) {
+                WyomingEvent event = WyomingWire.readEvent(input);
+                if (event == null) {
+                    break;
+                }
+
+                if ("describe".equals(event.type)) {
+                    WyomingWire.writeEvent(output, WyomingWire.infoEvent());
+                    continue;
+                }
+
+                if ("synthesize".equals(event.type)) {
+                    handleSynthesize(output, event);
+                    break;
+                }
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Session ended: " + e.getMessage());
+        } finally {
+            closeQuietly(output, input);
+        }
+    }
+
+    private void handleSynthesize(BufferedOutputStream output, WyomingEvent event) {
+        String text = event.data.optString("text", "");
+        String voice = event.data.optString("voice", defaultVoice);
+        String language = event.data.optString("language", "");
+        String rate = event.data.optString("rate", defaultRate);
+        String volume = event.data.optString("volume", defaultVolume);
+        String pitch = event.data.optString("pitch", defaultPitch);
+
+        if (voice == null || voice.isEmpty() || !EdgeTtsVoices.isValid(voice)) {
+            if (language != null && !language.isEmpty()) {
+                voice = voiceForLanguage(language, defaultVoice);
+            } else {
+                voice = defaultVoice;
+            }
+        }
+
+        if (text == null || text.trim().isEmpty()) {
+            Log.w(TAG, "Synthesize with empty text");
+            return;
+        }
+
+        try {
+            byte[] mp3Data = EdgeTtsEngine.synthesize(text, voice, rate, volume, pitch);
+
+            WyomingWire.writeEvent(output, WyomingWire.audioStartEvent(24000, 2, 1, "mp3"));
+
+            int chunkSize = 8192;
+            int offset = 0;
+            while (offset < mp3Data.length) {
+                int end = Math.min(offset + chunkSize, mp3Data.length);
+                byte[] chunk = new byte[end - offset];
+                System.arraycopy(mp3Data, offset, chunk, 0, chunk.length);
+                WyomingWire.writeEvent(output, WyomingWire.audioChunkEvent(chunk));
+                offset = end;
+            }
+
+            WyomingWire.writeEvent(output, WyomingWire.audioStopEvent());
+
+            if (callback != null) {
+                callback.onSynthesized(text);
+            }
+
+            Log.d(TAG, "Synthesized " + text.length() + " chars, " + mp3Data.length + " bytes MP3");
+        } catch (Exception e) {
+            Log.e(TAG, "Synthesis failed", e);
+            try {
+                JSONObject errData = new JSONObject();
+                errData.put("error", e.getMessage() == null ? "Synthesis failed" : e.getMessage());
+                WyomingWire.writeEvent(output, new WyomingEvent("error", errData, null));
+            } catch (Exception ignored) {
+            }
+        }
+    }
+
+    private static String voiceForLanguage(String language, String fallback) {
+        if (language == null || language.isEmpty()) {
+            return fallback;
+        }
+        String langLower = language.toLowerCase();
+        for (String voice : EdgeTtsVoices.voices()) {
+            if (voice.toLowerCase().startsWith(langLower)) {
+                return voice;
+            }
+        }
+        if (langLower.startsWith("zh")) return "zh-CN-XiaoxiaoNeural";
+        if (langLower.startsWith("en")) return "en-US-AriaNeural";
+        if (langLower.startsWith("ja")) return "ja-JP-NanamiNeural";
+        if (langLower.startsWith("ko")) return "ko-KR-SunHiNeural";
+        return fallback;
+    }
+
+    private void closeQuietly(BufferedOutputStream output, BufferedInputStream input) {
+        try {
+            if (output != null) output.flush();
+        } catch (Exception ignored) {
+        }
+        try {
+            socket.shutdownOutput();
+        } catch (Exception ignored) {
+        }
+        try {
+            socket.close();
+        } catch (Exception ignored) {
+        }
+    }
+}
