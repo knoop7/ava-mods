@@ -6,6 +6,7 @@ import org.json.JSONObject;
 
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
+import java.io.File;
 import java.net.Socket;
 
 final class WyomingTtsSession implements Runnable {
@@ -20,15 +21,17 @@ final class WyomingTtsSession implements Runnable {
     private final String defaultRate;
     private final String defaultVolume;
     private final String defaultPitch;
+    private final File cacheDir;
     private final Callback callback;
 
     WyomingTtsSession(Socket socket, String voice, String rate, String volume, String pitch,
-                      Callback callback) {
+                      File cacheDir, Callback callback) {
         this.socket = socket;
         this.defaultVoice = voice;
         this.defaultRate = rate;
         this.defaultVolume = volume;
         this.defaultPitch = pitch;
+        this.cacheDir = cacheDir;
         this.callback = callback;
     }
 
@@ -88,16 +91,21 @@ final class WyomingTtsSession implements Runnable {
 
         try {
             byte[] mp3Data = EdgeTtsEngine.synthesize(text, voice, rate, volume, pitch);
+            byte[] pcmData = Mp3Decoder.decodeToPcm16(mp3Data, cacheDir);
 
-            WyomingWire.writeEvent(output, WyomingWire.audioStartEvent(24000, 2, 1, "mp3"));
+            int sampleRate = 24000;
+            int sampleWidth = 2;
+            int channels = 1;
+
+            WyomingWire.writeEvent(output, WyomingWire.audioStartEvent(sampleRate, sampleWidth, channels, null));
 
             int chunkSize = 8192;
             int offset = 0;
-            while (offset < mp3Data.length) {
-                int end = Math.min(offset + chunkSize, mp3Data.length);
+            while (offset < pcmData.length) {
+                int end = Math.min(offset + chunkSize, pcmData.length);
                 byte[] chunk = new byte[end - offset];
-                System.arraycopy(mp3Data, offset, chunk, 0, chunk.length);
-                WyomingWire.writeEvent(output, WyomingWire.audioChunkEvent(chunk));
+                System.arraycopy(pcmData, offset, chunk, 0, chunk.length);
+                WyomingWire.writeEvent(output, WyomingWire.audioChunkEvent(chunk, sampleRate, sampleWidth, channels));
                 offset = end;
             }
 
@@ -107,7 +115,7 @@ final class WyomingTtsSession implements Runnable {
                 callback.onSynthesized(text);
             }
 
-            Log.d(TAG, "Synthesized " + text.length() + " chars, " + mp3Data.length + " bytes MP3");
+            Log.d(TAG, "Synthesized " + text.length() + " chars, " + mp3Data.length + " bytes MP3, " + pcmData.length + " bytes PCM");
         } catch (Exception e) {
             Log.e(TAG, "Synthesis failed", e);
             try {

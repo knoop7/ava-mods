@@ -4,7 +4,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 final class WyomingInfoBuilder {
-    private static final String VERSION = "1.0.4";
+    private static final String VERSION = "1.0.5";
 
     private WyomingInfoBuilder() {
     }

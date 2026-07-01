@@ -39,6 +39,8 @@ public class EdgeTtsManager {
                 notifyStateListeners("last_text", lastText);
             }
         });
+
+        this.server.setCacheDir(context.getCacheDir());
     }
 
     public static EdgeTtsManager getInstance(Context context) {

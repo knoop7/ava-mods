@@ -2,6 +2,7 @@ package com.ava.mods.edgetts;
 
 import android.util.Log;
 
+import java.io.File;
 import java.net.BindException;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
@@ -34,6 +35,7 @@ final class WyomingTtsServer {
     private volatile String rate = "+0%";
     private volatile String volume = "+0%";
     private volatile String pitch = "+0Hz";
+    private volatile File cacheDir;
 
     WyomingTtsServer(SynthesisListener listener) {
         this.listener = listener;
@@ -53,6 +55,10 @@ final class WyomingTtsServer {
         if (rate != null) this.rate = rate;
         if (volume != null) this.volume = volume;
         if (pitch != null) this.pitch = pitch;
+    }
+
+    void setCacheDir(File cacheDir) {
+        this.cacheDir = cacheDir;
     }
 
     boolean isRunning() {
@@ -129,6 +135,7 @@ final class WyomingTtsServer {
                 try {
                     Socket client = localSocket.accept();
                     sessionExecutor.execute(new WyomingTtsSession(client, voice, rate, volume, pitch,
+                            cacheDir,
                             new WyomingTtsSession.Callback() {
                                 @Override
                                 public void onSynthesized(String text) {

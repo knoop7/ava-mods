@@ -95,8 +95,16 @@ final class WyomingWire {
         }
     }
 
-    static WyomingEvent audioChunkEvent(byte[] audioData) {
-        return new WyomingEvent("audio-chunk", new JSONObject(), audioData);
+    static WyomingEvent audioChunkEvent(byte[] audioData, int rate, int width, int channels) {
+        try {
+            JSONObject data = new JSONObject();
+            data.put("rate", rate);
+            data.put("width", width);
+            data.put("channels", channels);
+            return new WyomingEvent("audio-chunk", data, audioData);
+        } catch (Exception e) {
+            return new WyomingEvent("audio-chunk", new JSONObject(), audioData);
+        }
     }
 
     static WyomingEvent audioStopEvent() {
