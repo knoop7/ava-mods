@@ -106,6 +106,7 @@ final class WyomingTtsSession implements Runnable {
         try {
             byte[] mp3Data = EdgeTtsEngine.synthesize(text, voice, rate, volume, pitch);
             byte[] pcmData = Mp3Decoder.decodeToPcm16(mp3Data, cacheDir);
+            pcmData = normalizePcm16(pcmData);
 
             int sampleRate = 24000;
             int sampleWidth = 2;
@@ -156,6 +157,35 @@ final class WyomingTtsSession implements Runnable {
         if (langLower.startsWith("ja")) return "ja-JP-NanamiNeural";
         if (langLower.startsWith("ko")) return "ko-KR-SunHiNeural";
         return fallback;
+    }
+
+    private static byte[] normalizePcm16(byte[] pcm) {
+        if (pcm == null || pcm.length < 2) return pcm;
+
+        int peak = 0;
+        for (int i = 0; i + 1 < pcm.length; i += 2) {
+            int sample = (short) ((pcm[i] & 0xFF) | (pcm[i + 1] << 8));
+            int abs = Math.abs(sample);
+            if (abs > peak) peak = abs;
+        }
+
+        if (peak < 100) return pcm;
+
+        final int TARGET = (int) (32767 * 0.9);
+        float gain = (float) TARGET / peak;
+        gain = Math.min(gain, 5.0f);
+
+        byte[] out = new byte[pcm.length];
+        for (int i = 0; i + 1 < pcm.length; i += 2) {
+            int sample = (short) ((pcm[i] & 0xFF) | (pcm[i + 1] << 8));
+            float scaled = sample * gain;
+            if (scaled > 32767) scaled = 32767;
+            if (scaled < -32768) scaled = -32768;
+            int val = (int) scaled;
+            out[i] = (byte) (val & 0xFF);
+            out[i + 1] = (byte) (val >> 8);
+        }
+        return out;
     }
 
     private void closeQuietly(BufferedOutputStream output, BufferedInputStream input) {

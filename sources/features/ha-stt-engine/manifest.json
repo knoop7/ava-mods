@@ -106,14 +106,6 @@
       "read": "getLastEmotion"
     },
     {
-      "type": "text_sensor",
-      "id": "last_audio_event",
-      "name": "STT Audio Event",
-      "icon": "mdi:speaker-wireless",
-      "enabledByConfig": "show_audio_event_sensor",
-      "read": "getLastAudioEvent"
-    },
-    {
       "type": "button",
       "id": "download_model",
       "name": "Download Model",
