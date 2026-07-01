@@ -81,13 +81,22 @@ final class EdgeTtsEngine {
                         break;
                     }
                 } else if (opcode == 0x2) {
-                    String header = parseBinaryHeader(payload);
-                    if (header.contains("Path:audio")) {
-                        byte[] audioData = extractAudioPayload(payload);
-                        if (audioData != null && audioData.length > 0) {
-                            audioBuffer.write(audioData);
-                            gotAudio = true;
-                        }
+                    if (payload.length < 2) {
+                        Log.w(TAG, "Binary frame too short: " + payload.length);
+                        continue;
+                    }
+                    int headerLen = ((payload[0] & 0xFF) << 8) | (payload[1] & 0xFF);
+                    if (headerLen > payload.length) {
+                        Log.w(TAG, "Header length exceeds payload: " + headerLen + " > " + payload.length);
+                        continue;
+                    }
+                    String header = new String(payload, 2, headerLen, java.nio.charset.StandardCharsets.UTF_8);
+                    int dataOffset = 2 + headerLen;
+                    if (header.contains("Path:audio") && dataOffset < payload.length) {
+                        byte[] audioData = new byte[payload.length - dataOffset];
+                        System.arraycopy(payload, dataOffset, audioData, 0, audioData.length);
+                        audioBuffer.write(audioData);
+                        gotAudio = true;
                     }
                 }
             }
@@ -273,34 +282,19 @@ final class EdgeTtsEngine {
     }
 
     private static String parseBinaryHeader(byte[] payload) {
-        int headerEnd = -1;
-        for (int i = 0; i < payload.length - 1; i++) {
-            if (payload[i] == '\r' && payload[i + 1] == '\n' && i + 3 < payload.length
-                    && payload[i + 2] == '\r' && payload[i + 3] == '\n') {
-                headerEnd = i;
-                break;
-            }
-        }
-        if (headerEnd < 0) {
-            return "";
-        }
-        return new String(payload, 0, headerEnd, java.nio.charset.StandardCharsets.UTF_8);
+        if (payload.length < 2) return "";
+        int headerLen = ((payload[0] & 0xFF) << 8) | (payload[1] & 0xFF);
+        if (headerLen > payload.length) return "";
+        return new String(payload, 2, headerLen, java.nio.charset.StandardCharsets.UTF_8);
     }
 
     private static byte[] extractAudioPayload(byte[] payload) {
-        int headerEnd = -1;
-        for (int i = 0; i < payload.length - 3; i++) {
-            if (payload[i] == '\r' && payload[i + 1] == '\n'
-                    && payload[i + 2] == '\r' && payload[i + 3] == '\n') {
-                headerEnd = i + 4;
-                break;
-            }
-        }
-        if (headerEnd < 0 || headerEnd >= payload.length) {
-            return null;
-        }
-        byte[] audio = new byte[payload.length - headerEnd];
-        System.arraycopy(payload, headerEnd, audio, 0, audio.length);
+        if (payload.length < 2) return null;
+        int headerLen = ((payload[0] & 0xFF) << 8) | (payload[1] & 0xFF);
+        int dataOffset = 2 + headerLen;
+        if (dataOffset >= payload.length) return null;
+        byte[] audio = new byte[payload.length - dataOffset];
+        System.arraycopy(payload, dataOffset, audio, 0, audio.length);
         return audio;
     }
 
