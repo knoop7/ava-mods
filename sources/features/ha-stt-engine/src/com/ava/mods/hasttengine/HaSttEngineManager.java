@@ -31,7 +31,6 @@ public class HaSttEngineManager {
     private volatile int downloadProgress = 0;
     private volatile String lastTranscript = "";
     private volatile String lastEmotion = "";
-    private volatile String lastAudioEvent = "";
     private volatile String downloadErrorMessage = "";
     private volatile boolean autoStartConfigured = false;
 
@@ -75,10 +74,8 @@ public class HaSttEngineManager {
             public void onTranscript(RecognitionResult result) {
                 lastTranscript = result.text;
                 lastEmotion = result.emotion;
-                lastAudioEvent = result.audioEvent;
                 notifyStateListeners("last_transcript", lastTranscript);
                 notifyStateListeners("last_emotion", lastEmotion);
-                notifyStateListeners("last_audio_event", lastAudioEvent);
             }
         });
         this.nsd = new WyomingNsd(this.context);
@@ -242,10 +239,6 @@ public class HaSttEngineManager {
         return lastEmotion;
     }
 
-    public String getLastAudioEvent() {
-        return lastAudioEvent;
-    }
-
     public boolean downloadModel() {
         if (ModelStore.isReady(context)
                 && ModelStore.matchesBundledLanguage(context, recognitionLanguage)) {
@@ -345,8 +338,6 @@ public class HaSttEngineManager {
             notifySingleListener(callback, lastTranscript);
         } else if ("last_emotion".equals(entityId)) {
             notifySingleListener(callback, lastEmotion);
-        } else if ("last_audio_event".equals(entityId)) {
-            notifySingleListener(callback, lastAudioEvent);
         }
     }
 
