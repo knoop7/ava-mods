@@ -59,9 +59,10 @@ final class ModelDownloader {
         }
     }
 
-    void downloadAsync() {
+    boolean downloadAsync() {
         if (!running.compareAndSet(false, true)) {
-            return;
+            Log.w(TAG, "Download already in progress");
+            return false;
         }
         cancelRequested.set(false);
         executor.execute(new Runnable() {
@@ -75,6 +76,7 @@ final class ModelDownloader {
                 }
             }
         });
+        return true;
     }
 
     private void downloadBlocking() {

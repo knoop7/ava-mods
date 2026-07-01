@@ -195,6 +195,10 @@ public class HaSttEngineManager {
 
     public String getModelStatusDisplay() {
         if ("ready".equals(modelStatus)) {
+            if (!ModelStore.isReady(context)
+                    || !ModelStore.matchesBundledLanguage(context, recognitionLanguage)) {
+                return "Not downloaded";
+            }
             return "Ready";
         }
         if ("downloading".equals(modelStatus)) {
@@ -230,13 +234,19 @@ public class HaSttEngineManager {
     public boolean downloadModel() {
         if (ModelStore.isReady(context)
                 && ModelStore.matchesBundledLanguage(context, recognitionLanguage)) {
-            modelStatus = "ready";
-            notifyStateListeners("model_status", getModelStatusDisplay());
+            if (engine.isLoaded()) {
+                modelStatus = "ready";
+                notifyStateListeners("model_status", getModelStatusDisplay());
+                maybeStartServer();
+                return true;
+            }
             loadRecognizer();
-            maybeStartServer();
-            return true;
-        }
-        if (ModelStore.isReady(context)
+            if (engine.isLoaded()) {
+                maybeStartServer();
+                return true;
+            }
+            invalidateInstalledModel();
+        } else if (ModelStore.isReady(context)
                 && !ModelStore.matchesBundledLanguage(context, recognitionLanguage)) {
             invalidateInstalledModel();
         }
@@ -244,8 +254,14 @@ public class HaSttEngineManager {
             return true;
         }
         modelStatus = "downloading";
+        downloadProgress = 0;
         notifyStateListeners("model_status", getModelStatusDisplay());
-        downloader.downloadAsync();
+        notifyStateListeners("download_progress", Integer.valueOf(0));
+        if (!downloader.downloadAsync()) {
+            modelStatus = "not_ready";
+            notifyStateListeners("model_status", getModelStatusDisplay());
+            return false;
+        }
         return true;
     }
 
