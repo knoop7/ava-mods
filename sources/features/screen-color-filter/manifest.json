@@ -1,0 +1,39 @@
+{
+  "id": "screen-color-filter",
+  "name": "Screen Color Filter",
+  "version": "1.0.0",
+  "author": "Ava",
+  "description": "Apply a global screen color tint controllable from Home Assistant",
+  "detail_description": "Adds a full-screen translucent overlay above all Ava layers. Select off, red, blue, dark, yellow, green, or gray from Home Assistant. Touch input passes through the tint layer.",
+  "icon": "mdi:palette",
+  "overlay_z_order": true,
+  "jar_hash": "3646e99ada30fde9f56025bf7efdc163",
+  "libs": [
+    "libs/screen-color-filter-manager.jar"
+  ],
+  "manager": "com.ava.mods.colorfilter.ScreenColorFilterManager",
+  "entities": [
+    {
+      "type": "select",
+      "id": "color_filter",
+      "name": "Screen Color Filter",
+      "icon": "mdi:palette",
+      "options": ["off", "red", "blue", "dark", "yellow", "green", "gray"],
+      "read": "getFilterColor",
+      "set": "setFilterColor"
+    }
+  ],
+  "config": [
+    {
+      "type": "number",
+      "key": "opacity",
+      "label": "Filter Opacity",
+      "description": "Tint strength from 0 (transparent) to 100 (strongest)",
+      "dialogHint": "Default 30. Lower values keep content readable; higher values deepen the tint.",
+      "defaultValue": "30",
+      "min": 0,
+      "max": 100,
+      "step": 5
+    }
+  ]
+}

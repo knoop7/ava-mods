@@ -184,6 +184,24 @@ Trigger action.
 }
 ```
 
+### select
+
+Option list exposed to Home Assistant as a dropdown. Use `read` for the current value and `set` for `methodName:option`.
+
+```json
+{
+  "type": "select",
+  "id": "color_filter",
+  "name": "Screen Color Filter",
+  "icon": "mdi:palette",
+  "options": ["off", "red", "blue", "dark", "yellow", "green", "gray"],
+  "read": "getFilterColor",
+  "set": "setFilterColor"
+}
+```
+
+Optional: implement `registerStateListener(String entityId, Object callback)` on the manager so device-side changes push back to Home Assistant.
+
 ## Action Format
 
 Actions use the format `methodName:arg1,arg2`:
@@ -208,6 +226,20 @@ Supported optional methods:
 These methods are optional. Mods that only expose entities do not need to implement them.
 
 When `sleepScreenForDark` / `wakeScreenFromDark` are absent or return `false`, Ava core uses its default screen control path.
+
+### Global overlay z-order (`overlay_z_order`)
+
+Set `"overlay_z_order": true` in `manifest.json` when the mod draws a full-screen overlay that must stay above Ava foreground overlays (notifications, voice UI, volume bar, etc.).
+
+The manager may implement:
+
+```java
+public void bringOverlayToFrontIfActive(Context context) {
+    // removeView + addView on the mod overlay when active
+}
+```
+
+Ava calls this at the end of overlay z-order reassert. When no enabled mod declares `overlay_z_order`, Ava skips this path entirely (cached zero-cost fast path).
 
 ## Publishing
 

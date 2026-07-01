@@ -108,6 +108,16 @@
       "path": "mods/devices/yx-led-controller/"
     },
     {
+      "id": "screen-color-filter",
+      "name": "Screen Color Filter",
+      "version": "1.0.0",
+      "author": "Ava",
+      "description": "Apply a global screen color tint controllable from Home Assistant",
+      "detail_description": "Full-screen translucent overlay above all Ava layers. Select off, red, blue, dark, yellow, green, or gray from Home Assistant.",
+      "path": "mods/features/screen-color-filter/",
+      "jar_hash": "3646e99ada30fde9f56025bf7efdc163"
+    },
+    {
       "id": "zigbee-gateway-mod",
       "name": "Zigbee Gateway",
       "version": "1.1.2",
