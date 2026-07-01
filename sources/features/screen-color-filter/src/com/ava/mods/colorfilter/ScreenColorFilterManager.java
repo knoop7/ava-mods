@@ -8,10 +8,12 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.Settings;
+import android.util.DisplayMetrics;
 import android.util.Log;
 import android.view.Gravity;
 import android.view.View;
 import android.view.WindowManager;
+import android.widget.FrameLayout;
 
 import java.lang.reflect.Method;
 import java.util.Arrays;
@@ -20,6 +22,12 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 
+/**
+ * Global screen tint overlay. Window flags and layout follow Ava overlay services
+ * (WeatherOverlayService, QuickEntityOverlayService, WebViewService):
+ * MATCH_PARENT, FLAG_LAYOUT_IN_SCREEN | FLAG_LAYOUT_NO_LIMITS | FLAG_FULLSCREEN,
+ * translucent system bars, SHORT_EDGES cutout, gravity TOP|START at (0,0).
+ */
 public class ScreenColorFilterManager {
 
     private static final String TAG = "ScreenColorFilter";
@@ -43,10 +51,13 @@ public class ScreenColorFilterManager {
     private final SharedPreferences prefs;
     private final CopyOnWriteArrayList<Object> colorFilterListeners = new CopyOnWriteArrayList<>();
 
-    private View overlayView;
+    private FrameLayout overlayRoot;
+    private View tintView;
     private WindowManager.LayoutParams overlayParams;
     private String currentColor = OFF;
     private int opacityPercent = DEFAULT_OPACITY_PERCENT;
+    private int realWidth;
+    private int realHeight;
 
     private ScreenColorFilterManager(Context context) {
         this.context = context.getApplicationContext();
@@ -55,6 +66,7 @@ public class ScreenColorFilterManager {
         this.prefs = this.context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         this.currentColor = normalizeColor(prefs.getString(KEY_COLOR, OFF));
         this.opacityPercent = clampOpacity(prefs.getInt(KEY_OPACITY, DEFAULT_OPACITY_PERCENT));
+        readRealDisplayMetrics();
         applyFilterOnMainThread();
     }
 
@@ -123,6 +135,19 @@ public class ScreenColorFilterManager {
         return true;
     }
 
+    private void readRealDisplayMetrics() {
+        DisplayMetrics realMetrics = new DisplayMetrics();
+        if (windowManager != null && windowManager.getDefaultDisplay() != null) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR1) {
+                windowManager.getDefaultDisplay().getRealMetrics(realMetrics);
+            } else {
+                windowManager.getDefaultDisplay().getMetrics(realMetrics);
+            }
+        }
+        realWidth = realMetrics.widthPixels;
+        realHeight = realMetrics.heightPixels;
+    }
+
     private void applyFilterOnMainThread() {
         runOnMain(this::applyFilterInternal);
     }
@@ -137,25 +162,37 @@ public class ScreenColorFilterManager {
             return;
         }
 
+        readRealDisplayMetrics();
         int color = resolveOverlayColor(currentColor, opacityPercent);
-        if (overlayView == null) {
-            overlayView = new View(context);
+
+        if (overlayRoot == null) {
+            overlayRoot = new FrameLayout(context);
+            tintView = new View(context);
+            tintView.setBackgroundColor(color);
+            overlayRoot.addView(
+                    tintView,
+                    new FrameLayout.LayoutParams(
+                            FrameLayout.LayoutParams.MATCH_PARENT,
+                            FrameLayout.LayoutParams.MATCH_PARENT
+                    )
+            );
             overlayParams = createLayoutParams();
-            overlayView.setBackgroundColor(color);
             try {
-                windowManager.addView(overlayView, overlayParams);
+                windowManager.addView(overlayRoot, overlayParams);
             } catch (Exception e) {
                 Log.e(TAG, "Failed to add screen filter overlay", e);
-                overlayView = null;
+                overlayRoot = null;
+                tintView = null;
                 overlayParams = null;
             }
             return;
         }
 
-        overlayView.setBackgroundColor(color);
-        if (!overlayView.isAttachedToWindow()) {
+        tintView.setBackgroundColor(color);
+        if (!overlayRoot.isAttachedToWindow()) {
+            overlayParams = createLayoutParams();
             try {
-                windowManager.addView(overlayView, overlayParams);
+                windowManager.addView(overlayRoot, overlayParams);
             } catch (Exception e) {
                 Log.e(TAG, "Failed to reattach screen filter overlay", e);
             }
@@ -163,34 +200,41 @@ public class ScreenColorFilterManager {
     }
 
     private void bringOverlayToFrontInternal() {
-        if (overlayView == null || overlayParams == null || !overlayView.isAttachedToWindow()) {
+        if (overlayRoot == null || overlayParams == null || !overlayRoot.isAttachedToWindow()) {
             return;
         }
         try {
-            int visibility = overlayView.getVisibility();
-            windowManager.removeView(overlayView);
-            windowManager.addView(overlayView, overlayParams);
-            overlayView.setVisibility(visibility);
+            int visibility = overlayRoot.getVisibility();
+            float alpha = overlayRoot.getAlpha();
+            windowManager.removeView(overlayRoot);
+            windowManager.addView(overlayRoot, overlayParams);
+            overlayRoot.setVisibility(visibility);
+            overlayRoot.setAlpha(alpha);
         } catch (Exception e) {
             Log.w(TAG, "Failed to bring screen filter overlay to front", e);
         }
     }
 
     private void removeOverlayInternal() {
-        if (overlayView == null) {
+        if (overlayRoot == null) {
             return;
         }
         try {
-            if (overlayView.isAttachedToWindow()) {
-                windowManager.removeView(overlayView);
+            if (overlayRoot.isAttachedToWindow()) {
+                windowManager.removeView(overlayRoot);
             }
         } catch (Exception e) {
             Log.w(TAG, "Failed to remove screen filter overlay", e);
         }
-        overlayView = null;
+        overlayRoot = null;
+        tintView = null;
         overlayParams = null;
     }
 
+    /**
+     * Same full-screen overlay contract as WeatherOverlayService / QuickEntityOverlayService.
+     * Adds FLAG_NOT_TOUCHABLE so the tint layer does not intercept touches.
+     */
     private WindowManager.LayoutParams createLayoutParams() {
         int layoutType;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -199,19 +243,29 @@ public class ScreenColorFilterManager {
             layoutType = WindowManager.LayoutParams.TYPE_PHONE;
         }
 
+        int flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+                | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+                | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+                | WindowManager.LayoutParams.FLAG_FULLSCREEN
+                | WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS
+                | WindowManager.LayoutParams.FLAG_TRANSLUCENT_NAVIGATION
+                | WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS;
+
         WindowManager.LayoutParams params = new WindowManager.LayoutParams(
                 WindowManager.LayoutParams.MATCH_PARENT,
                 WindowManager.LayoutParams.MATCH_PARENT,
                 layoutType,
-                WindowManager.LayoutParams.FLAG_FULLSCREEN
-                        | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
-                        | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
-                        | WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
-                        | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
-                        | WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
+                flags,
                 PixelFormat.TRANSLUCENT
         );
         params.gravity = Gravity.TOP | Gravity.START;
+        params.x = 0;
+        params.y = 0;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            params.layoutInDisplayCutoutMode =
+                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+        }
         return params;
     }
 

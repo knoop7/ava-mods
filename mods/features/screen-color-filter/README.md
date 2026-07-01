@@ -6,6 +6,7 @@ Global screen tint overlay for [Ava](https://github.com/knoop7/Ava), controllabl
 
 - Home Assistant `select` entity with options: off, red, blue, dark, yellow, green, gray
 - Full-screen translucent overlay above all Ava foreground layers
+- Window layout matches Ava overlay services (Weather, Quick Entity, WebView): edge-to-edge with cutout support
 - Touch passthrough (`FLAG_NOT_TOUCHABLE`)
 - Configurable opacity (0–100) in Ava mod settings
 - Persists selected color across restarts
