@@ -69,8 +69,11 @@ final class EdgeTtsEngine {
                     break;
                 }
                 int opcode = opAndPayload[0];
-                byte[] payload = new byte[opAndPayload[1]];
-                System.arraycopy(opAndPayload, 2, payload, 0, payload.length);
+                int payloadLen = opAndPayload[1];
+                byte[] payload = new byte[payloadLen];
+                for (int i = 0; i < payloadLen; i++) {
+                    payload[i] = (byte) opAndPayload[2 + i];
+                }
 
                 if (opcode == 0x1) {
                     String textPayload = new String(payload, "UTF-8");
