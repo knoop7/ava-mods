@@ -25,6 +25,7 @@ public class HaSttEngineManager {
     private volatile boolean mdnsEnabled = true;
     private volatile boolean autoDownload = true;
     private volatile int numThreads = 2;
+    private volatile String recognitionLanguage = SenseVoiceLanguages.DEFAULT;
 
     private volatile String modelStatus = "not_ready";
     private volatile int downloadProgress = 0;
@@ -147,6 +148,15 @@ public class HaSttEngineManager {
                 autoDownload = "true".equalsIgnoreCase(value);
                 if (autoDownload && !ModelStore.isReady(context) && !downloader.isRunning()) {
                     downloadModel();
+                }
+                break;
+            case "recognition_language":
+                String normalizedLanguage = SenseVoiceLanguages.normalize(value);
+                if (!normalizedLanguage.equals(recognitionLanguage)) {
+                    recognitionLanguage = normalizedLanguage;
+                    if (ModelStore.isReady(context)) {
+                        loadRecognizer();
+                    }
                 }
                 break;
             default:
@@ -306,7 +316,8 @@ public class HaSttEngineManager {
             engine.load(
                     ModelStore.modelFile(context).getAbsolutePath(),
                     ModelStore.tokensFile(context).getAbsolutePath(),
-                    numThreads
+                    numThreads,
+                    recognitionLanguage
             );
             modelStatus = "ready";
             notifyStateListeners("model_status", getModelStatusDisplay());

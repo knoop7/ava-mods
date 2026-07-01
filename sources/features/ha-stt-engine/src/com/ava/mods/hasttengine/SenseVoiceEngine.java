@@ -26,12 +26,13 @@ final class SenseVoiceEngine {
         return loaded;
     }
 
-    void load(String modelPath, String tokensPath, int numThreads) throws Exception {
+    void load(String modelPath, String tokensPath, int numThreads, String language) throws Exception {
         synchronized (lock) {
             releaseLocked();
+            String sherpaLanguage = SenseVoiceLanguages.toSherpaLanguage(language);
             OfflineSenseVoiceModelConfig senseVoice = new OfflineSenseVoiceModelConfig(
                     modelPath,
-                    "",
+                    sherpaLanguage,
                     true,
                     new QnnConfig()
             );
@@ -49,7 +50,7 @@ final class SenseVoiceEngine {
 
             recognizer = new OfflineRecognizer(null, config);
             loaded = true;
-            Log.i(TAG, "SenseVoice model loaded from " + modelPath);
+            Log.i(TAG, "SenseVoice model loaded from " + modelPath + " language=" + sherpaLanguage);
         }
     }
 

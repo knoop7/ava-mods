@@ -26,14 +26,14 @@ final class WyomingInfoBuilder {
 
         JSONObject model = new JSONObject();
         model.put("name", "SenseVoice Small");
-        model.put("description", "Multilingual offline ASR with emotion and event detection (zh/en)");
+        model.put("description", SenseVoiceLanguages.modelDescription());
         model.put("attribution", attribution);
         model.put("version", VERSION);
         model.put("installed", true);
         JSONArray languages = new JSONArray();
-        languages.put("zh");
-        languages.put("zh-CN");
-        languages.put("en");
+        for (String language : SenseVoiceLanguages.wyomingLanguageCodes()) {
+            languages.put(language);
+        }
         model.put("languages", languages);
 
         JSONObject program = new JSONObject();
