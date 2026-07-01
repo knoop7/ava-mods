@@ -40,12 +40,12 @@
     {
       "id": "ha-edge-tts",
       "name": "HA Edge TTS",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "author": "Ava",
       "description": "Edge TTS for Home Assistant via Wyoming protocol.",
       "detail_description": "Cloud-based TTS using Microsoft Edge TTS voices. 400+ voices in 40+ languages. Wyoming TCP port 10301.",
       "path": "mods/features/ha-edge-tts/",
-      "jar_hash": "81bbe6d1eeb80d51fd3222147ac470ef"
+      "jar_hash": "a0a5547feb26dee3df158e32b971c8b5"
     },
     {
       "id": "ha-stt-engine",
