@@ -18,6 +18,10 @@ final class EdgeTtsEngine {
     private static final String WS_URL =
             "wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1";
     private static final String TRUSTED_CLIENT_TOKEN = "6A5AA1D4EAFF4E9FB37E23D68491D6F4";
+    private static final String CHROMIUM_FULL_VERSION = "143.0.3650.75";
+    private static final String CHROMIUM_MAJOR_VERSION = "143";
+    private static final String SEC_MS_GEC_VERSION = "1-" + CHROMIUM_FULL_VERSION;
+    private static final long WIN_EPOCH = 11644473600L;
 
     interface SynthesisListener {
         void onAudio(byte[] mp3Data);
@@ -113,7 +117,38 @@ final class EdgeTtsEngine {
     private static String buildConnectUrl() {
         return WS_URL
                 + "?TrustedClientToken=" + TRUSTED_CLIENT_TOKEN
+                + "&Sec-MS-GEC=" + generateSecMsGec()
+                + "&Sec-MS-GEC-Version=" + SEC_MS_GEC_VERSION
                 + "&ConnectionId=" + UUID.randomUUID().toString().replace("-", "");
+    }
+
+    private static String generateSecMsGec() {
+        long unixTime = System.currentTimeMillis() / 1000L;
+        long ticks = unixTime + WIN_EPOCH;
+        ticks -= ticks % 300;
+        ticks *= 10000000L;
+        String strToHash = ticks + TRUSTED_CLIENT_TOKEN;
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            byte[] hash = md.digest(strToHash.getBytes("ASCII"));
+            StringBuilder hex = new StringBuilder();
+            for (byte b : hash) {
+                hex.append(String.format("%02X", b));
+            }
+            return hex.toString();
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private static String generateMuid() {
+        byte[] bytes = new byte[16];
+        new SecureRandom().nextBytes(bytes);
+        StringBuilder hex = new StringBuilder();
+        for (byte b : bytes) {
+            hex.append(String.format("%02X", b));
+        }
+        return hex.toString();
     }
 
     private static void performHandshake(BufferedOutputStream output, BufferedInputStream input,
@@ -130,9 +165,15 @@ final class EdgeTtsEngine {
         req.append("Connection: Upgrade\r\n");
         req.append("Sec-WebSocket-Key: ").append(key).append("\r\n");
         req.append("Sec-WebSocket-Version: 13\r\n");
-        req.append("Origin: chrome-extension://jdiccldimpdaibmpdkjnbddckphfwdhl\r\n");
+        req.append("Origin: chrome-extension://jdiccldimpdaibmpdkjnbmckianbfold\r\n");
+        req.append("Pragma: no-cache\r\n");
+        req.append("Cache-Control: no-cache\r\n");
         req.append("User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-                + " (KHTML, like Gecko) Chrome/103.0.5060.66 Safari/537.36 Edg/103.0.1264.44\r\n");
+                + " (KHTML, like Gecko) Chrome/" + CHROMIUM_MAJOR_VERSION + ".0.0.0 Safari/537.36"
+                + " Edg/" + CHROMIUM_MAJOR_VERSION + ".0.0.0\r\n");
+        req.append("Accept-Encoding: gzip, deflate, br, zstd\r\n");
+        req.append("Accept-Language: en-US,en;q=0.9\r\n");
+        req.append("Cookie: muid=").append(generateMuid()).append(";\r\n");
         req.append("\r\n");
 
         output.write(req.toString().getBytes("UTF-8"));
