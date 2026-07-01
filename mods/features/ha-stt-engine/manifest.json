@@ -1,7 +1,7 @@
 {
   "id": "ha-stt-engine",
   "name": "HA STT Engine",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "author": "Ava",
   "description": "Local Wyoming STT for Home Assistant (zh/en offline).",
   "detail_description": "First run downloads a ~230MB SenseVoice model to app storage. Wyoming TCP on port 10300 for Home Assistant voice pipelines.",
@@ -25,30 +25,29 @@
   ],
   "status_panel": [
     {
-      "type": "text",
+      "type": "download_strip",
       "label": "Model",
-      "read": "getModelStatusDisplay",
-      "listener_id": "model_status",
-      "description": "Ready when the SenseVoice model is on disk and loaded."
-    },
-    {
-      "type": "progress",
-      "label": "Model download",
       "read": "getDownloadProgress",
       "listener_id": "download_progress",
-      "description": "Background download (~230MB) to external app storage."
-    },
-    {
-      "type": "button",
-      "label": "Download model",
-      "press": "downloadModel",
-      "description": "Start or resume the SenseVoice model download."
-    },
-    {
-      "type": "button",
-      "label": "Delete model",
-      "press": "deleteModel",
-      "description": "Remove downloaded model files to free space."
+      "status_read": "getModelStatusDisplay",
+      "status_listener_id": "model_status",
+      "description": "SenseVoice ~230MB · background download to app storage",
+      "detail_description": "Downloads model_q8.onnx and tokens.txt on first run. Wyoming TCP port 10300 is available after the model is ready and loaded.",
+      "ready_keywords": ["ready", "Ready", "已就绪"],
+      "downloading_keywords": ["downloading", "Downloading", "下载中"],
+      "error_keywords": ["error", "Error", "failed", "Failed", "错误", "失败"],
+      "actions": [
+        {
+          "label": "Download model",
+          "press": "downloadModel",
+          "style": "primary"
+        },
+        {
+          "label": "Delete model",
+          "press": "deleteModel",
+          "style": "destructive"
+        }
+      ]
     }
   ],
   "entities": [
@@ -209,6 +208,6 @@
       "defaultValue": "true"
     }
   ],
-  "jar_hash": "f7b6a2aaf8ed7de14a4e31a13d83a1e5"
+  "jar_hash": "1723307bacf7905c91d313a3b7091bb2"
 }
 

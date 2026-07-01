@@ -209,6 +209,8 @@ public class HaSttEngineManager {
         if (downloader.isRunning()) {
             return true;
         }
+        modelStatus = "downloading";
+        notifyStateListeners("model_status", getModelStatusDisplay());
         downloader.downloadAsync();
         return true;
     }
