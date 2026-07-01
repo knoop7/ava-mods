@@ -64,12 +64,13 @@ final class EdgeTtsEngine {
             boolean gotAudio = false;
 
             while (true) {
-                byte[] frame = readWsFrame(input);
-                if (frame == null) {
+                int[] opAndPayload = readWsFrame(input);
+                if (opAndPayload == null) {
                     break;
                 }
-                int opcode = frame[0] & 0x0F;
-                byte[] payload = extractPayload(frame);
+                int opcode = opAndPayload[0];
+                byte[] payload = new byte[opAndPayload[1]];
+                System.arraycopy(opAndPayload, 2, payload, 0, payload.length);
 
                 if (opcode == 0x1) {
                     String textPayload = new String(payload, "UTF-8");
@@ -214,12 +215,13 @@ final class EdgeTtsEngine {
         sendWsTextFrame(output, msg2.toString());
     }
 
-    private static byte[] readWsFrame(BufferedInputStream input) throws Exception {
+    private static int[] readWsFrame(BufferedInputStream input) throws Exception {
         int b0 = input.read();
         if (b0 < 0) return null;
         int b1 = input.read();
         if (b1 < 0) return null;
 
+        int opcode = b0 & 0x0F;
         boolean masked = (b1 & 0x80) != 0;
         int payloadLen = b1 & 0x7F;
 
@@ -258,41 +260,13 @@ final class EdgeTtsEngine {
             }
         }
 
-        ByteArrayOutputStream result = new ByteArrayOutputStream();
-        result.write(b0);
-        result.write(b1);
-        result.write(payloadData);
-        return result.toByteArray();
-    }
-
-    private static int extractOpcode(byte[] frame) {
-        return frame[0] & 0x0F;
-    }
-
-    private static byte[] extractPayload(byte[] frame) {
-        int b1 = frame[1] & 0xFF;
-        int headerLen = 2;
-        int payloadLen = b1 & 0x7F;
-
-        if (payloadLen == 126) {
-            payloadLen = ((frame[2] & 0xFF) << 8) | (frame[3] & 0xFF);
-            headerLen = 4;
-        } else if (payloadLen == 127) {
-            payloadLen = 0;
-            for (int i = 0; i < 8; i++) {
-                payloadLen = (payloadLen << 8) | (frame[2 + i] & 0xFF);
-            }
-            headerLen = 10;
+        int[] result = new int[2 + payloadLen];
+        result[0] = opcode;
+        result[1] = payloadLen;
+        for (int i = 0; i < payloadLen; i++) {
+            result[2 + i] = payloadData[i] & 0xFF;
         }
-
-        boolean masked = (b1 & 0x80) != 0;
-        if (masked) {
-            headerLen += 4;
-        }
-
-        byte[] payload = new byte[payloadLen];
-        System.arraycopy(frame, headerLen, payload, 0, payloadLen);
-        return payload;
+        return result;
     }
 
     private static String parseBinaryHeader(byte[] payload) {
