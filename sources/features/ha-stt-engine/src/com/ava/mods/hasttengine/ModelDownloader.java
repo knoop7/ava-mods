@@ -32,7 +32,9 @@ final class ModelDownloader {
     private final Context context;
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private final AtomicBoolean running = new AtomicBoolean(false);
+    private final AtomicBoolean cancelRequested = new AtomicBoolean(false);
     private volatile ProgressListener listener;
+    private volatile HttpURLConnection activeConnection;
 
     ModelDownloader(Context context) {
         this.context = context.getApplicationContext();
@@ -46,10 +48,22 @@ final class ModelDownloader {
         return running.get();
     }
 
+    void cancelDownload() {
+        cancelRequested.set(true);
+        HttpURLConnection connection = activeConnection;
+        if (connection != null) {
+            try {
+                connection.disconnect();
+            } catch (Exception ignored) {
+            }
+        }
+    }
+
     void downloadAsync() {
         if (!running.compareAndSet(false, true)) {
             return;
         }
+        cancelRequested.set(false);
         executor.execute(new Runnable() {
             @Override
             public void run() {
@@ -57,6 +71,7 @@ final class ModelDownloader {
                     downloadBlocking();
                 } finally {
                     running.set(false);
+                    activeConnection = null;
                 }
             }
         });
@@ -72,7 +87,13 @@ final class ModelDownloader {
 
             notifyProgress(0);
             downloadFile(MODEL_URL, modelTemp, 0, 95);
+            if (cancelRequested.get()) {
+                throw new DownloadCancelledException("Download paused");
+            }
             downloadFile(TOKENS_URL, tokensTemp, 95, 99);
+            if (cancelRequested.get()) {
+                throw new DownloadCancelledException("Download paused");
+            }
 
             if (!modelTemp.renameTo(ModelStore.modelFile(context))) {
                 throw new IllegalStateException("Failed to finalize model file");
@@ -88,7 +109,17 @@ final class ModelDownloader {
             notifyStatus("ready");
             notifyFinished(true, "Model downloaded");
             Log.i(TAG, "Model ready at " + ModelStore.displayPath(context));
+        } catch (DownloadCancelledException e) {
+            Log.i(TAG, "Model download paused");
+            notifyStatus("paused");
+            notifyFinished(false, "Download paused");
         } catch (Exception e) {
+            if (cancelRequested.get()) {
+                Log.i(TAG, "Model download paused");
+                notifyStatus("paused");
+                notifyFinished(false, "Download paused");
+                return;
+            }
             Log.e(TAG, "Model download failed", e);
             ModelStore.clear(context);
             notifyStatus("error");
@@ -102,6 +133,7 @@ final class ModelDownloader {
         try {
             URL url = new URL(urlString);
             connection = (HttpURLConnection) url.openConnection();
+            activeConnection = connection;
             connection.setConnectTimeout(30000);
             connection.setReadTimeout(120000);
             connection.setInstanceFollowRedirects(true);
@@ -122,6 +154,9 @@ final class ModelDownloader {
             try {
                 int read;
                 while ((read = input.read(buffer)) != -1) {
+                    if (cancelRequested.get()) {
+                        throw new DownloadCancelledException("Download paused");
+                    }
                     output.write(buffer, 0, read);
                     downloaded += read;
                     if (total > 0) {
@@ -152,6 +187,9 @@ final class ModelDownloader {
             if (connection != null) {
                 connection.disconnect();
             }
+            if (activeConnection == connection) {
+                activeConnection = null;
+            }
         }
     }
 
@@ -179,6 +217,12 @@ final class ModelDownloader {
     private static void deleteQuietly(File file) {
         if (file != null && file.exists()) {
             file.delete();
+        }
+    }
+
+    private static final class DownloadCancelledException extends Exception {
+        DownloadCancelledException(String message) {
+            super(message);
         }
     }
 }

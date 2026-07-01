@@ -56,6 +56,10 @@ public class HaSttEngineManager {
                     loadRecognizer();
                     maybeStartServer();
                     downloadErrorMessage = "";
+                } else if (message != null && message.toLowerCase().contains("paused")) {
+                    modelStatus = "paused";
+                    downloadErrorMessage = "";
+                    notifyStateListeners("model_status", getModelStatusDisplay());
                 } else {
                     modelStatus = "error";
                     downloadErrorMessage = message == null ? "Download failed" : message;
@@ -184,6 +188,9 @@ public class HaSttEngineManager {
         if ("downloading".equals(modelStatus)) {
             return "Downloading in background…";
         }
+        if ("paused".equals(modelStatus)) {
+            return "Download paused";
+        }
         if ("error".equals(modelStatus)) {
             return downloadErrorMessage == null || downloadErrorMessage.isEmpty()
                     ? "Download failed"
@@ -225,6 +232,16 @@ public class HaSttEngineManager {
         return true;
     }
 
+    public boolean pauseDownload() {
+        if (!downloader.isRunning()) {
+            return false;
+        }
+        downloader.cancelDownload();
+        modelStatus = "paused";
+        notifyStateListeners("model_status", getModelStatusDisplay());
+        return true;
+    }
+
     public boolean restartServer() {
         if (!engine.isLoaded()) {
             if (ModelStore.isReady(context)) {
@@ -241,6 +258,7 @@ public class HaSttEngineManager {
     }
 
     public boolean deleteModel() {
+        downloader.cancelDownload();
         stopServer();
         engine.release();
         ModelStore.clear(context);
