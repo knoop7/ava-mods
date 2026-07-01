@@ -23,7 +23,7 @@ public class HaSttEngineManager {
     private volatile int tcpPort = 10300;
     private volatile boolean autoStart = true;
     private volatile boolean mdnsEnabled = true;
-    private volatile boolean autoDownload = true;
+    private volatile boolean autoDownload = false;
     private volatile int numThreads = 2;
     private volatile String recognitionLanguage = SenseVoiceLanguages.DEFAULT;
 
@@ -83,8 +83,12 @@ public class HaSttEngineManager {
         this.nsd = new WyomingNsd(this.context);
 
         if (ModelStore.isReady(this.context)) {
-            modelStatus = "ready";
-            loadRecognizer();
+            if (ModelStore.matchesBundledLanguage(this.context, recognitionLanguage)) {
+                modelStatus = "ready";
+                loadRecognizer();
+            } else {
+                modelStatus = "not_ready";
+            }
         } else {
             modelStatus = "not_ready";
             if (autoDownload) {
@@ -156,12 +160,20 @@ public class HaSttEngineManager {
                 break;
             case "recognition_language":
                 String normalizedLanguage = SenseVoiceLanguages.normalize(value);
-                if (!normalizedLanguage.equals(recognitionLanguage)) {
-                    recognitionLanguage = normalizedLanguage;
-                    if (ModelStore.isReady(context)) {
-                        loadRecognizer();
-                    }
+                if (normalizedLanguage.equals(recognitionLanguage)) {
+                    break;
                 }
+                recognitionLanguage = normalizedLanguage;
+                if (!ModelStore.isReady(context)) {
+                    modelStatus = "not_ready";
+                    notifyStateListeners("model_status", getModelStatusDisplay());
+                    break;
+                }
+                if (!ModelStore.matchesBundledLanguage(context, normalizedLanguage)) {
+                    invalidateInstalledModel();
+                    break;
+                }
+                loadRecognizer();
                 break;
             default:
                 break;
@@ -216,12 +228,17 @@ public class HaSttEngineManager {
     }
 
     public boolean downloadModel() {
-        if (ModelStore.isReady(context)) {
+        if (ModelStore.isReady(context)
+                && ModelStore.matchesBundledLanguage(context, recognitionLanguage)) {
             modelStatus = "ready";
             notifyStateListeners("model_status", getModelStatusDisplay());
             loadRecognizer();
             maybeStartServer();
             return true;
+        }
+        if (ModelStore.isReady(context)
+                && !ModelStore.matchesBundledLanguage(context, recognitionLanguage)) {
+            invalidateInstalledModel();
         }
         if (downloader.isRunning()) {
             return true;
@@ -337,6 +354,7 @@ public class HaSttEngineManager {
                     numThreads,
                     recognitionLanguage
             );
+            ModelStore.setBundledLanguage(context, recognitionLanguage);
             modelStatus = "ready";
             notifyStateListeners("model_status", getModelStatusDisplay());
         } catch (Exception e) {
@@ -344,6 +362,18 @@ public class HaSttEngineManager {
             modelStatus = "error";
             notifyStateListeners("model_status", getModelStatusDisplay());
         }
+    }
+
+    private void invalidateInstalledModel() {
+        downloader.cancelDownload();
+        stopServer();
+        engine.release();
+        ModelStore.clear(context);
+        modelStatus = "not_ready";
+        downloadProgress = 0;
+        downloadErrorMessage = "";
+        notifyStateListeners("model_status", getModelStatusDisplay());
+        notifyStateListeners("download_progress", Integer.valueOf(0));
     }
 
     private void notifyStateListeners(String entityId, Object value) {

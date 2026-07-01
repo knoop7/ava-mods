@@ -9,7 +9,7 @@ package com.ava.mods.hasttengine;
 final class SenseVoiceLanguages {
     static final String DEFAULT = "en";
 
-    private static final String[] DECODE_CODES = {"en", "zh", "auto", "ja", "ko", "yue"};
+    private static final String[] DECODE_CODES = {"en", "zh", "ja", "ko", "yue"};
     private static final String[] WYOMING_CODES = {"zh", "zh-CN", "en", "ja", "ko", "yue"};
 
     private SenseVoiceLanguages() {
@@ -20,7 +20,7 @@ final class SenseVoiceLanguages {
             return DEFAULT;
         }
         String trimmed = value.trim().toLowerCase();
-        if (trimmed.isEmpty()) {
+        if (trimmed.isEmpty() || "auto".equals(trimmed)) {
             return DEFAULT;
         }
         for (String code : DECODE_CODES) {
@@ -31,13 +31,8 @@ final class SenseVoiceLanguages {
         return DEFAULT;
     }
 
-    /** Value passed to sherpa OfflineSenseVoiceModelConfig.language. */
     static String toSherpaLanguage(String configured) {
-        String normalized = normalize(configured);
-        if ("auto".equals(normalized)) {
-            return "auto";
-        }
-        return normalized;
+        return normalize(configured);
     }
 
     static String[] decodeOptions() {
