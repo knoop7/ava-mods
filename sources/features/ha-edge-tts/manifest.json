@@ -49,19 +49,43 @@
       "label": "Default Voice",
       "description": "Microsoft Edge TTS voice for synthesis.",
       "dialogHint": "zh-CN-XiaoxiaoNeural is a natural Chinese female voice. See full list at https://learn.microsoft.com/en-us/azure/ai-services/speech-service/language-support.",
-      "defaultValue": "zh-CN-XiaoxiaoNeural",
+      "defaultValue": "en-US-AriaNeural",
       "options": [
+        "en-US-AriaNeural",
+        "en-US-DavisNeural",
+        "en-US-GuyNeural",
+        "en-US-JennyNeural",
+        "en-US-AndrewNeural",
+        "en-US-EmmaNeural",
+        "en-US-MichelleNeural",
+        "en-GB-SoniaNeural",
+        "en-GB-RyanNeural",
+        "en-AU-NatashaNeural",
+        "en-CA-ClaraNeural",
+        "en-IN-NeerjaNeural",
         "zh-CN-XiaoxiaoNeural",
         "zh-CN-YunxiNeural",
         "zh-CN-YunyangNeural",
         "zh-CN-XiaoyiNeural",
         "zh-CN-YunjianNeural",
-        "en-US-AriaNeural",
-        "en-US-DavisNeural",
-        "en-US-GuyNeural",
-        "en-US-JennyNeural",
+        "zh-HK-HiuMaanNeural",
+        "zh-TW-HsiaoChenNeural",
         "ja-JP-NanamiNeural",
-        "ko-KR-SunHiNeural"
+        "ja-JP-KeitaNeural",
+        "ko-KR-SunHiNeural",
+        "fr-FR-DeniseNeural",
+        "de-DE-KatjaNeural",
+        "es-ES-ElviraNeural",
+        "it-IT-ElsaNeural",
+        "pt-BR-FranciscaNeural",
+        "ru-RU-SvetlanaNeural",
+        "vi-VN-HoaiMyNeural",
+        "th-TH-PremwadeeNeural",
+        "id-ID-GadisNeural",
+        "hi-IN-SwaraNeural",
+        "ar-SA-ZariyahNeural",
+        "tr-TR-EmelNeural",
+        "nl-NL-ColetteNeural"
       ]
     },
     {
@@ -133,5 +157,5 @@
       "defaultValue": "false"
     }
   ],
-  "jar_hash": "3aceb09bd262acd69885077201768e4f"
+  "jar_hash": "5c5a100b7dc030e8a659d767ded1ae0b"
 }
