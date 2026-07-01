@@ -1,7 +1,7 @@
 {
   "id": "ha-stt-engine",
   "name": "HA STT Engine",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "author": "Ava",
   "description": "Local Wyoming STT for Home Assistant (multilingual offline).",
   "detail_description": "First run downloads a ~230MB SenseVoice model (zh/en/ja/ko/Cantonese). Wyoming TCP on port 10300 for Home Assistant voice pipelines.",
@@ -33,26 +33,23 @@
       "status_read": "getModelStatusDisplay",
       "status_listener_id": "model_status",
       "description": "~230MB · zh / en / ja / ko / Cantonese",
-      "ready_keywords": ["ready", "Ready", "已就绪"],
-      "downloading_keywords": ["downloading", "Downloading", "下载中"],
-      "paused_keywords": ["paused", "Paused", "暂停"],
-      "error_keywords": ["error", "Error", "failed", "Failed", "错误", "失败"],
+      "ready_keywords": ["ready"],
+      "downloading_keywords": ["downloading"],
+      "paused_keywords": ["paused"],
+      "error_keywords": ["error", "failed"],
       "inline_config_keys": ["recognition_language"],
       "actions": [
         {
-          "label": "Download model",
           "press": "downloadModel",
           "style": "primary",
           "show_when": ["idle", "paused", "error"]
         },
         {
-          "label": "Pause download",
           "press": "pauseDownload",
           "style": "secondary",
           "show_when": ["downloading"]
         },
         {
-          "label": "Delete model",
           "press": "deleteModel",
           "style": "destructive",
           "show_when": ["ready", "idle", "paused", "error"]
