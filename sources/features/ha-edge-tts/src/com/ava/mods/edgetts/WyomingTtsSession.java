@@ -70,8 +70,22 @@ final class WyomingTtsSession implements Runnable {
 
     private void handleSynthesize(BufferedOutputStream output, WyomingEvent event) {
         String text = event.data.optString("text", "");
-        String voice = event.data.optString("voice", defaultVoice);
-        String language = event.data.optString("language", "");
+
+        String voice = null;
+        String language = null;
+        if (event.data.has("voice")) {
+            try {
+                JSONObject voiceObj = event.data.getJSONObject("voice");
+                voice = voiceObj.optString("name", null);
+                language = voiceObj.optString("language", null);
+            } catch (Exception e) {
+                voice = event.data.optString("voice", null);
+            }
+        }
+        if (language == null) {
+            language = event.data.optString("language", null);
+        }
+
         String rate = event.data.optString("rate", defaultRate);
         String volume = event.data.optString("volume", defaultVolume);
         String pitch = event.data.optString("pitch", defaultPitch);
