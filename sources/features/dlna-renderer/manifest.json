@@ -1,0 +1,127 @@
+{
+  "id": "dlna-renderer",
+  "name": "DLNA Renderer",
+  "version": "1.5.3",
+  "author": "Ava",
+  "description": "MediaRenderer:1 with optional Cinema full-screen player.",
+  "detail_description": "Preemptive DLNA casting; enable Cinema overlay in settings to show on-screen controls.",
+  "icon": "mdi:cast",
+  "libs": [
+    "libs/dlna-renderer-manager.jar"
+  ],
+  "manager": "com.ava.mods.dlna.DlnaRendererManager",
+  "voice_pipeline": true,
+  "overlay_z_order": true,
+  "playback_reference": true,
+  "permissions": [
+    "android.permission.INTERNET",
+    "android.permission.ACCESS_NETWORK_STATE",
+    "android.permission.ACCESS_WIFI_STATE",
+    "android.permission.CHANGE_WIFI_MULTICAST_STATE",
+    "android.permission.WAKE_LOCK"
+  ],
+  "config": [
+    {
+      "type": "text",
+      "key": "device_name",
+      "label": "Device Name",
+      "description": "Friendly name shown in DLNA controller apps.",
+      "dialogHint": "The name controllers like BubbleUPnP display in their renderer list.",
+      "defaultValue": "Ava"
+    },
+    {
+      "type": "switch",
+      "key": "auto_start",
+      "label": "Auto Start",
+      "description": "Start the DLNA renderer when this mod is enabled.",
+      "defaultValue": "true"
+    },
+    {
+      "type": "switch",
+      "key": "allow_volume_control",
+      "label": "Allow Volume Control",
+      "description": "Let DLNA controllers change the device media volume.",
+      "defaultValue": "true"
+    },
+    {
+      "type": "switch",
+      "key": "voice_ducking",
+      "label": "Voice Ducking",
+      "description": "Lower DLNA playback volume while talking to the voice assistant.",
+      "defaultValue": "true"
+    },
+    {
+      "type": "switch",
+      "key": "show_cinema_overlay",
+      "label": "Cinema Overlay",
+      "description": "Show full-screen Cinema player UI while DLNA audio or video is playing.",
+      "defaultValue": "false"
+    },
+    {
+      "type": "switch",
+      "key": "keep_controls_visible",
+      "label": "Keep Playback Bar Visible",
+      "description": "Keep the bottom playback bar (progress, shuffle/prev/play/next/repeat) always on screen. Only the top back-button header auto-hides. Turn off to auto-hide the bottom bar too.",
+      "defaultValue": "true"
+    },
+    {
+      "type": "switch",
+      "key": "dual_output_earpiece_speaker",
+      "label": "Dual Output (Speaker + Earpiece)",
+      "description": "Best-effort route hint for phone-class devices. Default OFF. When enabled, playback tries to drive both loudspeaker and earpiece; actual effect depends on device audio HAL.",
+      "defaultValue": "false"
+    },
+    {
+      "type": "switch",
+      "key": "show_diagnostic_entities",
+      "label": "Show Diagnostic Entities",
+      "description": "Expose renderer status entities in Home Assistant.",
+      "defaultValue": "false"
+    }
+  ],
+  "entities": [
+    {
+      "type": "binary_sensor",
+      "id": "server_running",
+      "name": "DLNA Renderer",
+      "icon": "mdi:cast",
+      "class": "connectivity",
+      "category": "diagnostic",
+      "enabledByConfig": "show_diagnostic_entities",
+      "read": "isServerRunning"
+    },
+    {
+      "type": "text_sensor",
+      "id": "now_playing",
+      "name": "DLNA Now Playing",
+      "icon": "mdi:music-note",
+      "read": "getNowPlaying"
+    },
+    {
+      "type": "text_sensor",
+      "id": "playback_state",
+      "name": "DLNA Playback State",
+      "icon": "mdi:play-circle-outline",
+      "category": "diagnostic",
+      "enabledByConfig": "show_diagnostic_entities",
+      "read": "getPlaybackState"
+    },
+    {
+      "type": "button",
+      "id": "restart_server",
+      "name": "Restart DLNA Renderer",
+      "icon": "mdi:restart",
+      "category": "diagnostic",
+      "enabledByConfig": "show_diagnostic_entities",
+      "press": "restartServer"
+    },
+    {
+      "type": "button",
+      "id": "stop_playback",
+      "name": "Stop DLNA Playback",
+      "icon": "mdi:stop-circle-outline",
+      "press": "stopPlayback"
+    }
+  ],
+  "jar_hash": "3ba6dede8d1b9ad845179b46ca9660fe"
+}

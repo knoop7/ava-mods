@@ -1,0 +1,44 @@
+{
+  "id": "ble-adv-proxy",
+  "name": "BLE ADV Proxy",
+  "version": "0.1.0",
+  "author": "Ava",
+  "description": "Bidirectional BLE raw advertising proxy for ha-ble-adv ceiling fans and lamps.",
+  "detail_description": "Ports esphome-ble_adv_proxy to Ava. Requires Ava core ModBleAdvProxyBridge hooks and Bluetooth detect enabled. Transmit uses a serial queue so ADV bursts do not overlap the standard Bluetooth proxy scan.",
+  "icon": "mdi:ceiling-fan",
+  "libs": [
+    "libs/ble-adv-proxy-manager.jar"
+  ],
+  "manager": "com.ava.mods.bleadv.BleAdvProxyManager",
+  "ble_adv_proxy": true,
+  "permissions": [
+    "bluetooth",
+    "bluetooth_scan",
+    "bluetooth_connect",
+    "bluetooth_advertise"
+  ],
+  "config": [
+    {
+      "type": "switch",
+      "key": "enabled",
+      "label": "Enable BLE ADV Proxy",
+      "description": "Expose ble_adv_proxy services and events to Home Assistant.",
+      "defaultValue": "true"
+    },
+    {
+      "type": "switch",
+      "key": "use_max_tx_power",
+      "label": "Max TX Power",
+      "description": "Use highest BLE advertise TX power when sending control packets.",
+      "defaultValue": "false"
+    },
+    {
+      "type": "text",
+      "key": "adapter_name",
+      "label": "Adapter Name",
+      "description": "Optional unique adapter name for ha-ble-adv. Leave blank to use the Ava device name.",
+      "defaultValue": ""
+    }
+  ],
+  "jar_hash": "5ba21224c8415f7823febf7a89b014a1"
+}
