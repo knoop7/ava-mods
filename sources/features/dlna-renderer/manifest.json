@@ -3,8 +3,8 @@
   "name": "DLNA Renderer",
   "version": "1.5.3",
   "author": "Ava",
-  "description": "MediaRenderer:1 with optional Cinema full-screen player.",
-  "detail_description": "Preemptive DLNA casting; enable Cinema overlay in settings to show on-screen controls.",
+  "description": "DLNA MediaRenderer for LAN music casting from BubbleUPnP, foobar2000, and other UPnP apps.",
+  "detail_description": "Turn Ava into a DLNA MediaRenderer:1 speaker with optional Cinema full-screen player and on-screen controls. Supports preemptive casting without Music Assistant, voice ducking, DLNA volume control, Home Assistant diagnostic entities, and autostart on boot.",
   "icon": "mdi:cast",
   "libs": [
     "libs/dlna-renderer-manager.jar"
