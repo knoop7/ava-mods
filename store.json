@@ -50,7 +50,7 @@
     {
       "id": "ha-stt-engine",
       "name": "HA STT Engine",
-      "version": "1.2.0",
+      "version": "1.2.1",
       "author": "Ava",
       "description": "Wyoming offline STT for Home Assistant (multilingual).",
       "detail_description": "SenseVoice model: zh/en/ja/ko/Cantonese. ~230MB download. Wyoming TCP port 10300.",
