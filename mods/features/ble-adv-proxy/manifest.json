@@ -1,22 +1,16 @@
 {
   "id": "ble-adv-proxy",
   "name": "BLE ADV Proxy",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "author": "Ava",
   "description": "Bidirectional raw BLE advertising proxy for ha-ble-adv. Scan nearby BLE broadcasts and send control packets to ceiling fans or lamps.",
-  "detail_description": "esphome-ble_adv_proxy port for ha-ble-adv. Requires Ava core hooks and Bluetooth detect. Deduped scan; queued ADV transmit.",
+  "detail_description": "esphome-ble_adv_proxy port for ha-ble-adv. Requires Ava core hooks and Bluetooth detect. Scan via core; ADV transmit uses Ava APK Bluetooth permissions (no extra mod runtime permissions).",
   "icon": "mdi:ceiling-fan",
   "libs": [
     "libs/ble-adv-proxy-manager.jar"
   ],
   "manager": "com.ava.mods.bleadv.BleAdvProxyManager",
   "ble_adv_proxy": true,
-  "permissions": [
-    "bluetooth",
-    "bluetooth_scan",
-    "bluetooth_connect",
-    "bluetooth_advertise"
-  ],
   "config": [
     {
       "type": "switch",
