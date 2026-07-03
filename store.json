@@ -70,12 +70,12 @@
     {
       "id": "dlna-renderer",
       "name": "DLNA Renderer",
-      "version": "1.5.3",
+      "version": "1.5.5",
       "author": "Ava",
       "description": "Turn Ava into a DLNA speaker any app can cast music to.",
       "detail_description": "No Music Assistant needed - cast from BubbleUPnP, foobar2000, or any DLNA/UPnP controller on your network.",
       "path": "mods/features/dlna-renderer/",
-      "jar_hash": "3ba6dede8d1b9ad845179b46ca9660fe"
+      "jar_hash": "f12dc0185b1fc65a1b9a776d63bbb852"
     },
     {
       "id": "gps-mod",

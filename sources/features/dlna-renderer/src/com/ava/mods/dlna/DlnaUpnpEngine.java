@@ -3,6 +3,7 @@ package com.ava.mods.dlna;
 import android.content.Context;
 import android.net.wifi.WifiManager;
 import android.os.Build;
+import android.os.PowerManager;
 import android.util.Log;
 
 import org.jupnp.UpnpService;
@@ -95,6 +96,7 @@ public class DlnaUpnpEngine {
     private LocalService<AvaRenderingControlService> renderingControlService;
     private AvaAVTransportService avTransportInstance;
     private WifiManager.MulticastLock multicastLock;
+    private PowerManager.WakeLock serviceWakeLock;
 
     private volatile boolean running = false;
 
@@ -106,6 +108,18 @@ public class DlnaUpnpEngine {
 
     public boolean isRunning() {
         return running;
+    }
+
+    /** True when the UPnP stack and its multicast listener are both alive. */
+    public boolean isHealthy() {
+        if (!running) {
+            return false;
+        }
+        if (upnpService == null) {
+            return false;
+        }
+        WifiManager.MulticastLock lock = multicastLock;
+        return lock != null && lock.isHeld();
     }
 
     public AvaAVTransportService getAvTransport() {
@@ -125,6 +139,7 @@ public class DlnaUpnpEngine {
             }
             try {
                 acquireMulticastLock();
+                acquireServiceWakeLock();
                 upnpService = startUpnpService(FIXED_STREAM_PORT);
                 if (upnpService == null) {
                     // Fixed port unavailable (in use by another process, etc.) - fall
@@ -179,7 +194,37 @@ public class DlnaUpnpEngine {
             Log.w(TAG, "UPnP shutdown error", e);
         }
         releaseMulticastLock();
+        releaseServiceWakeLock();
         Log.i(TAG, "DMR offline");
+    }
+
+    private void acquireServiceWakeLock() {
+        try {
+            PowerManager pm = (PowerManager) context.getSystemService(Context.POWER_SERVICE);
+            if (pm == null) {
+                return;
+            }
+            PowerManager.WakeLock lock = pm.newWakeLock(
+                    PowerManager.PARTIAL_WAKE_LOCK, "AvaDlnaRenderer:Ssdp");
+            lock.setReferenceCounted(false);
+            lock.acquire();
+            serviceWakeLock = lock;
+        } catch (Throwable e) {
+            Log.w(TAG, "Failed to acquire service wake lock; SSDP may stall in doze", e);
+        }
+    }
+
+    private void releaseServiceWakeLock() {
+        PowerManager.WakeLock lock = serviceWakeLock;
+        serviceWakeLock = null;
+        if (lock != null) {
+            try {
+                if (lock.isHeld()) {
+                    lock.release();
+                }
+            } catch (Throwable ignored) {
+            }
+        }
     }
 
     /**

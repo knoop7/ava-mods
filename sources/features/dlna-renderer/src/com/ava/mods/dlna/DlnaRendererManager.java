@@ -6,11 +6,15 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.net.ConnectivityManager;
+import android.net.Network;
+import android.net.NetworkCapabilities;
 import android.net.NetworkInfo;
 import android.net.wifi.WifiInfo;
 import android.net.wifi.WifiManager;
 import android.media.AudioManager;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.Log;
 
 import org.jupnp.support.model.TransportState;
@@ -49,13 +53,23 @@ public class DlnaRendererManager {
     private static final int MAX_HISTORY = 50;
 
     private final Context context;
-    private final PlaybackEngine playbackEngine;
-    private final DlnaUpnpEngine upnpEngine;
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private volatile boolean destroyed = false;
     private final ExecutorService executor = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "DlnaRenderer");
         t.setDaemon(true);
+        t.setUncaughtExceptionHandler((thread, error) -> {
+            Log.e(TAG, "DlnaRenderer worker died; scheduling recovery", error);
+            mainHandler.post(() -> {
+                if (!destroyed) {
+                    scheduleSyncRetry("worker uncaught: " + error.getClass().getSimpleName());
+                }
+            });
+        });
         return t;
     });
+    private final PlaybackEngine playbackEngine;
+    private final DlnaUpnpEngine upnpEngine;
     private final ConcurrentHashMap<String, CopyOnWriteArrayList<Object>> stateListeners =
             new ConcurrentHashMap<>();
 
@@ -68,15 +82,18 @@ public class DlnaRendererManager {
     private volatile boolean keepControlsVisible = true;
     private volatile boolean dualOutputEnabled = false;
     private volatile boolean autoStartConfigured = false;
-    private volatile boolean destroyed = false;
+    /** Set by voice_pipeline events; suppresses z-order reassert during wake/TTS. */
+    private volatile boolean voiceSessionActive = false;
     private volatile String runningFingerprint = "";
     private volatile int syncRetryCount = 0;
     private volatile boolean syncRetryScheduled = false;
     private volatile boolean networkReceiverRegistered = false;
     private volatile String lastNetworkFingerprint = "";
+    private volatile boolean healthWatchdogScheduled = false;
     private static final int FAST_SYNC_RETRY_LIMIT = 20;
     private static final long FAST_SYNC_RETRY_MS = 1500L;
     private static final long SLOW_SYNC_RETRY_MS = 15000L;
+    private static final long HEALTH_WATCHDOG_MS = 45000L;
 
     private volatile String nowPlaying = "";
     private final CinemaOverlay cinemaOverlay;
@@ -193,6 +210,7 @@ public class DlnaRendererManager {
         this.upnpEngine = new DlnaUpnpEngine(this.context, playbackEngine, this);
         registerNetworkReceiver();
         lastNetworkFingerprint = currentNetworkFingerprint();
+        scheduleHealthWatchdog();
     }
 
     public static DlnaRendererManager getInstance(Context context) {
@@ -209,6 +227,7 @@ public class DlnaRendererManager {
     public void onDestroy() {
         destroyed = true;
         runningFingerprint = "";
+        mainHandler.removeCallbacksAndMessages(null);
         unregisterNetworkReceiver();
         executor.shutdown();
         synchronized (DlnaUpnpEngine.LIFECYCLE_LOCK) {
@@ -231,8 +250,9 @@ public class DlnaRendererManager {
     }
 
     /**
-     * ModDeviceSupport hook — VoiceSatelliteService deferred startup calls this so
-     * the renderer syncs with the central service instead of self-starting early.
+     * ModDeviceSupport hook — VoiceSatelliteService deferred startup (~1.8s).
+     * Does not grant overlay permission (device is already authorized); only
+     * nudges DLNA to sync once the voice satellite is up.
      */
     public boolean grantOverlayPermissionIfNeeded(Context ignored) {
         requestSyncServer();
@@ -308,33 +328,51 @@ public class DlnaRendererManager {
     // ------------------------------------------------------------------
 
     /**
-     * Opt-in overlay z-order hook (manifest {@code overlay_z_order}: true).
-     * Keeps the Cinema player above Ava foreground overlays when they reassert.
+     * Opt-in overlay hook (manifest {@code overlay_below_voice}: true).
+     * Reasserts Cinema above the dashboard but below wake ripple / voice UI.
+     * Skipped while a voice session is active so the wake animation stays visible.
      */
     public void bringOverlayToFrontIfActive(Context ignored) {
-        if (showCinemaOverlay) {
+        if (!showCinemaOverlay || voiceSessionActive) {
+            return;
+        }
+        try {
             cinemaOverlay.bringToFrontIfActive(ignored);
+        } catch (Throwable t) {
+            Log.w(TAG, "bringOverlayToFrontIfActive failed", t);
         }
     }
 
     public void onVoicePipelineEvent(Context context, String event, Bundle extras) {
-        if (!voiceDucking || event == null) {
+        if (event == null) {
             return;
         }
         switch (event) {
             case "wake_detected":
+            case "run_start":
             case "listening_started":
             case "stt_vad_start":
             case "processing_started":
             case "tts_start":
             case "tts_playback_started":
-                playbackEngine.duck();
+                voiceSessionActive = true;
+                if (voiceDucking) {
+                    playbackEngine.duck();
+                }
                 break;
             case "tts_finished":
+                if (voiceDucking) {
+                    playbackEngine.unDuck();
+                }
+                break;
             case "session_ended":
             case "run_end":
             case "pipeline_error":
-                playbackEngine.unDuck();
+                voiceSessionActive = false;
+                if (voiceDucking) {
+                    playbackEngine.unDuck();
+                }
+                playbackEngine.resumeAfterVoiceSession();
                 break;
             default:
                 break;
@@ -369,7 +407,7 @@ public class DlnaRendererManager {
     // ------------------------------------------------------------------
 
     public boolean isServerRunning() {
-        return upnpEngine.isRunning();
+        return upnpEngine.isHealthy();
     }
 
     public String getNowPlaying() {
@@ -536,9 +574,21 @@ public class DlnaRendererManager {
             return;
         }
         try {
-            executor.execute(this::syncServerLifecycle);
+            executor.execute(this::safeSyncServerLifecycle);
         } catch (RejectedExecutionException ignored) {
-            // Manager is shutting down.
+            // Manager is shutting down — fall back to main-thread retry.
+            if (!destroyed) {
+                scheduleSyncRetry("executor rejected");
+            }
+        }
+    }
+
+    private void safeSyncServerLifecycle() {
+        try {
+            syncServerLifecycle();
+        } catch (Throwable t) {
+            Log.e(TAG, "syncServerLifecycle failed", t);
+            scheduleSyncRetry("lifecycle error");
         }
     }
 
@@ -565,14 +615,16 @@ public class DlnaRendererManager {
                 return;
             }
             if (!isVoiceSatelliteActive()) {
-                stopServerLocked();
-                scheduleSyncRetry("voice satellite inactive");
-                return;
+                if (!upnpEngine.isRunning()) {
+                    scheduleSyncRetry("voice satellite inactive");
+                    return;
+                }
+                Log.d(TAG, "Voice satellite inactive but DMR still running; keeping SSDP alive");
             }
             syncRetryCount = 0;
 
             String fingerprint = deviceName + "|" + allowVolumeControl;
-            if (upnpEngine.isRunning() && fingerprint.equals(runningFingerprint)) {
+            if (upnpEngine.isHealthy() && fingerprint.equals(runningFingerprint)) {
                 return;
             }
 
@@ -582,10 +634,12 @@ public class DlnaRendererManager {
 
             upnpEngine.start(deviceName, allowVolumeControl);
             runningFingerprint = fingerprint;
-            notifyStateListeners("server_running", upnpEngine.isRunning());
+            notifyStateListeners("server_running", upnpEngine.isHealthy());
             pushInitialVolume();
-            if (!upnpEngine.isRunning()) {
+            if (!upnpEngine.isHealthy()) {
                 scheduleSyncRetry("upnp start failed");
+            } else {
+                scheduleHealthWatchdog();
             }
         }
     }
@@ -609,19 +663,45 @@ public class DlnaRendererManager {
                 : SLOW_SYNC_RETRY_MS;
         if (syncRetryCount == FAST_SYNC_RETRY_LIMIT + 1) {
             Log.w(TAG, "DLNA retrying in low-frequency self-heal mode: " + reason);
+        } else if (syncRetryCount == 1 || syncRetryCount % 5 == 0) {
+            Log.d(TAG, "DLNA sync retry in " + delayMs + "ms: " + reason);
         }
-        executor.execute(() -> {
-            try {
-                Thread.sleep(delayMs);
-            } catch (InterruptedException e) {
-                syncRetryScheduled = false;
-                Thread.currentThread().interrupt();
-                return;
-            }
+        mainHandler.postDelayed(() -> {
+            syncRetryScheduled = false;
             if (!destroyed) {
-                syncServerLifecycle();
+                requestSyncServer();
             }
-        });
+        }, delayMs);
+    }
+
+    /**
+     * Low-frequency watchdog: if auto_start is on but the UPnP stack died quietly,
+     * kick syncServerLifecycle without blocking the worker thread on sleep().
+     */
+    private void scheduleHealthWatchdog() {
+        if (destroyed || healthWatchdogScheduled) {
+            return;
+        }
+        healthWatchdogScheduled = true;
+        mainHandler.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                healthWatchdogScheduled = false;
+                if (destroyed || !autoStartConfigured || !autoStart) {
+                    return;
+                }
+                if (!isNetworkReady()) {
+                    scheduleHealthWatchdog();
+                    return;
+                }
+                if (!upnpEngine.isHealthy()) {
+                    Log.w(TAG, "DLNA health watchdog: stack unhealthy, resyncing");
+                    runningFingerprint = "";
+                    requestSyncServer();
+                }
+                scheduleHealthWatchdog();
+            }
+        }, HEALTH_WATCHDOG_MS);
     }
 
     private void stopServerLocked() {
@@ -686,7 +766,7 @@ public class DlnaRendererManager {
             lastNetworkFingerprint = fingerprint;
             runningFingerprint = "";
         }
-        if (changed || !upnpEngine.isRunning()) {
+        if (changed || !upnpEngine.isHealthy()) {
             requestSyncServer();
         }
     }
@@ -698,6 +778,16 @@ public class DlnaRendererManager {
             return true;
         }
         try {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                Network network = cm.getActiveNetwork();
+                if (network == null) {
+                    return false;
+                }
+                NetworkCapabilities caps = cm.getNetworkCapabilities(network);
+                return caps != null && (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
+                        || caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
+                        || caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET));
+            }
             NetworkInfo info = cm.getActiveNetworkInfo();
             return info != null && info.isConnected();
         } catch (Exception e) {
@@ -793,7 +883,7 @@ public class DlnaRendererManager {
 
     private void pushCurrentState(String entityId, Object callback) {
         if ("server_running".equals(entityId)) {
-            notifySingleListener(callback, upnpEngine.isRunning());
+            notifySingleListener(callback, upnpEngine.isHealthy());
         } else if ("now_playing".equals(entityId)) {
             notifySingleListener(callback, nowPlaying);
         } else if ("playback_state".equals(entityId)) {

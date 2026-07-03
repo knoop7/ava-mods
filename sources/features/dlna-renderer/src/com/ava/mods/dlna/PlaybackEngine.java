@@ -51,6 +51,7 @@ public class PlaybackEngine {
     private volatile float volumeMultiplier = 1.0f;
     private volatile boolean showOverlay = false;
     private volatile boolean dualOutputEnabled = false;
+    private volatile boolean focusHeld = false;
 
     private boolean routeOverrideApplied = false;
     private int previousAudioMode = AudioManager.MODE_NORMAL;
@@ -88,22 +89,25 @@ public class PlaybackEngine {
                 @Override
                 public void onAudioFocusChange(int focusChange) {
                     switch (focusChange) {
-                        case AudioManager.AUDIOFOCUS_LOSS:
-                            // Voice / wake flows inside Ava can briefly steal audio focus.
-                            // Fully stopping here tears down the player and closes the
-                            // Cinema overlay, which looks like the wake animation "killed"
-                            // the DLNA window. Pause instead; explicit transport STOP still
-                            // goes through stop(), and playback can be resumed cleanly.
-                            mainHandler.post(PlaybackEngine.this::pauseInternal);
-                            break;
-                        case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT:
-                            mainHandler.post(PlaybackEngine.this::pauseInternal);
+                        case AudioManager.AUDIOFOCUS_GAIN:
+                            Log.d(TAG, "AUDIOFOCUS_GAIN");
+                            focusHeld = true;
+                            mainHandler.post(PlaybackEngine.this::onFocusRegained);
                             break;
                         case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK:
-                            duck();
+                            // Voice/TTS uses TRANSIENT_MAY_DUCK; duck via pipeline + volume.
+                            Log.d(TAG, "AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK (duck, keep playback)");
+                            mainHandler.post(PlaybackEngine.this::duck);
                             break;
-                        case AudioManager.AUDIOFOCUS_GAIN:
-                            unDuck();
+                        case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT:
+                            // Same policy as Sendspin: keep the session alive across wake/TTS.
+                            Log.d(TAG, "AUDIOFOCUS_LOSS_TRANSIENT (keep playback)");
+                            break;
+                        case AudioManager.AUDIOFOCUS_LOSS:
+                            // Permanent loss — pause but preserve playWhenReady for regain.
+                            Log.d(TAG, "AUDIOFOCUS_LOSS (pause, resume on regain)");
+                            focusHeld = false;
+                            mainHandler.post(PlaybackEngine.this::pauseForFocusLoss);
                             break;
                         default:
                             break;
@@ -127,9 +131,17 @@ public class PlaybackEngine {
         metadata = didl != null ? didl : DidlMetadata.EMPTY;
         currentKind = metadata.mediaKind(currentUri);
         playWhenReady = autoPlay;
+        // Prepare audio first — Cinema overlay builds a heavy view tree on the main
+        // thread; doing that before setDataSource/prepareAsync routinely costs 2–4s
+        // of real playback time at track start (user hears silence / "misses" the intro).
         mainHandler.post(() -> {
-            updateOverlayVisibility();
+            if (playWhenReady) {
+                requestFocus();
+            }
             prepareCurrentUri();
+            // Defer heavy overlay construction to the next main-loop turn so
+            // setDataSource/prepareAsync is never blocked behind view inflation.
+            mainHandler.post(this::updateOverlayVisibility);
         });
     }
 
@@ -337,6 +349,11 @@ public class PlaybackEngine {
     public void unDuck() {
         ducked = false;
         mainHandler.post(this::applyVolume);
+    }
+
+    /** Called when Ava's voice session ends — mirrors Sendspin onFocusRegained fallback. */
+    public void resumeAfterVoiceSession() {
+        mainHandler.post(this::onFocusRegained);
     }
 
     public void setVolumeMultiplier(float multiplier) {
@@ -583,6 +600,59 @@ public class PlaybackEngine {
         }
     }
 
+    /** Pause for focus loss only — keeps playWhenReady so regain can resume. */
+    private void pauseForFocusLoss() {
+        pauseInternal();
+    }
+
+    /**
+     * Sendspin-style regain: restore ducking and resume if the user/controller still
+     * wants playback after Ava's voice pipeline releases focus.
+     */
+    private void onFocusRegained() {
+        unDuck();
+        if (!playWhenReady) {
+            return;
+        }
+        MediaPlayer p = player;
+        if (p == null) {
+            if (!currentUri.isEmpty()) {
+                prepareCurrentUri();
+            }
+            return;
+        }
+        if (preparing) {
+            return;
+        }
+        if (state == TransportState.PAUSED_PLAYBACK) {
+            resumeAfterFocusLoss();
+        }
+    }
+
+    private void resumeAfterFocusLoss() {
+        if (!requestFocus()) {
+            Log.d(TAG, "resume deferred: audio focus not granted yet");
+            return;
+        }
+        MediaPlayer p = player;
+        if (p == null || preparing) {
+            return;
+        }
+        try {
+            p.start();
+            applyRouteOverrideIfNeeded();
+            applyVolume();
+            setState(TransportState.PLAYING);
+            startProgressTick();
+            if (overlayEnabled()) {
+                cinemaOverlay.updatePlayback(true, getPositionMs(), getDurationMs());
+            }
+        } catch (IllegalStateException e) {
+            Log.w(TAG, "resume after focus loss failed, re-preparing", e);
+            prepareCurrentUri();
+        }
+    }
+
     private void applyVolume() {
         MediaPlayer p = player;
         if (p == null) {
@@ -645,13 +715,15 @@ public class PlaybackEngine {
             result = audioManager.requestAudioFocus(
                     focusListener, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN);
         }
-        return result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED;
+        focusHeld = result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED;
+        return focusHeld;
     }
 
     private void abandonFocus() {
         if (audioManager == null) {
             return;
         }
+        focusHeld = false;
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && focusRequest != null) {
                 audioManager.abandonAudioFocusRequest(focusRequest);

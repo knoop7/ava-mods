@@ -426,12 +426,20 @@ public final class CinemaOverlay {
 
     public void bringToFrontIfActive(Context ignored) {
         runOnMain(() -> {
-            if (!visible || root == null || layoutParams == null || !root.isAttachedToWindow()) {
+            if (!visible || root == null || layoutParams == null) {
                 return;
             }
+            if (!root.isAttachedToWindow()) {
+                try {
+                    windowManager.addView(root, layoutParams);
+                } catch (Exception e) {
+                    Log.w(TAG, "bringToFront reattach failed", e);
+                }
+                return;
+            }
+            int vis = root.getVisibility();
+            float alpha = root.getAlpha();
             try {
-                int vis = root.getVisibility();
-                float alpha = root.getAlpha();
                 windowManager.removeView(root);
                 windowManager.addView(root, layoutParams);
                 root.setVisibility(vis);
@@ -440,6 +448,20 @@ public final class CinemaOverlay {
                 Log.w(TAG, "bringToFront failed", e);
             }
         });
+    }
+
+    /** Drop overlay window state after a failed initial addView in showInternal. */
+    private void resetOverlayWindowState() {
+        visible = false;
+        try {
+            if (root != null && root.isAttachedToWindow()) {
+                windowManager.removeView(root);
+            }
+        } catch (Exception ignored) {
+        }
+        root = null;
+        layoutParams = null;
+        videoSurface = null;
     }
 
     // ------------------------------------------------------------------
@@ -465,8 +487,7 @@ public final class CinemaOverlay {
                 root.animate().alpha(1f).setDuration(CHROME_SLIDE_IN_MS).start();
             } catch (Exception e) {
                 Log.e(TAG, "Failed to add cinema overlay", e);
-                root = null;
-                layoutParams = null;
+                resetOverlayWindowState();
                 return;
             }
         }

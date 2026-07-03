@@ -65,11 +65,8 @@ public class AvaAVTransportService extends AbstractAVTransportService {
             throw new AVTransportException(ErrorCode.INVALID_ARGS, "CurrentURI can not be null or malformed");
         }
         DidlMetadata didl = DidlMetadata.parse(currentURIMetaData);
-        // Preempt: replace whatever is playing. Auto-play only if we were already
-        // playing; a following Play action starts cold loads (spec-compliant, and
-        // what BubbleUPnP/foobar2000 expect).
-        boolean autoPlay = engine.getState() == TransportState.PLAYING
-                || engine.getState() == TransportState.TRANSITIONING;
+        // Preempt: buffer and auto-play unless the user/controller left us paused.
+        boolean autoPlay = engine.getState() != TransportState.PAUSED_PLAYBACK;
         engine.setUri(currentURI, didl, autoPlay);
         manager.onTrackChanged(didl, currentURI);
     }

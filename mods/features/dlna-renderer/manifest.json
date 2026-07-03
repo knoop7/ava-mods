@@ -1,7 +1,7 @@
 {
   "id": "dlna-renderer",
   "name": "DLNA Renderer",
-  "version": "1.5.3",
+  "version": "1.5.5",
   "author": "Ava",
   "description": "DLNA MediaRenderer for LAN music casting from BubbleUPnP, foobar2000, and other UPnP apps.",
   "detail_description": "Turn Ava into a DLNA MediaRenderer:1 speaker with optional Cinema full-screen player and on-screen controls. Supports preemptive casting without Music Assistant, voice ducking, DLNA volume control, Home Assistant diagnostic entities, and autostart on boot.",
@@ -11,7 +11,7 @@
   ],
   "manager": "com.ava.mods.dlna.DlnaRendererManager",
   "voice_pipeline": true,
-  "overlay_z_order": true,
+  "overlay_below_voice": true,
   "playback_reference": true,
   "permissions": [
     "android.permission.INTERNET",
@@ -123,5 +123,5 @@
       "press": "stopPlayback"
     }
   ],
-  "jar_hash": "3ba6dede8d1b9ad845179b46ca9660fe"
+  "jar_hash": "f12dc0185b1fc65a1b9a776d63bbb852"
 }
