@@ -113,7 +113,7 @@ public class BleAdvProxyManager {
                 break;
             case "adapter_name":
                 adapterNameOverride = value != null ? value : "";
-                notifyStateListeners("adapter_name", getAdapterName());
+                notifyStateListeners("ble_adv_proxy_name", getAdapterName());
                 break;
             default:
                 break;
@@ -123,7 +123,7 @@ public class BleAdvProxyManager {
     public void onEspHomeConnected(Context ctx, String deviceName, Object hostApi) {
         this.deviceName = deviceName != null ? deviceName : "";
         this.hostApi = hostApi;
-        notifyStateListeners("adapter_name", getAdapterName());
+        notifyStateListeners("ble_adv_proxy_name", getAdapterName());
         Log.i(TAG, "ESPHome connected (adapter=" + getAdapterName(ctx) + ")");
     }
 
@@ -137,6 +137,7 @@ public class BleAdvProxyManager {
 
     public void onHomeassistantServicesSubscribed(Context ctx) {
         haServicesReady = true;
+        notifyStateListeners("ble_adv_proxy_name", getAdapterName());
         notifyProxyReadyChanged();
         Log.d(TAG, "HA homeassistant services subscribed");
     }
@@ -425,7 +426,7 @@ public class BleAdvProxyManager {
             notifySingleListener(callback, isProxyReady());
         } else if ("last_advertise_error".equals(entityId)) {
             notifySingleListener(callback, getLastAdvertiseError());
-        } else if ("adapter_name".equals(entityId)) {
+        } else if ("ble_adv_proxy_name".equals(entityId)) {
             notifySingleListener(callback, getAdapterName());
         }
     }
