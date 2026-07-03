@@ -1,7 +1,7 @@
 {
   "id": "ha-stt-engine",
   "name": "HA STT Engine",
-  "version": "1.1.7",
+  "version": "1.1.8",
   "author": "Ava",
   "description": "Local Wyoming STT for Home Assistant (multilingual offline).",
   "detail_description": "First run downloads a ~230MB SenseVoice model (zh/en/ja/ko/Cantonese). Wyoming TCP on port 10300 for Home Assistant voice pipelines.",
@@ -152,6 +152,7 @@
       "dialogHint": "Default 10300. Home Assistant Wyoming integration connects here after the model is ready.",
       "placeholder": "",
       "defaultValue": "10300",
+      "options": [],
       "min": 1024,
       "max": 65535,
       "step": 1
@@ -163,7 +164,8 @@
       "description": "Bind address for the Wyoming server.",
       "dialogHint": "0.0.0.0 allows LAN clients (typical). Use 127.0.0.1 for local-only testing.",
       "placeholder": "",
-      "defaultValue": "0.0.0.0"
+      "defaultValue": "0.0.0.0",
+      "options": []
     },
     {
       "type": "switch",
@@ -172,7 +174,8 @@
       "description": "Start the STT server when this mod is enabled.",
       "dialogHint": "",
       "placeholder": "",
-      "defaultValue": "true"
+      "defaultValue": "true",
+      "options": []
     },
     {
       "type": "switch",
@@ -181,7 +184,8 @@
       "description": "Broadcast _wyoming._tcp for Home Assistant auto-discovery.",
       "dialogHint": "",
       "placeholder": "",
-      "defaultValue": "true"
+      "defaultValue": "true",
+      "options": []
     },
     {
       "type": "number",
@@ -191,6 +195,7 @@
       "dialogHint": "2 is a good default on speakers and tablets. Raise only if recognition is slow and CPU headroom is available.",
       "placeholder": "",
       "defaultValue": "2",
+      "options": [],
       "min": 1,
       "max": 8,
       "step": 1
@@ -202,7 +207,8 @@
       "description": "Expose STT Emotion as a separate Home Assistant text sensor.",
       "dialogHint": "",
       "placeholder": "",
-      "defaultValue": "true"
+      "defaultValue": "true",
+      "options": []
     },
     {
       "type": "switch",
@@ -211,7 +217,8 @@
       "description": "Expose server, model status, download progress, and control buttons in Home Assistant.",
       "dialogHint": "Off by default. Emotion sensor has its own toggle above.",
       "placeholder": "",
-      "defaultValue": "false"
+      "defaultValue": "false",
+      "options": []
     },
     {
       "type": "switch",
@@ -220,7 +227,8 @@
       "description": "Download the SenseVoice model on first start.",
       "dialogHint": "About 230MB to external app storage (Android/data/.../files/ha-stt-engine/). Disable if you prefer manual download from the buttons above.",
       "placeholder": "",
-      "defaultValue": "false"
+      "defaultValue": "false",
+      "options": []
     }
   ],
   "jar_hash": "991ab7b9f70a1421d7b020a274da20d2"
