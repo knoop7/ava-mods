@@ -1,7 +1,7 @@
 {
   "id": "ha-stt-engine",
   "name": "HA STT Engine",
-  "version": "1.1.9",
+  "version": "1.2.0",
   "author": "Ava",
   "description": "Local Wyoming STT for Home Assistant (multilingual offline).",
   "detail_description": "First run downloads a ~230MB SenseVoice model (zh/en/ja/ko/Cantonese). Wyoming TCP on port 10300 for Home Assistant voice pipelines.",
@@ -23,42 +23,6 @@
     "android.permission.INTERNET",
     "android.permission.ACCESS_NETWORK_STATE"
   ],
-  "status_panel": [
-    {
-      "type": "download_strip",
-      "label": "SenseVoice Model",
-      "read": "getDownloadProgress",
-      "listener_id": "download_progress",
-      "status_read": "getModelStatusDisplay",
-      "status_listener_id": "model_status",
-      "description": "~230MB · zh / en / ja / ko / Cantonese",
-      "ready_keywords": ["ready"],
-      "downloading_keywords": ["downloading"],
-      "paused_keywords": ["paused"],
-      "error_keywords": ["error", "failed"],
-      "inline_config_keys": ["recognition_language"],
-      "actions": [
-        {
-          "label": "",
-          "press": "downloadModel",
-          "style": "primary",
-          "show_when": ["idle", "paused", "error"]
-        },
-        {
-          "label": "",
-          "press": "pauseDownload",
-          "style": "secondary",
-          "show_when": ["downloading"]
-        },
-        {
-          "label": "",
-          "press": "deleteModel",
-          "style": "destructive",
-          "show_when": ["ready", "idle", "paused", "error"]
-        }
-      ]
-    }
-  ],
   "entities": [
     {
       "type": "binary_sensor",
@@ -68,7 +32,6 @@
       "class": "connectivity",
       "category": "diagnostic",
       "enabledByConfig": "show_diagnostic_entities",
-      "options": [],
       "read": "isServerRunning"
     },
     {
@@ -78,7 +41,6 @@
       "icon": "mdi:database",
       "category": "diagnostic",
       "enabledByConfig": "show_diagnostic_entities",
-      "options": [],
       "read": "getModelStatus"
     },
     {
@@ -91,7 +53,6 @@
       "enabledByConfig": "show_diagnostic_entities",
       "accuracy_decimals": 0,
       "refresh_interval_ms": 1000,
-      "options": [],
       "read": "getDownloadProgress"
     },
     {
@@ -101,7 +62,6 @@
       "icon": "mdi:text",
       "category": "diagnostic",
       "enabledByConfig": "show_diagnostic_entities",
-      "options": [],
       "read": "getLastTranscript"
     },
     {
@@ -110,7 +70,6 @@
       "name": "STT Emotion",
       "icon": "mdi:emoticon-outline",
       "enabledByConfig": "show_emotion_sensor",
-      "options": [],
       "read": "getLastEmotion"
     },
     {
@@ -119,7 +78,6 @@
       "name": "Download Model",
       "icon": "mdi:download",
       "enabledByConfig": "show_diagnostic_entities",
-      "options": [],
       "press": "downloadModel"
     },
     {
@@ -128,7 +86,6 @@
       "name": "Restart STT Server",
       "icon": "mdi:restart",
       "enabledByConfig": "show_diagnostic_entities",
-      "options": [],
       "press": "restartServer"
     },
     {
@@ -137,7 +94,6 @@
       "name": "Delete Model",
       "icon": "mdi:delete",
       "enabledByConfig": "show_diagnostic_entities",
-      "options": [],
       "press": "deleteModel"
     }
   ],
@@ -148,7 +104,6 @@
       "label": "Recognition Language",
       "description": "Fixed decode language for SenseVoice. Switch language before downloading if needed.",
       "dialogHint": "Default English. Switch to Chinese (or ja/ko/yue), then download the model for that language.",
-      "placeholder": "",
       "defaultValue": "en",
       "options": ["en", "zh", "ja", "ko", "yue"]
     },
@@ -158,9 +113,7 @@
       "label": "TCP Port",
       "description": "TCP port for Home Assistant Wyoming clients.",
       "dialogHint": "Default 10300. Home Assistant Wyoming integration connects here after the model is ready.",
-      "placeholder": "",
       "defaultValue": "10300",
-      "options": [],
       "min": 1024,
       "max": 65535,
       "step": 1
@@ -171,29 +124,21 @@
       "label": "Listen Address",
       "description": "Bind address for the Wyoming server.",
       "dialogHint": "0.0.0.0 allows LAN clients (typical). Use 127.0.0.1 for local-only testing.",
-      "placeholder": "",
-      "defaultValue": "0.0.0.0",
-      "options": []
+      "defaultValue": "0.0.0.0"
     },
     {
       "type": "switch",
       "key": "auto_start",
       "label": "Auto Start",
       "description": "Start the STT server when this mod is enabled.",
-      "dialogHint": "",
-      "placeholder": "",
-      "defaultValue": "true",
-      "options": []
+      "defaultValue": "true"
     },
     {
       "type": "switch",
       "key": "mdns_enabled",
       "label": "mDNS Discovery",
       "description": "Broadcast _wyoming._tcp for Home Assistant auto-discovery.",
-      "dialogHint": "",
-      "placeholder": "",
-      "defaultValue": "true",
-      "options": []
+      "defaultValue": "true"
     },
     {
       "type": "number",
@@ -201,9 +146,7 @@
       "label": "Inference Threads",
       "description": "CPU threads for SenseVoice inference.",
       "dialogHint": "2 is a good default on speakers and tablets. Raise only if recognition is slow and CPU headroom is available.",
-      "placeholder": "",
       "defaultValue": "2",
-      "options": [],
       "min": 1,
       "max": 8,
       "step": 1
@@ -213,10 +156,7 @@
       "key": "show_emotion_sensor",
       "label": "Show Emotion Sensor",
       "description": "Expose STT Emotion as a separate Home Assistant text sensor.",
-      "dialogHint": "",
-      "placeholder": "",
-      "defaultValue": "true",
-      "options": []
+      "defaultValue": "true"
     },
     {
       "type": "switch",
@@ -224,21 +164,16 @@
       "label": "Show Diagnostic Entities",
       "description": "Expose server, model status, download progress, and control buttons in Home Assistant.",
       "dialogHint": "Off by default. Emotion sensor has its own toggle above.",
-      "placeholder": "",
-      "defaultValue": "false",
-      "options": []
+      "defaultValue": "false"
     },
     {
       "type": "switch",
       "key": "auto_download",
       "label": "Auto Download Model",
       "description": "Download the SenseVoice model on first start.",
-      "dialogHint": "About 230MB to external app storage (Android/data/.../files/ha-stt-engine/). Disable if you prefer manual download from the buttons above.",
-      "placeholder": "",
-      "defaultValue": "false",
-      "options": []
+      "dialogHint": "About 230MB to external app storage (Android/data/.../files/ha-stt-engine/). Disable if you prefer manual download from Home Assistant buttons.",
+      "defaultValue": "false"
     }
   ],
   "jar_hash": "991ab7b9f70a1421d7b020a274da20d2"
 }
-
