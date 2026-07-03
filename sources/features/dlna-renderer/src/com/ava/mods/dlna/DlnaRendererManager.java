@@ -84,6 +84,18 @@ public class DlnaRendererManager {
     private volatile boolean autoStartConfigured = false;
     /** Set by voice_pipeline events; suppresses z-order reassert during wake/TTS. */
     private volatile boolean voiceSessionActive = false;
+    private static final long VOICE_RESUME_DELAY_MS = 450L;
+    private int voiceResumeToken = 0;
+    private int scheduledResumeToken = -1;
+    private final Runnable deferredVoiceResume = new Runnable() {
+        @Override
+        public void run() {
+            if (scheduledResumeToken != voiceResumeToken) {
+                return;
+            }
+            finishVoiceSessionAndResume();
+        }
+    };
     private volatile String runningFingerprint = "";
     private volatile int syncRetryCount = 0;
     private volatile boolean syncRetryScheduled = false;
@@ -355,28 +367,47 @@ public class DlnaRendererManager {
             case "processing_started":
             case "tts_start":
             case "tts_playback_started":
-                voiceSessionActive = true;
-                if (voiceDucking) {
-                    playbackEngine.duck();
-                }
+                beginVoiceSession();
                 break;
             case "tts_finished":
                 if (voiceDucking) {
                     playbackEngine.unDuck();
                 }
+                scheduleResumeAfterTts();
                 break;
             case "session_ended":
-            case "run_end":
-            case "pipeline_error":
-                voiceSessionActive = false;
-                if (voiceDucking) {
-                    playbackEngine.unDuck();
-                }
-                playbackEngine.resumeAfterVoiceSession();
+                finishVoiceSessionAndResume();
                 break;
             default:
                 break;
         }
+    }
+
+    private void beginVoiceSession() {
+        mainHandler.removeCallbacks(deferredVoiceResume);
+        voiceResumeToken++;
+        voiceSessionActive = true;
+        playbackEngine.setVoiceSessionActive(true);
+        if (voiceDucking) {
+            playbackEngine.duck();
+        }
+    }
+
+    /** Defer resume so continuous conversation can cancel via [beginVoiceSession]. */
+    private void scheduleResumeAfterTts() {
+        scheduledResumeToken = voiceResumeToken;
+        mainHandler.removeCallbacks(deferredVoiceResume);
+        mainHandler.postDelayed(deferredVoiceResume, VOICE_RESUME_DELAY_MS);
+    }
+
+    private void finishVoiceSessionAndResume() {
+        mainHandler.removeCallbacks(deferredVoiceResume);
+        voiceSessionActive = false;
+        playbackEngine.setVoiceSessionActive(false);
+        if (voiceDucking) {
+            playbackEngine.unDuck();
+        }
+        playbackEngine.resumeAfterVoiceSession();
     }
 
     // ------------------------------------------------------------------

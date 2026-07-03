@@ -1,7 +1,7 @@
 {
   "id": "ble-adv-proxy",
   "name": "BLE ADV Proxy",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "author": "Ava",
   "description": "Bidirectional raw BLE advertising proxy for ha-ble-adv. Scan nearby BLE broadcasts and send control packets to ceiling fans or lamps.",
   "detail_description": "esphome-ble_adv_proxy port for ha-ble-adv. Requires Ava core hooks and Bluetooth detect. Deduped scan; queued ADV transmit.",
@@ -33,6 +33,27 @@
       "defaultValue": "false"
     },
     {
+      "type": "switch",
+      "key": "show_adapter_name_sensor",
+      "label": "Show Adapter Name Sensor",
+      "description": "Expose adapter name in Home Assistant (for multi-proxy setups). Off by default.",
+      "defaultValue": "false"
+    },
+    {
+      "type": "switch",
+      "key": "show_proxy_ready_sensor",
+      "label": "Show Proxy Ready Sensor",
+      "description": "Expose proxy ready status in Home Assistant. Off by default.",
+      "defaultValue": "false"
+    },
+    {
+      "type": "switch",
+      "key": "show_last_advertise_error_sensor",
+      "label": "Show Last Advertise Error Sensor",
+      "description": "Expose the last BLE advertise failure reason in Home Assistant. Off by default.",
+      "defaultValue": "false"
+    },
+    {
       "type": "text",
       "key": "adapter_name",
       "label": "Adapter Name",
@@ -40,5 +61,35 @@
       "defaultValue": ""
     }
   ],
-  "jar_hash": "5ba21224c8415f7823febf7a89b014a1"
+  "entities": [
+    {
+      "type": "binary_sensor",
+      "id": "proxy_ready",
+      "name": "BLE ADV Proxy Ready",
+      "icon": "mdi:bluetooth-connect",
+      "class": "connectivity",
+      "category": "diagnostic",
+      "enabledByConfig": "show_proxy_ready_sensor",
+      "read": "isProxyReady"
+    },
+    {
+      "type": "text_sensor",
+      "id": "last_advertise_error",
+      "name": "BLE ADV Last Advertise Error",
+      "icon": "mdi:bluetooth-off",
+      "category": "diagnostic",
+      "enabledByConfig": "show_last_advertise_error_sensor",
+      "read": "getLastAdvertiseError"
+    },
+    {
+      "type": "text_sensor",
+      "id": "adapter_name",
+      "name": "BLE ADV Proxy Name",
+      "icon": "mdi:bluetooth",
+      "category": "diagnostic",
+      "enabledByConfig": "show_adapter_name_sensor",
+      "read": "getAdapterName"
+    }
+  ],
+  "jar_hash": "fe05c186d81d43099836999649f0e8d8"
 }

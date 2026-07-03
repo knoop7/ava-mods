@@ -10,7 +10,7 @@ Android port of [esphome-ble_adv_proxy](https://github.com/NicoIIT/esphome-ble_a
 | `adv_svc` (legacy) | → `adv_svc_v1` with `repeat=3` |
 | `adv_svc_v1` | queued raw ADV transmit |
 | `esphome.ble_adv.raw_adv` event | `onScanResult` → `fireHomeassistantEvent` |
-| `ble_adv_proxy_name` text_sensor | `getAdapterName()` (core entity) |
+| `ble_adv_proxy_name` text_sensor (optional) | `getAdapterName()` — off by default; enable **Show Adapter Name Sensor** in mod config |
 
 ## Ava core requirements
 
@@ -19,7 +19,8 @@ This mod alone is not enough. Ava main app must provide:
 - `ModBleAdvProxyBridge` with `"ble_adv_proxy": true` manifest opt-in
 - `BleAdvHostApi` (`fireHomeassistantEvent`, `runExclusiveTransmit`)
 - `BleOperationCoordinator` (pause proxy scan / presence ADV during transmit)
-- ESPHome entities: `ble_adv_proxy_name`, `setup_svc_v0`, `adv_svc`, `adv_svc_v1`
+- ESPHome services: `setup_svc_v0`, `adv_svc`, `adv_svc_v1` (always)
+- Optional diagnostic: `ble_adv_proxy_name` when **Show Adapter Name Sensor** is enabled in mod config
 - `SubscribeHomeassistantServicesRequest` handling
 
 ## Build

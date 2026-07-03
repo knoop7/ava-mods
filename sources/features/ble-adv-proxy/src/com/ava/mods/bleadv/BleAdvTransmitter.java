@@ -26,25 +26,35 @@ final class BleAdvTransmitter {
         this.useMaxTxPower = useMaxTxPower;
     }
 
+    private String lastError = "";
+
+    String getLastError() {
+        return lastError != null ? lastError : "";
+    }
+
     @SuppressLint("MissingPermission")
-    boolean transmitBlocking(byte[] raw, int durationMs) {
+    String transmitBlocking(byte[] raw, int durationMs) {
+        lastError = "";
         BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
         if (adapter == null || !adapter.isEnabled()) {
+            lastError = "bluetooth_unavailable";
             Log.w(TAG, "Bluetooth adapter unavailable");
-            return false;
+            return lastError;
         }
         BluetoothLeAdvertiser advertiser = adapter.getBluetoothLeAdvertiser();
         if (advertiser == null) {
+            lastError = "advertiser_unavailable";
             Log.w(TAG, "BluetoothLeAdvertiser unavailable");
-            return false;
+            return lastError;
         }
 
         final AdvertiseData data;
         try {
             data = RawAdvParser.toAdvertiseData(raw);
         } catch (Exception e) {
+            lastError = "invalid_raw_adv";
             Log.w(TAG, "Failed to parse raw adv", e);
-            return false;
+            return lastError;
         }
 
         int txPower = useMaxTxPower
@@ -69,6 +79,7 @@ final class BleAdvTransmitter {
 
             @Override
             public void onStartFailure(int errorCode) {
+                lastError = "advertise_start_failed:" + errorCode;
                 Log.w(TAG, "Advertise start failed: " + errorCode);
                 started.countDown();
             }
@@ -77,19 +88,24 @@ final class BleAdvTransmitter {
         try {
             advertiser.startAdvertising(settings, data, callback);
             if (!started.await(START_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
+                lastError = "advertise_start_timeout";
                 Log.w(TAG, "Advertise start timed out");
                 advertiser.stopAdvertising(callback);
-                return false;
+                return lastError;
             }
             if (!success.get()) {
-                return false;
+                if (lastError == null || lastError.isEmpty()) {
+                    lastError = "advertise_start_failed";
+                }
+                return lastError;
             }
             int sleepMs = Math.max(32, durationMs);
             Thread.sleep(sleepMs);
-            return true;
+            return "";
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            return false;
+            lastError = "interrupted";
+            return lastError;
         } finally {
             try {
                 advertiser.stopAdvertising(callback);

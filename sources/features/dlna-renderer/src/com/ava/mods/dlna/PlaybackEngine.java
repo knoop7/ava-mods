@@ -52,6 +52,8 @@ public class PlaybackEngine {
     private volatile boolean showOverlay = false;
     private volatile boolean dualOutputEnabled = false;
     private volatile boolean focusHeld = false;
+    /** While a voice session is active, ignore AUDIOFOCUS_GAIN until the mod clears this. */
+    private volatile boolean deferFocusResume = false;
 
     private boolean routeOverrideApplied = false;
     private int previousAudioMode = AudioManager.MODE_NORMAL;
@@ -351,6 +353,10 @@ public class PlaybackEngine {
         mainHandler.post(this::applyVolume);
     }
 
+    public void setVoiceSessionActive(boolean active) {
+        deferFocusResume = active;
+    }
+
     /** Called when Ava's voice session ends — mirrors Sendspin onFocusRegained fallback. */
     public void resumeAfterVoiceSession() {
         mainHandler.post(this::onFocusRegained);
@@ -610,6 +616,10 @@ public class PlaybackEngine {
      * wants playback after Ava's voice pipeline releases focus.
      */
     private void onFocusRegained() {
+        if (deferFocusResume) {
+            Log.d(TAG, "onFocusRegained deferred during voice session");
+            return;
+        }
         unDuck();
         if (!playWhenReady) {
             return;

@@ -60,22 +60,22 @@
     {
       "id": "ble-adv-proxy",
       "name": "BLE ADV Proxy",
-      "version": "0.1.0",
+      "version": "0.1.2",
       "author": "Ava",
       "description": "Bidirectional raw BLE advertising proxy for ha-ble-adv. Scan nearby BLE broadcasts and send control packets to ceiling fans or lamps.",
       "detail_description": "esphome-ble_adv_proxy port for ha-ble-adv. Requires Ava core hooks and Bluetooth detect. Deduped scan; queued ADV transmit.",
       "path": "mods/features/ble-adv-proxy/",
-      "jar_hash": "5ba21224c8415f7823febf7a89b014a1"
+      "jar_hash": "fe05c186d81d43099836999649f0e8d8"
     },
     {
       "id": "dlna-renderer",
       "name": "DLNA Renderer",
-      "version": "1.5.5",
+      "version": "1.5.7",
       "author": "Ava",
       "description": "Turn Ava into a DLNA speaker any app can cast music to.",
       "detail_description": "No Music Assistant needed - cast from BubbleUPnP, foobar2000, or any DLNA/UPnP controller on your network.",
       "path": "mods/features/dlna-renderer/",
-      "jar_hash": "f12dc0185b1fc65a1b9a776d63bbb852"
+      "jar_hash": "ac085ec3c2e9522215ab054e2fc201ec"
     },
     {
       "id": "gps-mod",

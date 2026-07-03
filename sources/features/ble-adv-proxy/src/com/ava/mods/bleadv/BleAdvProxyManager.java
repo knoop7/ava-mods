@@ -8,7 +8,9 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -43,6 +45,9 @@ public class BleAdvProxyManager {
         }
     });
 
+    private final ConcurrentHashMap<String, CopyOnWriteArrayList<Object>> stateListeners =
+            new ConcurrentHashMap<>();
+
     private volatile boolean featureEnabled = true;
     private volatile boolean useMaxTxPower = false;
     private volatile String adapterNameOverride = "";
@@ -50,6 +55,7 @@ public class BleAdvProxyManager {
     private volatile Object hostApi;
     private volatile boolean haServicesReady = false;
     private volatile boolean setupDone = false;
+    private volatile String lastAdvertiseError = "";
 
     private BleAdvProxyManager(Context context) {
         this.context = context.getApplicationContext();
@@ -74,11 +80,23 @@ public class BleAdvProxyManager {
         return featureEnabled;
     }
 
-    public String getAdapterName(Context ctx) {
+    public boolean isProxyReady() {
+        return featureEnabled && haServicesReady && setupDone;
+    }
+
+    public String getLastAdvertiseError() {
+        return lastAdvertiseError != null ? lastAdvertiseError : "";
+    }
+
+    public String getAdapterName() {
         if (adapterNameOverride != null && !adapterNameOverride.trim().isEmpty()) {
             return adapterNameOverride.trim();
         }
-        return deviceName;
+        return deviceName != null ? deviceName : "";
+    }
+
+    public String getAdapterName(Context ctx) {
+        return getAdapterName();
     }
 
     public void applyConfig(String key, String value) {
@@ -88,12 +106,14 @@ public class BleAdvProxyManager {
         switch (key) {
             case "enabled":
                 featureEnabled = parseBoolean(value, true);
+                notifyProxyReadyChanged();
                 break;
             case "use_max_tx_power":
                 useMaxTxPower = parseBoolean(value, false);
                 break;
             case "adapter_name":
                 adapterNameOverride = value != null ? value : "";
+                notifyStateListeners("adapter_name", getAdapterName());
                 break;
             default:
                 break;
@@ -103,6 +123,7 @@ public class BleAdvProxyManager {
     public void onEspHomeConnected(Context ctx, String deviceName, Object hostApi) {
         this.deviceName = deviceName != null ? deviceName : "";
         this.hostApi = hostApi;
+        notifyStateListeners("adapter_name", getAdapterName());
         Log.i(TAG, "ESPHome connected (adapter=" + getAdapterName(ctx) + ")");
     }
 
@@ -111,10 +132,12 @@ public class BleAdvProxyManager {
         setupDone = false;
         hostApi = null;
         transmitQueue.clear();
+        notifyProxyReadyChanged();
     }
 
     public void onHomeassistantServicesSubscribed(Context ctx) {
         haServicesReady = true;
+        notifyProxyReadyChanged();
         Log.d(TAG, "HA homeassistant services subscribed");
     }
 
@@ -163,6 +186,7 @@ public class BleAdvProxyManager {
         hostApi = null;
         haServicesReady = false;
         setupDone = false;
+        notifyProxyReadyChanged();
     }
 
     /** setup_svc_v0(ignored_duration, ignored_cids, ignored_macs) */
@@ -173,6 +197,7 @@ public class BleAdvProxyManager {
         dedupCache.clearDupes();
         dedupCache.configureSetup(ignoredDuration, ignoredCids, ignoredMacs);
         setupDone = true;
+        notifyProxyReadyChanged();
         Log.i(TAG, "setup_svc_v0 durationMs=" + ignoredDuration
                 + " ignoredCids=" + (ignoredCids != null ? ignoredCids.size() : 0)
                 + " ignoredMacs=" + (ignoredMacs != null ? ignoredMacs.size() : 0));
@@ -216,6 +241,7 @@ public class BleAdvProxyManager {
             float ignDurationMs
     ) {
         setupDone = true;
+        notifyProxyReadyChanged();
         int intDuration = Math.max(32, (int) durationMs);
         long intIgnDuration = (long) ignDurationMs;
         Log.d(TAG, "send adv - " + raw + ", duration " + intDuration + "ms, repeat: " + repeat);
@@ -225,6 +251,7 @@ public class BleAdvProxyManager {
             rawBytes = RawAdvParser.fromHex(raw);
         } catch (Exception e) {
             Log.w(TAG, "Invalid raw hex: " + raw, e);
+            setLastAdvertiseError("invalid_raw_hex");
             return;
         }
 
@@ -255,7 +282,12 @@ public class BleAdvProxyManager {
                         runExclusive(new Runnable() {
                             @Override
                             public void run() {
-                                transmitter.transmitBlocking(job.raw, job.durationMs);
+                                String error = transmitter.transmitBlocking(job.raw, job.durationMs);
+                                if (error != null && !error.isEmpty()) {
+                                    setLastAdvertiseError(error);
+                                } else {
+                                    clearLastAdvertiseError();
+                                }
                             }
                         });
                     }
@@ -353,6 +385,73 @@ public class BleAdvProxyManager {
             return fallback;
         }
         return "true".equalsIgnoreCase(value) || "1".equals(value);
+    }
+
+    private void setLastAdvertiseError(String error) {
+        lastAdvertiseError = error != null ? error : "";
+        notifyStateListeners("last_advertise_error", lastAdvertiseError);
+    }
+
+    private void clearLastAdvertiseError() {
+        if (lastAdvertiseError == null || lastAdvertiseError.isEmpty()) {
+            return;
+        }
+        lastAdvertiseError = "";
+        notifyStateListeners("last_advertise_error", lastAdvertiseError);
+    }
+
+    private void notifyProxyReadyChanged() {
+        notifyStateListeners("proxy_ready", isProxyReady());
+    }
+
+    public boolean registerStateListener(String entityId, Object callback) {
+        if (entityId == null || entityId.trim().isEmpty() || callback == null) {
+            return false;
+        }
+        CopyOnWriteArrayList<Object> listeners = stateListeners.get(entityId);
+        if (listeners == null) {
+            listeners = new CopyOnWriteArrayList<>();
+            stateListeners.put(entityId, listeners);
+        }
+        if (!listeners.contains(callback)) {
+            listeners.add(callback);
+        }
+        pushCurrentState(entityId, callback);
+        return true;
+    }
+
+    private void pushCurrentState(String entityId, Object callback) {
+        if ("proxy_ready".equals(entityId)) {
+            notifySingleListener(callback, isProxyReady());
+        } else if ("last_advertise_error".equals(entityId)) {
+            notifySingleListener(callback, getLastAdvertiseError());
+        } else if ("adapter_name".equals(entityId)) {
+            notifySingleListener(callback, getAdapterName());
+        }
+    }
+
+    private void notifyStateListeners(String entityId, Object value) {
+        CopyOnWriteArrayList<Object> listeners = stateListeners.get(entityId);
+        if (listeners == null) {
+            return;
+        }
+        for (Object callback : listeners) {
+            notifySingleListener(callback, value);
+        }
+    }
+
+    private void notifySingleListener(Object callback, Object value) {
+        try {
+            Method method;
+            try {
+                method = callback.getClass().getMethod("onStateChanged", Object.class);
+            } catch (NoSuchMethodException e) {
+                method = callback.getClass().getMethod("onState", Object.class);
+            }
+            method.invoke(callback, value);
+        } catch (Exception e) {
+            Log.w(TAG, "State callback failed", e);
+        }
     }
 
     private static final class TransmitJob {

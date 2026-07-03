@@ -56,10 +56,9 @@ Music Assistant or Home Assistant required for playback:
 ## Entities
 
 - `binary_sensor.server_running` — renderer online (diagnostic)
-- `text_sensor.now_playing` — current track (artist - title)
 - `text_sensor.playback_state` — playing / paused / loading / stopped (diagnostic)
 - `button.restart_server` — restart the UPnP stack (diagnostic)
-- `button.stop_playback` — stop DLNA playback
+- `button.stop_playback` — stop DLNA playback (diagnostic)
 
 ## Building
 
