@@ -3,8 +3,8 @@
   "name": "DLNA Renderer",
   "version": "1.5.7",
   "author": "Ava",
-  "description": "DLNA MediaRenderer for LAN music casting from BubbleUPnP, foobar2000, and other UPnP apps.",
-  "detail_description": "Turn Ava into a DLNA MediaRenderer:1 speaker with optional Cinema full-screen player and on-screen controls. Supports preemptive casting without Music Assistant, voice ducking, DLNA volume control, Home Assistant diagnostic entities, and autostart on boot.",
+  "description": "Turn Ava into a LAN DLNA speaker for UPnP music.",
+  "detail_description": "BubbleUPnP supported; optional Cinema UI and voice ducking.",
   "icon": "mdi:cast",
   "libs": [
     "libs/dlna-renderer-manager.jar"
@@ -26,7 +26,7 @@
       "key": "device_name",
       "label": "Device Name",
       "description": "Friendly name shown in DLNA controller apps.",
-      "dialogHint": "The name controllers like BubbleUPnP display in their renderer list.",
+      "dialogHint": "Shown in controller renderer lists.",
       "defaultValue": "Ava"
     },
     {
@@ -61,14 +61,14 @@
       "type": "switch",
       "key": "keep_controls_visible",
       "label": "Keep Playback Bar Visible",
-      "description": "Keep the bottom playback bar (progress, shuffle/prev/play/next/repeat) always on screen. Only the top back-button header auto-hides. Turn off to auto-hide the bottom bar too.",
+      "description": "Keep the bottom playback bar visible; top bar still auto-hides.",
       "defaultValue": "true"
     },
     {
       "type": "switch",
       "key": "dual_output_earpiece_speaker",
       "label": "Dual Output (Speaker + Earpiece)",
-      "description": "Best-effort route hint for phone-class devices. Default OFF. When enabled, playback tries to drive both loudspeaker and earpiece; actual effect depends on device audio HAL.",
+      "description": "Play on speaker and earpiece together (device-dependent).",
       "defaultValue": "false"
     },
     {

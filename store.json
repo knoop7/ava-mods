@@ -50,7 +50,7 @@
     {
       "id": "ha-stt-engine",
       "name": "HA STT Engine",
-      "version": "1.1.6",
+      "version": "1.1.7",
       "author": "Ava",
       "description": "Wyoming offline STT for Home Assistant (multilingual).",
       "detail_description": "SenseVoice model: zh/en/ja/ko/Cantonese. ~230MB download. Wyoming TCP port 10300.",
@@ -72,8 +72,8 @@
       "name": "DLNA Renderer",
       "version": "1.5.7",
       "author": "Ava",
-      "description": "Turn Ava into a DLNA speaker any app can cast music to.",
-      "detail_description": "No Music Assistant needed - cast from BubbleUPnP, foobar2000, or any DLNA/UPnP controller on your network.",
+      "description": "Turn Ava into a LAN DLNA speaker for UPnP music.",
+      "detail_description": "BubbleUPnP supported; optional Cinema UI and voice ducking.",
       "path": "mods/features/dlna-renderer/",
       "jar_hash": "ac085ec3c2e9522215ab054e2fc201ec"
     },
