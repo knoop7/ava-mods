@@ -1,7 +1,7 @@
 {
   "id": "ha-stt-engine",
   "name": "HA STT Engine",
-  "version": "1.1.8",
+  "version": "1.1.9",
   "author": "Ava",
   "description": "Local Wyoming STT for Home Assistant (multilingual offline).",
   "detail_description": "First run downloads a ~230MB SenseVoice model (zh/en/ja/ko/Cantonese). Wyoming TCP on port 10300 for Home Assistant voice pipelines.",
@@ -68,6 +68,7 @@
       "class": "connectivity",
       "category": "diagnostic",
       "enabledByConfig": "show_diagnostic_entities",
+      "options": [],
       "read": "isServerRunning"
     },
     {
@@ -77,6 +78,7 @@
       "icon": "mdi:database",
       "category": "diagnostic",
       "enabledByConfig": "show_diagnostic_entities",
+      "options": [],
       "read": "getModelStatus"
     },
     {
@@ -89,6 +91,7 @@
       "enabledByConfig": "show_diagnostic_entities",
       "accuracy_decimals": 0,
       "refresh_interval_ms": 1000,
+      "options": [],
       "read": "getDownloadProgress"
     },
     {
@@ -98,6 +101,7 @@
       "icon": "mdi:text",
       "category": "diagnostic",
       "enabledByConfig": "show_diagnostic_entities",
+      "options": [],
       "read": "getLastTranscript"
     },
     {
@@ -106,6 +110,7 @@
       "name": "STT Emotion",
       "icon": "mdi:emoticon-outline",
       "enabledByConfig": "show_emotion_sensor",
+      "options": [],
       "read": "getLastEmotion"
     },
     {
@@ -114,6 +119,7 @@
       "name": "Download Model",
       "icon": "mdi:download",
       "enabledByConfig": "show_diagnostic_entities",
+      "options": [],
       "press": "downloadModel"
     },
     {
@@ -122,6 +128,7 @@
       "name": "Restart STT Server",
       "icon": "mdi:restart",
       "enabledByConfig": "show_diagnostic_entities",
+      "options": [],
       "press": "restartServer"
     },
     {
@@ -130,6 +137,7 @@
       "name": "Delete Model",
       "icon": "mdi:delete",
       "enabledByConfig": "show_diagnostic_entities",
+      "options": [],
       "press": "deleteModel"
     }
   ],
