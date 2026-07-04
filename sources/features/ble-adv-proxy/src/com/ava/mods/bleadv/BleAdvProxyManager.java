@@ -180,20 +180,53 @@ public class BleAdvProxyManager {
         if (!featureEnabled || !haServicesReady || !setupDone) {
             return;
         }
-        if (raw == null || raw.length < MIN_VIABLE_PACKET_LEN || raw.length > 31) {
+        if (raw == null || raw.length < MIN_VIABLE_PACKET_LEN) {
             return;
         }
-        if (dedupCache.isMacIgnored(mac) || dedupCache.isCompanyIdIgnored(raw)) {
+        // Android's ScanRecord.getBytes() hands back a fixed-size legacy buffer (advertising data,
+        // plus scan-response for active scans) zero-padded to its maximum length — typically 62
+        // bytes. The ESP32 ble_adv_proxy operates on the real PDU, so trim the trailing AD padding
+        // to the true payload length first. Without this every packet is 62 bytes and the >31 guard
+        // silently drops the entire scan stream (raw_adv never fires, ha-ble-adv listen stays None).
+        byte[] adv = trimAdvPadding(raw);
+        if (adv.length < MIN_VIABLE_PACKET_LEN || adv.length > 31) {
+            return;
+        }
+        if (dedupCache.isMacIgnored(mac) || dedupCache.isCompanyIdIgnored(adv)) {
             return;
         }
         long expiresAt = System.currentTimeMillis() + dedupCache.getDupeIgnoreDurationMs();
-        if (!dedupCache.checkAddDupePacket(raw, expiresAt)) {
+        if (!dedupCache.checkAddDupePacket(adv, expiresAt)) {
             return;
         }
         Map<String, String> payload = new HashMap<>();
-        payload.put(KEY_RAW, RawAdvParser.toHex(raw));
+        payload.put(KEY_RAW, RawAdvParser.toHex(adv));
         payload.put(KEY_ORIGIN, mac != null ? mac.toUpperCase() : "");
         fireHomeassistantEvent(EVENT_RAW_ADV, payload);
+    }
+
+    /**
+     * Walk the AD structures ([len][type][len-1 payload]...) and return the real advertising
+     * length, stopping at the first zero-length field (the padding Android appends) or a malformed
+     * structure. Returns a trimmed copy, or the original array when there is no padding to remove.
+     */
+    static byte[] trimAdvPadding(byte[] raw) {
+        int i = 0;
+        int n = raw.length;
+        while (i < n) {
+            int len = raw[i] & 0xFF;
+            if (len == 0) {
+                break;
+            }
+            if (i + 1 + len > n) {
+                break;
+            }
+            i += 1 + len;
+        }
+        if (i >= n) {
+            return raw;
+        }
+        return java.util.Arrays.copyOf(raw, i);
     }
 
     public void onServiceCall(Context ctx, String serviceName, Map<String, Object> args) {
