@@ -120,6 +120,16 @@
       "path": "mods/devices/tuya-s8e-support/"
     },
     {
+      "id": "ir-blaster-support",
+      "name": "IR Blaster (ESPhome)",
+      "version": "1.0.0",
+      "author": "Ava",
+      "description": "IR emitter and expose it to Home Assistant as a native ESPHome infrared transmitter.",
+      "detail_description": "Consumer IR + USB detection, Default TCP port 6054.",
+      "path": "mods/devices/ir-blaster-support/",
+      "jar_hash": "17dc920f2660895ae48915aed1b12218"
+    },
+    {
       "id": "yx-led-controller",
       "name": "YX LED Controller",
       "version": "1.0.0",

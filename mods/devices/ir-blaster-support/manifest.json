@@ -1,0 +1,100 @@
+{
+  "id": "ir-blaster-support",
+  "name": "IR Blaster (ESPhome)",
+  "version": "1.0.0",
+  "author": "Ava",
+  "description": "IR blaster for Home Assistant via ESPHome",
+  "detail_description": "Consumer IR + USB detection, Default TCP port 6054.",
+  "icon": "mdi:remote",
+  "libs": [
+    "libs/ir-blaster-support.jar"
+  ],
+  "manager": "com.ava.mods.irblaster.IrBlasterManager",
+  "jar_hash": "17dc920f2660895ae48915aed1b12218",
+  "permissions": [
+    "android.permission.INTERNET",
+    "android.permission.ACCESS_NETWORK_STATE",
+    "android.permission.TRANSMIT_IR"
+  ],
+  "entities": [
+    {
+      "type": "binary_sensor",
+      "id": "server_running",
+      "name": "IR API Server",
+      "icon": "mdi:server-network",
+      "class": "connectivity",
+      "category": "diagnostic",
+      "enabledByConfig": "show_diagnostic_entities",
+      "read": "isServerRunning"
+    },
+    {
+      "type": "text_sensor",
+      "id": "emitter_info",
+      "name": "IR Emitter",
+      "icon": "mdi:remote",
+      "category": "diagnostic",
+      "enabledByConfig": "show_diagnostic_entities",
+      "read": "getEmitterInfo"
+    },
+    {
+      "type": "text_sensor",
+      "id": "last_transmit",
+      "name": "Last IR Transmit",
+      "icon": "mdi:history",
+      "category": "diagnostic",
+      "enabledByConfig": "show_diagnostic_entities",
+      "read": "getLastTransmit"
+    },
+    {
+      "type": "button",
+      "id": "restart_server",
+      "name": "Restart IR API Server",
+      "icon": "mdi:restart",
+      "category": "diagnostic",
+      "enabledByConfig": "show_diagnostic_entities",
+      "press": "restartServer"
+    }
+  ],
+  "config": [
+    {
+      "type": "switch",
+      "key": "enable_server",
+      "label": "Enable IR API Server",
+      "description": "Advertise this device to Home Assistant as an ESPHome infrared emitter.",
+      "defaultValue": "false"
+    },
+    {
+      "type": "number",
+      "key": "tcp_port",
+      "label": "TCP Port",
+      "description": "ESPHome native API port Home Assistant connects to.",
+      "dialogHint": "Default 6054. Keep it different from Ava's own ESPHome port (6053). Add it in HA via Settings > Devices > Add Integration > ESPHome, host = this device IP, port = this value, leave the encryption key blank.",
+      "defaultValue": "6054",
+      "min": 1024,
+      "max": 65535,
+      "step": 1
+    },
+    {
+      "type": "text",
+      "key": "listen_address",
+      "label": "Listen Address",
+      "description": "Bind address for the API server.",
+      "dialogHint": "0.0.0.0 allows LAN clients (typical). Use 127.0.0.1 for local-only.",
+      "defaultValue": "0.0.0.0"
+    },
+    {
+      "type": "switch",
+      "key": "mdns_enabled",
+      "label": "mDNS Discovery",
+      "description": "Broadcast _esphomelib._tcp so Home Assistant auto-discovers this device.",
+      "defaultValue": "true"
+    },
+    {
+      "type": "switch",
+      "key": "show_diagnostic_entities",
+      "label": "Show Diagnostic Entities",
+      "description": "Expose server status, detected emitter, last transmit, and a restart button in Home Assistant.",
+      "defaultValue": "false"
+    }
+  ]
+}
