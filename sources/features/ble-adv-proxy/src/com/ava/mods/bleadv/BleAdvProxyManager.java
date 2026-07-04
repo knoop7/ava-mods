@@ -32,6 +32,13 @@ public class BleAdvProxyManager {
     private static final int REPEAT_NB = 3;
     private static final int MIN_VIABLE_PACKET_LEN = 5;
 
+    // Android's LOW_LATENCY advertise interval is ~100ms, so a single short per-burst window
+    // (ha-ble-adv sends e.g. 20-30ms x repeat) may emit zero ADV events. Collapse the whole
+    // repeat x duration budget into one continuous window, clamped to keep the exclusive BLE
+    // window (which pauses proxy scan / presence) bounded.
+    private static final int MIN_ADV_WINDOW_MS = 120;
+    private static final int MAX_ADV_WINDOW_MS = 1800;
+
     private final Context context;
     private final BleAdvDedupCache dedupCache = new BleAdvDedupCache();
     private final ConcurrentLinkedQueue<TransmitJob> transmitQueue = new ConcurrentLinkedQueue<>();
@@ -50,6 +57,8 @@ public class BleAdvProxyManager {
 
     private volatile boolean featureEnabled = true;
     private volatile boolean useMaxTxPower = false;
+    private volatile boolean rawHciEnabled = false;
+    private final RawHciAdvertiser rawHciAdvertiser;
     private volatile String adapterNameOverride = "";
     private volatile String deviceName = "";
     private volatile Object hostApi;
@@ -59,6 +68,7 @@ public class BleAdvProxyManager {
 
     private BleAdvProxyManager(Context context) {
         this.context = context.getApplicationContext();
+        this.rawHciAdvertiser = new RawHciAdvertiser(this.context);
     }
 
     public static BleAdvProxyManager getInstance(Context context) {
@@ -89,14 +99,35 @@ public class BleAdvProxyManager {
     }
 
     public String getAdapterName() {
+        String raw;
         if (adapterNameOverride != null && !adapterNameOverride.trim().isEmpty()) {
-            return adapterNameOverride.trim();
+            raw = adapterNameOverride.trim();
+        } else {
+            raw = deviceName != null ? deviceName : "";
         }
-        return deviceName != null ? deviceName : "";
+        return normalizeNodeName(raw);
     }
 
     public String getAdapterName(Context ctx) {
         return getAdapterName();
+    }
+
+    /**
+     * ESPHome node names must be a lowercase slug ([a-z0-9_]). Home Assistant lowercases every
+     * registered service name, while ha-ble-adv builds its ESPHome service-lookup key from the
+     * reported device name case-sensitively (esp_adapters.py:
+     * {@code f"{device_name.replace('-', '_')}_{svc}"}). An uppercase name (e.g. "MI_9") therefore
+     * makes ble_adv fail to match {@code <name>_adv_svc_v1}/{@code <name>_setup_svc_v0} and report
+     * "Invalid adapter". Normalize thoroughly to a safe lowercase slug.
+     */
+    private static String normalizeNodeName(String raw) {
+        if (raw == null) {
+            return "";
+        }
+        return raw.toLowerCase(java.util.Locale.ROOT)
+                .replaceAll("[^a-z0-9_]", "_")
+                .replaceAll("_+", "_")
+                .replaceAll("^_+|_+$", "");
     }
 
     public void applyConfig(String key, String value) {
@@ -110,6 +141,9 @@ public class BleAdvProxyManager {
                 break;
             case "use_max_tx_power":
                 useMaxTxPower = parseBoolean(value, false);
+                break;
+            case "enable_raw_hci":
+                rawHciEnabled = parseBoolean(value, false);
                 break;
             case "adapter_name":
                 adapterNameOverride = value != null ? value : "";
@@ -243,9 +277,15 @@ public class BleAdvProxyManager {
     ) {
         setupDone = true;
         notifyProxyReadyChanged();
-        int intDuration = Math.max(32, (int) durationMs);
+        int perBurst = Math.max(1, (int) durationMs);
         long intIgnDuration = (long) ignDurationMs;
-        Log.d(TAG, "send adv - " + raw + ", duration " + intDuration + "ms, repeat: " + repeat);
+
+        // Same packet is repeated by ha-ble-adv to fight radio collisions; on Android we advertise
+        // continuously for the aggregate budget instead, which is equivalent and guarantees output.
+        long budget = (long) perBurst * Math.max(1, repeat);
+        int window = (int) Math.max(MIN_ADV_WINDOW_MS, Math.min(MAX_ADV_WINDOW_MS, budget));
+        Log.d(TAG, "send adv - " + raw + ", perBurst " + perBurst + "ms x repeat " + repeat
+                + " -> window " + window + "ms");
 
         byte[] rawBytes;
         try {
@@ -260,9 +300,7 @@ public class BleAdvProxyManager {
             dedupCache.ignoreHexEcho(ignoredAdv, intIgnDuration);
         }
 
-        for (int i = 0; i < repeat; i++) {
-            transmitQueue.offer(new TransmitJob(rawBytes, intDuration));
-        }
+        transmitQueue.offer(new TransmitJob(rawBytes, window));
         drainTransmitQueue();
     }
 
@@ -283,6 +321,16 @@ public class BleAdvProxyManager {
                         runExclusive(new Runnable() {
                             @Override
                             public void run() {
+                                // B-layer: true 1:1 raw injection (Flags included) via root HCI/MGMT.
+                                if (rawHciEnabled && rawHciAdvertiser.isAvailable()) {
+                                    String rawErr = rawHciAdvertiser.transmit(0, "auto", job.durationMs, job.raw);
+                                    if (rawErr == null) {
+                                        clearLastAdvertiseError();
+                                        return;
+                                    }
+                                    Log.w(TAG, "raw HCI unavailable, falling back to AdvertiseData: " + rawErr);
+                                }
+                                // A-layer: best-effort AdvertiseData (byte-exact except Flags).
                                 String error = transmitter.transmitBlocking(job.raw, job.durationMs);
                                 if (error != null && !error.isEmpty()) {
                                     setLastAdvertiseError(error);

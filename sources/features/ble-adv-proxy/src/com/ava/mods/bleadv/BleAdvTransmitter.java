@@ -50,7 +50,15 @@ final class BleAdvTransmitter {
 
         final AdvertiseData data;
         try {
-            data = RawAdvParser.toAdvertiseData(raw);
+            RawAdvParser.MappedAdv mapped = RawAdvParser.toMappedAdv(raw);
+            data = mapped.data;
+            if (!mapped.fullyMapped) {
+                Log.w(TAG, "Raw adv not byte-exact (needs raw HCI for 1:1): " + mapped.note);
+            } else if (mapped.flagsDropped) {
+                Log.d(TAG, "Raw adv mapped byte-exact except Flags AD (dropped by Android)");
+            } else {
+                Log.d(TAG, "Raw adv mapped byte-exact");
+            }
         } catch (Exception e) {
             lastError = "invalid_raw_adv";
             Log.w(TAG, "Failed to parse raw adv", e);

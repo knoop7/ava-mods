@@ -48,6 +48,50 @@ echo "Using JDK: $JAVA_HOME"
 rm -rf "$BUILD_DIR"
 mkdir -p "$BUILD_DIR/classes" libs
 
+# --- Native raw-HCI helper (B-layer 1:1 injection) ---------------------------
+# Compile ble_adv_hci for all ABIs when an NDK is available, refreshing the
+# committed prebuilt binaries. Falls back to the prebuilt ELFs otherwise so the
+# build still works on machines without the NDK.
+NATIVE_DIR="$SCRIPT_DIR/native"
+PREBUILT_DIR="$NATIVE_DIR/prebuilt"
+NDK_DIR="$(ls -d "$ANDROID_SDK"/ndk/* 2>/dev/null | sort -V | tail -1 || true)"
+if [ -n "$NDK_DIR" ] && [ -f "$NATIVE_DIR/ble_adv_hci.c" ]; then
+    TC="$NDK_DIR/toolchains/llvm/prebuilt/darwin-x86_64/bin"
+    if [ ! -d "$TC" ]; then
+        TC="$(ls -d "$NDK_DIR"/toolchains/llvm/prebuilt/*/bin 2>/dev/null | head -1 || true)"
+    fi
+    NATIVE_API=24
+    if [ -n "$TC" ]; then
+        echo "Compiling native helper with NDK: $NDK_DIR"
+        for abi in arm64-v8a armeabi-v7a x86_64 x86; do
+            case "$abi" in
+                arm64-v8a)   CC_BIN="$TC/aarch64-linux-android${NATIVE_API}-clang" ;;
+                armeabi-v7a) CC_BIN="$TC/armv7a-linux-androideabi${NATIVE_API}-clang" ;;
+                x86_64)      CC_BIN="$TC/x86_64-linux-android${NATIVE_API}-clang" ;;
+                x86)         CC_BIN="$TC/i686-linux-android${NATIVE_API}-clang" ;;
+            esac
+            if [ -x "$CC_BIN" ]; then
+                mkdir -p "$PREBUILT_DIR/$abi"
+                "$CC_BIN" -O2 -s -o "$PREBUILT_DIR/$abi/ble_adv_hci" "$NATIVE_DIR/ble_adv_hci.c"
+            else
+                echo "  warn: compiler for $abi not found, keeping prebuilt"
+            fi
+        done
+    fi
+else
+    echo "NDK not found — bundling committed prebuilt native helpers."
+fi
+
+if [ -d "$PREBUILT_DIR" ]; then
+    for abi in arm64-v8a armeabi-v7a x86_64 x86; do
+        if [ -f "$PREBUILT_DIR/$abi/ble_adv_hci" ]; then
+            mkdir -p "$BUILD_DIR/mod-dex/native/$abi"
+            cp "$PREBUILT_DIR/$abi/ble_adv_hci" "$BUILD_DIR/mod-dex/native/$abi/ble_adv_hci"
+        fi
+    done
+fi
+# -----------------------------------------------------------------------------
+
 echo "Compiling Java sources..."
 javac -source 1.8 -target 1.8 \
     -bootclasspath "$ANDROID_JAR" \
