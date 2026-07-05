@@ -1,7 +1,7 @@
 {
   "id": "phicomm-r1-support",
   "name": "Phicomm R1",
-  "version": "1.2.6",
+  "version": "1.2.9",
   "author": "Ava",
   "description": "Phicomm R1 native LED ring, voice-reactive, music RGB.",
   "detail_description": "Stock msgcenter voice and dormant lights; optional 4-mic directional wake; RGB music ring.",
@@ -11,7 +11,7 @@
     "libs/phicomm-r1-support.jar"
   ],
   "manager": "com.ava.mods.phicomm.PhicommR1SupportManager",
-  "jar_hash": "c9db0d25df2a32268dba22f9b818f95e",
+  "jar_hash": "07dc04c2126e2c3092053571a79d69a4",
   "entities": [
     {
       "type": "switch",
@@ -62,7 +62,7 @@
       "type": "switch",
       "key": "enable_voice_led",
       "label": "Voice LED Effects",
-      "description": "Pipeline wake/loading lights. OFF = night silence for voice session LEDs.",
+      "description": "Pipeline wake/loading lights. Wake word 1 green, wake word 2 blue (JNI); stock 203 fallback for blue loading.",
       "defaultValue": "true"
     },
     {
@@ -83,8 +83,8 @@
       "type": "switch",
       "key": "enable_net_light",
       "label": "Network Disconnect LED",
-      "description": "Light 254 when Wi-Fi/Ethernet is offline.",
-      "defaultValue": "true"
+      "description": "Light 254 when offline. Stock 小讯 PhicommLightListener does not wire this; off by default for parity.",
+      "defaultValue": "false"
     },
     {
       "type": "switch",

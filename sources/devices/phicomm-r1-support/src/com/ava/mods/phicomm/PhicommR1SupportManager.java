@@ -31,6 +31,7 @@ public class PhicommR1SupportManager implements PhicommKeyEventListener.Handler 
     private final PhicommPrivilegedShell privilegedShell;
     private final PhicommLightsEffectsCatalog lightsCatalog;
     private final PhicommVolumeHelper volumeHelper;
+    private final PhicommWakeAccentTracker wakeAccentTracker = new PhicommWakeAccentTracker();
     private final Map<String, CopyOnWriteArrayList<Object>> stateListeners =
         new ConcurrentHashMap<String, CopyOnWriteArrayList<Object>>();
 
@@ -38,7 +39,7 @@ public class PhicommR1SupportManager implements PhicommKeyEventListener.Handler 
     private boolean enableFourMic = false;
     private boolean enableVoiceLed = true;
     private boolean enableDormantLight = true;
-    private boolean enableNetLight = true;
+    private boolean enableNetLight = false;
     private boolean enableVolumeLed = false;
     private boolean enableTopKeySensor = true;
     private boolean enableMusicRgbLight = true;
@@ -288,11 +289,20 @@ public class PhicommR1SupportManager implements PhicommKeyEventListener.Handler 
 
         switch (event) {
             case "wake_detected":
-                if (voiceSessionActive) {
-                    voiceLightListener.onInterrupt();
-                }
                 voiceSessionActive = true;
-                voiceLightListener.onWakeupSuccess(PhicommDoaResolver.resolve(extras));
+                wakeAccentTracker.onWakeDetected(extras, PhicommDoaResolver.resolve(extras));
+                voiceLightListener.setSessionAccentColor(wakeAccentTracker.getSessionAccentRgb());
+                voiceLightListener.onWakeupSuccess(
+                    wakeAccentTracker.getPendingDoa(),
+                    wakeAccentTracker.getSessionAccentRgb());
+                break;
+
+            case "listening_started":
+                int accent = wakeAccentTracker.onListeningStarted(extras);
+                if (accent != 0 && voiceSessionActive) {
+                    voiceLightListener.setSessionAccentColor(accent);
+                    voiceLightListener.onWakeupSuccess(wakeAccentTracker.getPendingDoa(), accent);
+                }
                 break;
 
             case "stt_vad_end":
@@ -307,6 +317,7 @@ public class PhicommR1SupportManager implements PhicommKeyEventListener.Handler 
             case "pipeline_error":
                 voiceLightListener.onInterrupt();
                 voiceSessionActive = false;
+                wakeAccentTracker.reset();
                 break;
 
             default:
@@ -400,7 +411,7 @@ public class PhicommR1SupportManager implements PhicommKeyEventListener.Handler 
             enableFourMic = readConfigBoolean(json, "enable_four_mic", false);
             enableVoiceLed = readConfigBoolean(json, "enable_voice_led", true);
             enableDormantLight = readConfigBoolean(json, "enable_dormant_light", true);
-            enableNetLight = readConfigBoolean(json, "enable_net_light", true);
+            enableNetLight = readConfigBoolean(json, "enable_net_light", false);
             enableVolumeLed = readConfigBoolean(json, "enable_volume_led", false);
             enableTopKeySensor = readConfigBoolean(json, "enable_top_key_sensor", true);
             enableMusicRgbLight = readConfigBoolean(json, "enable_music_rgb_light", true);

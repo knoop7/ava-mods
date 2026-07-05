@@ -7,8 +7,8 @@ Replicates stock 小讯 (Unisound) voice LED behavior on Phicomm R1 via Ava voic
 | Phase | IPC |
 |-------|-----|
 | Wake (DOA) | `sendMessage(4096, 1-24, 0, null)` directional white |
-| User finished speaking | off 1-24 + `sendMessage(4096, 203, 0, null)` blue loading |
-| TTS finished | `sendMessage(4096, 203, 1, null)` |
+| User finished speaking | off 1-24 + green loading ring (JNI) or stock `4096, 203` blue |
+| TTS finished | off loading |
 | Session interrupt | off 1-24 + off 203 |
 
 Build: `./build.sh`

@@ -11,6 +11,7 @@ public final class PhicommVoiceLightListener {
     private static final String TAG = "PhicommVoiceLightListener";
 
     private final PhicommLightController controller;
+    private int sessionAccentRgb;
 
     public PhicommVoiceLightListener(Context context) {
         controller = new PhicommLightController(context);
@@ -20,19 +21,30 @@ public final class PhicommVoiceLightListener {
         return controller.isAvailable();
     }
 
+    public void setSessionAccentColor(int accentRgb) {
+        sessionAccentRgb = accentRgb & 0xFFFFFF;
+    }
+
     /** ASR 3201 / DefaultLightsHandler.onWakeupResult */
     public void onWakeupSuccess(int doaAngle) {
-        // Stock passes raw DOA even when -1; perHandleAngle() clamps invalid to 0°.
+        onWakeupSuccess(doaAngle, sessionAccentRgb);
+    }
+
+    public void onWakeupSuccess(int doaAngle, int accentRgb) {
+        if (accentRgb != 0) {
+            sessionAccentRgb = accentRgb & 0xFFFFFF;
+        }
         int index = PhicommLightIndexProcessor.getIndex(doaAngle);
-        Log.d(TAG, "onWakeupSuccess doa=" + doaAngle + " index=" + index);
-        controller.turnOnWakeupIndexLight(index);
+        Log.d(TAG, "onWakeupSuccess doa=" + doaAngle + " index=" + index
+            + " accent=#" + Integer.toHexString(sessionAccentRgb));
+        controller.turnOnWakeupIndexLight(index, sessionAccentRgb);
     }
 
     /** ASR 1102 RECORDING_STOP / DefaultLightsHandler.onASREventRecordingStop */
     public void onRecognizeStart() {
-        Log.d(TAG, "onRecognizeStart");
+        Log.d(TAG, "onRecognizeStart accent=#" + Integer.toHexString(sessionAccentRgb));
         controller.turnOffALLWakeupLight();
-        controller.turnOnLoadingLight();
+        controller.turnOnLoadingLight(sessionAccentRgb);
     }
 
     /** TTS 2107 PLAYING_END / DefaultLightsHandler.onTTSEventPlayingEnd */

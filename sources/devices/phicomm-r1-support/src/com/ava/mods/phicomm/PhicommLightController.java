@@ -3,8 +3,7 @@ package com.ava.mods.phicomm;
 import android.content.Context;
 
 /**
- * Ported verbatim from com.phicomm.speaker.device.custom.ipc.PhicommLightController.
- * All LED effects go through msgcenter IPC only — never custom RGB.
+ * Stock Phicomm LED IPC ({@code 4096}) plus optional JNI overrides where noted.
  */
 public final class PhicommLightController {
     public static final int LIGHT_WHAT = 4096;
@@ -31,6 +30,9 @@ public final class PhicommLightController {
     }
 
     public void turnOffALLWakeupLight() {
+        if (PhicommLedLightJni.isAvailable()) {
+            PhicommLedLightJni.clearWakeSegments();
+        }
         for (int i = WAKEUP_LIGHT_MIN; i <= WAKEUP_LIGHT_MAX; i++) {
             bridge.sendMessage(LIGHT_WHAT, i, LIGHT_ACTION_CLOSE, null);
         }
@@ -41,6 +43,9 @@ public final class PhicommLightController {
     }
 
     public void turnOffLoadingLight() {
+        if (PhicommLedLightJni.isAvailable()) {
+            PhicommLedLightJni.clearRing();
+        }
         bridge.sendMessage(LIGHT_WHAT, LIGHT_ID_LOADING, LIGHT_ACTION_CLOSE, null);
     }
 
@@ -52,8 +57,17 @@ public final class PhicommLightController {
         bridge.sendMessage(LIGHT_WHAT, LIGHT_ID_DORMANT, LIGHT_ACTION_OPEN, null);
     }
 
-    public void turnOnLoadingLight() {
-        bridge.sendMessage(LIGHT_WHAT, LIGHT_ID_LOADING, LIGHT_ACTION_OPEN, null);
+    public void turnOnLoadingLight(int accentRgb) {
+        if (PhicommLedLightJni.isAvailable()) {
+            int rgb = accentRgb != 0
+                ? accentRgb & 0xFFFFFF
+                : PhicommWakeAccentTracker.DEFAULT_WAKE_WORD_1_RGB;
+            PhicommLedLightJni.setRingColor(rgb);
+            return;
+        }
+        if (accentRgb == 0 || PhicommWakeAccentTracker.isWakeWord2Accent(accentRgb)) {
+            bridge.sendMessage(LIGHT_WHAT, LIGHT_ID_LOADING, LIGHT_ACTION_OPEN, null);
+        }
     }
 
     public void turnOnNetDisconnectedLight() {
@@ -61,7 +75,15 @@ public final class PhicommLightController {
     }
 
     public void turnOnWakeupIndexLight(int index) {
+        turnOnWakeupIndexLight(index, 0);
+    }
+
+    public void turnOnWakeupIndexLight(int index, int accentRgb) {
         lastLightIndex = index;
+        if (PhicommLedLightJni.isAvailable() && accentRgb != 0) {
+            PhicommLedLightJni.setSegmentColor(index, accentRgb);
+            return;
+        }
         bridge.sendMessage(LIGHT_WHAT, index, LIGHT_ACTION_OPEN, null);
     }
 

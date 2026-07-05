@@ -44,9 +44,7 @@ final class PhicommMusicRgbEngine implements Visualizer.OnDataCaptureListener {
             visualizer.setDataCaptureListener(this, (int) (rate / 1.17073f), false, true);
             visualizer.setEnabled(true);
             running = true;
-            if (!useJni) {
-                fallback.startEffect();
-            }
+            fallback.startEffect();
             Log.i(TAG, "Visualizer started session=0 backend=" + backendLabel());
             return true;
         } catch (Throwable t) {
@@ -69,10 +67,9 @@ final class PhicommMusicRgbEngine implements Visualizer.OnDataCaptureListener {
             }
             visualizer = null;
         }
+        fallback.clear();
         if (useJni) {
             PhicommLedLightJni.clearRing();
-        } else {
-            fallback.clear();
         }
         lastReportedAmp = 0f;
     }
