@@ -3,8 +3,8 @@
   "name": "Phicomm R1",
   "version": "1.2.6",
   "author": "Ava",
-  "description": "Phicomm R1 voice LEDs, music RGB ring, and HA controls.",
-  "detail_description": "Stock msgcenter voice, dormant, and network offline LEDs on Phicomm R1; optional four-mic DOA default off; music RGB via JNI; HA switches and top-key sensor.",
+  "description": "Phicomm R1 native LED ring, voice-reactive, music RGB.",
+  "detail_description": "Stock msgcenter voice and dormant lights; optional 4-mic directional wake; RGB music ring.",
   "icon": "mdi:led-strip-variant",
   "voice_pipeline": true,
   "libs": [
@@ -97,7 +97,7 @@
       "type": "switch",
       "key": "enable_top_key_sensor",
       "label": "Top Key Sensor",
-      "description": "Expose last top-cover gesture (single/double/triple/long) to Home Assistant.",
+      "description": "Expose last top-cover gesture (single/double/triple/long) as a sensor.",
       "defaultValue": "true"
     }
   ]
