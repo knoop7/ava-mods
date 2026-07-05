@@ -17,8 +17,7 @@ echo "Granting Portal permissions for $PKG"
 for perm in \
     android.permission.WRITE_SECURE_SETTINGS \
     android.permission.RECORD_AUDIO \
-    android.permission.CAMERA \
-    android.permission.READ_LOGS
+    android.permission.CAMERA
 do
     "$ADB" "${TARGET[@]}" shell pm grant "$PKG" "$perm"
     echo "  granted $perm"

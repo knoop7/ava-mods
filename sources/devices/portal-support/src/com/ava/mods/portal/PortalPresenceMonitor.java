@@ -77,27 +77,25 @@ class PortalPresenceMonitor {
     }
 
     private void readLoop() {
+        String[] cmd = {
+                "logcat", "-v", "epoch",
+                "-s", "PresenceManager:I", "aloha.CameraServiceController:I"
+        };
+        // Presence reads logcat through a privileged shell (Shizuku shell uid / root) which
+        // already holds log access. The app process is never granted READ_LOGS, so there is
+        // no in-app fallback: without Shizuku or root, presence simply stays unavailable.
+        Process proc = context == null ? null
+                : new PortalPermissionHelper(context).newPrivilegedProcess(cmd);
+        if (proc == null) {
+            Log.w(TAG, "PresenceMonitor needs a privileged shell — enable Shizuku or root");
+            return;
+        }
+        process = proc;
         try {
-            ProcessBuilder builder = new ProcessBuilder(
-                    "logcat", "-v", "epoch",
-                    "-s", "PresenceManager:I", "aloha.CameraServiceController:I"
-            );
-            builder.redirectErrorStream(true);
-            process = builder.start();
             java.io.BufferedReader reader = new java.io.BufferedReader(
-                    new java.io.InputStreamReader(process.getInputStream())
+                    new java.io.InputStreamReader(proc.getInputStream())
             );
-            String line = reader.readLine();
-            if (line == null && process.waitFor() != 0) {
-                Log.w(TAG, "logcat exited immediately — requesting READ_LOGS via Shizuku/root");
-                if (context != null) {
-                    new PortalPermissionHelper(context).ensurePermission("android.permission.READ_LOGS");
-                }
-                process = builder.start();
-                reader = new java.io.BufferedReader(
-                        new java.io.InputStreamReader(process.getInputStream())
-                );
-            }
+            String line;
             while (running && (line = reader.readLine()) != null) {
                 if (!line.toLowerCase().contains("presence")) {
                     continue;
@@ -115,7 +113,7 @@ class PortalPresenceMonitor {
                 }
             }
         } catch (Exception e) {
-            Log.w(TAG, "PresenceMonitor reader stopped: " + e.getMessage() + " (READ_LOGS granted?)");
+            Log.w(TAG, "PresenceMonitor reader stopped: " + e.getMessage());
         }
     }
 

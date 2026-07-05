@@ -133,6 +133,7 @@ public class PortalSupportManager implements PortalSensorBridge.Listener, Portal
     public void setPresenceDetection(String enabled) {
         presenceDetectionEnabled = parseBoolean(enabled);
         updatePresenceSubsystem();
+        notifyStateListeners("presence_detection", Boolean.valueOf(presenceDetectionEnabled));
     }
 
     public boolean isPresenceDetectionEnabled() {
@@ -151,6 +152,7 @@ public class PortalSupportManager implements PortalSensorBridge.Listener, Portal
     public void setScreenTimeout(String enabled) {
         screenTimeoutEnabled = parseBoolean(enabled);
         updateScreenTimeoutSubsystem();
+        notifyStateListeners("screen_timeout", Boolean.valueOf(screenTimeoutEnabled));
     }
 
     public boolean isScreenTimeoutEnabled() {
@@ -320,10 +322,6 @@ public class PortalSupportManager implements PortalSensorBridge.Listener, Portal
 
     private void updatePresenceSubsystem() {
         if (enablePresence && presenceDetectionEnabled) {
-            if (!hasReadLogs()) {
-                Log.w(TAG, "presence enabled but READ_LOGS missing — requesting via Shizuku/root");
-                permissionHelper.ensurePermission("android.permission.READ_LOGS");
-            }
             if (presenceMonitor == null) {
                 presenceMonitor = new PortalPresenceMonitor(context, this);
             }
@@ -395,6 +393,10 @@ public class PortalSupportManager implements PortalSensorBridge.Listener, Portal
     private void pushCurrentState(String entityId, Object callback) {
         if ("portal_presence".equals(entityId)) {
             notifySingleListener(callback, Boolean.valueOf(isPortalPresent()));
+        } else if ("presence_detection".equals(entityId)) {
+            notifySingleListener(callback, Boolean.valueOf(presenceDetectionEnabled));
+        } else if ("screen_timeout".equals(entityId)) {
+            notifySingleListener(callback, Boolean.valueOf(screenTimeoutEnabled));
         } else if ("ambient_light".equals(entityId)) {
             notifySingleListener(callback, Float.valueOf(getAmbientLight()));
         } else if ("light_red".equals(entityId)) {
@@ -435,10 +437,6 @@ public class PortalSupportManager implements PortalSensorBridge.Listener, Portal
         } catch (Exception e) {
             Log.w(TAG, "State listener callback failed for " + listener, e);
         }
-    }
-
-    private boolean hasReadLogs() {
-        return context.checkSelfPermission("android.permission.READ_LOGS") == PackageManager.PERMISSION_GRANTED;
     }
 
     private boolean hasRecordAudio() {

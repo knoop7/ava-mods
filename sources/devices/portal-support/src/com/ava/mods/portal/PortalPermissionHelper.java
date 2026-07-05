@@ -21,8 +21,7 @@ final class PortalPermissionHelper {
     private static final String[] GRANT_PERMISSIONS = {
             "android.permission.WRITE_SECURE_SETTINGS",
             "android.permission.RECORD_AUDIO",
-            "android.permission.CAMERA",
-            "android.permission.READ_LOGS"
+            "android.permission.CAMERA"
     };
 
     private static final String[] GRANT_APPOPS = {
@@ -39,12 +38,25 @@ final class PortalPermissionHelper {
     }
 
     boolean grantAll() {
+        ensureHostShizukuInit();
         String pkg = context.getPackageName();
-        if (tryShizukuGrant(pkg) || tryRootGrant(pkg)) {
+        if (allRuntimePermissionsGranted()) {
+            ensureAppOps();
             return true;
         }
-        requestShizukuPermissionIfNeeded();
-        return false;
+        if (tryShizukuGrant(pkg)) {
+            ensureAppOps();
+        } else if (tryRootGrant(pkg)) {
+            ensureAppOps();
+        } else {
+            requestShizukuPermissionIfNeeded();
+        }
+        boolean ok = allRuntimePermissionsGranted();
+        if (!ok) {
+            Log.w(TAG, "grantAll incomplete — need Shizuku/root for "
+                    + "WRITE_SECURE_SETTINGS, RECORD_AUDIO, CAMERA");
+        }
+        return ok;
     }
 
     boolean hasPermission(String permission) {
@@ -55,33 +67,151 @@ final class PortalPermissionHelper {
         if (hasPermission(permission)) {
             return true;
         }
+        ensureHostShizukuInit();
+        requestHostGrant(permission);
         String pkg = context.getPackageName();
         String cmd = "pm grant " + pkg + " " + permission;
-        if (tryShizukuExec(cmd) == 0 && hasPermission(permission)) {
-            return true;
-        }
-        if (tryRootExec(cmd) == 0 && hasPermission(permission)) {
+        if (execPrivileged(cmd) == 0 && hasPermission(permission)) {
             return true;
         }
         requestShizukuPermissionIfNeeded();
-        return false;
+        return hasPermission(permission);
     }
 
-    int executeShell(String command) {
+    /** Shizuku first, root fallback — only when the privileged shell actually succeeded. */
+    private int execPrivileged(String command) {
         int code = tryShizukuExec(command);
-        if (code >= 0) {
-            return code;
+        if (code == 0) {
+            return 0;
         }
         return tryRootExec(command);
     }
 
-    void ensureAppOps() {
-        String pkg = context.getPackageName();
-        if (tryShizukuExec("appops set " + pkg + " WRITE_SETTINGS allow") != 0) {
-            tryRootExec("appops set " + pkg + " WRITE_SETTINGS allow");
+    int executeShell(String command) {
+        return execPrivileged(command);
+    }
+
+    /**
+     * Start a long-running command with a privileged shell identity that already holds
+     * READ_LOGS (Shizuku shell uid or root), returning the live {@link Process} so the
+     * caller can stream stdout. This is how presence monitoring reads {@code logcat}
+     * without granting READ_LOGS to the app process (a runtime grant only takes effect
+     * after the app restarts, because the {@code log} gid is injected at process fork).
+     *
+     * @return a running process, or {@code null} when no privileged channel is available.
+     */
+    Process newPrivilegedProcess(String[] command) {
+        Process process = tryShizukuProcess(command);
+        if (process != null) {
+            return process;
         }
-        if (tryShizukuExec("appops set " + pkg + " SYSTEM_ALERT_WINDOW allow") != 0) {
-            tryRootExec("appops set " + pkg + " SYSTEM_ALERT_WINDOW allow");
+        return tryRootProcess(command);
+    }
+
+    private Process tryShizukuProcess(String[] command) {
+        if (!isShizukuReady()) {
+            return null;
+        }
+        try {
+            Class<?> shizukuClass = loadHostClass("rikka.shizuku.Shizuku");
+            // Shizuku.newProcess(String[], String[], String) is private static — the shell
+            // spawned by it already holds READ_LOGS, so reach it via reflection.
+            Method newProcess = shizukuClass.getDeclaredMethod(
+                    "newProcess", String[].class, String[].class, String.class);
+            newProcess.setAccessible(true);
+            Object process = newProcess.invoke(null, new Object[]{command, null, null});
+            if (process instanceof Process) {
+                Log.i(TAG, "presence logcat via Shizuku shell");
+                return (Process) process;
+            }
+        } catch (Throwable t) {
+            Log.w(TAG, "Shizuku newProcess unavailable: " + t.getMessage());
+        }
+        return null;
+    }
+
+    private Process tryRootProcess(String[] command) {
+        if (!isRootAvailable()) {
+            return null;
+        }
+        try {
+            StringBuilder joined = new StringBuilder();
+            for (String part : command) {
+                if (joined.length() > 0) {
+                    joined.append(' ');
+                }
+                joined.append(part);
+            }
+            Process process = Runtime.getRuntime().exec(
+                    new String[]{"su", "-c", joined.toString()});
+            Log.i(TAG, "presence logcat via root shell");
+            return process;
+        } catch (Exception e) {
+            Log.w(TAG, "root process failed: " + e.getMessage());
+            return null;
+        }
+    }
+
+    void ensureAppOps() {
+        ensureHostShizukuInit();
+        String pkg = context.getPackageName();
+        requestHostGrant("appops:WRITE_SETTINGS");
+        requestHostGrant("appops:SYSTEM_ALERT_WINDOW");
+        if (execPrivileged("appops set " + pkg + " WRITE_SETTINGS allow") != 0) {
+            Log.w(TAG, "WRITE_SETTINGS app-op grant failed");
+        }
+        if (execPrivileged("appops set " + pkg + " SYSTEM_ALERT_WINDOW allow") != 0) {
+            Log.w(TAG, "SYSTEM_ALERT_WINDOW app-op grant failed");
+        }
+    }
+
+    private boolean allRuntimePermissionsGranted() {
+        for (String perm : GRANT_PERMISSIONS) {
+            if (!hasPermission(perm)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * VoiceSatelliteService calls grantOverlayPermissionIfNeeded at ~1.8s but ShizukuUtils.init
+     * runs at ~2.5s. Prime the host helper first so pm grant / shell exec can bind ShellService.
+     */
+    private void ensureHostShizukuInit() {
+        try {
+            Class<?> shizukuUtils = loadHostClass("com.example.ava.utils.ShizukuUtils");
+            Object instance = getKotlinObjectInstance(shizukuUtils);
+            if (instance == null) {
+                return;
+            }
+            Method init = shizukuUtils.getMethod("init", String.class);
+            init.invoke(instance, context.getPackageName());
+        } catch (Exception e) {
+            Log.d(TAG, "ShizukuUtils.init not available: " + e.getMessage());
+        }
+    }
+
+    /** Fire the host AvaControlReceiver grant actions (same path as adb broadcast). */
+    private void requestHostGrant(String permissionOrAppOp) {
+        String action;
+        if ("android.permission.RECORD_AUDIO".equals(permissionOrAppOp)) {
+            action = "com.example.ava.ACTION_GRANT_RECORD_AUDIO";
+        } else if ("android.permission.CAMERA".equals(permissionOrAppOp)) {
+            action = "com.example.ava.ACTION_GRANT_CAMERA";
+        } else if ("android.permission.WRITE_SECURE_SETTINGS".equals(permissionOrAppOp)) {
+            action = "com.example.ava.ACTION_GRANT_SECURE_SETTINGS";
+        } else if ("appops:WRITE_SETTINGS".equals(permissionOrAppOp)) {
+            action = "com.example.ava.ACTION_GRANT_WRITE_SETTINGS";
+        } else if ("appops:SYSTEM_ALERT_WINDOW".equals(permissionOrAppOp)) {
+            action = "com.example.ava.ACTION_GRANT_OVERLAY";
+        } else {
+            return;
+        }
+        try {
+            context.sendBroadcast(new Intent(action).setPackage(context.getPackageName()));
+        } catch (Exception e) {
+            Log.d(TAG, "host grant broadcast failed for " + action + ": " + e.getMessage());
         }
     }
 
@@ -101,18 +231,21 @@ final class PortalPermissionHelper {
         if (!isShizukuReady()) {
             return false;
         }
-        boolean ok = true;
         for (String perm : GRANT_PERMISSIONS) {
+            if (hasPermission(perm)) {
+                continue;
+            }
+            requestHostGrant(perm);
             if (tryShizukuExec("pm grant " + pkg + " " + perm) != 0) {
-                ok = false;
+                Log.w(TAG, "Shizuku pm grant failed: " + perm);
             }
         }
         for (String op : GRANT_APPOPS) {
             if (tryShizukuExec("appops set " + pkg + " " + op + " allow") != 0) {
-                ok = false;
+                Log.w(TAG, "Shizuku appops set failed: " + op);
             }
         }
-        return ok;
+        return allRuntimePermissionsGranted();
     }
 
     private boolean tryRootGrant(String pkg) {
@@ -123,18 +256,22 @@ final class PortalPermissionHelper {
             Process process = Runtime.getRuntime().exec("su");
             try (DataOutputStream os = new DataOutputStream(process.getOutputStream())) {
                 for (String perm : GRANT_PERMISSIONS) {
-                    os.writeBytes("pm grant " + pkg + " " + perm + "\n");
+                    if (!hasPermission(perm)) {
+                        requestHostGrant(perm);
+                        os.writeBytes("pm grant " + pkg + " " + perm + "\n");
+                    }
                 }
                 for (String op : GRANT_APPOPS) {
                     os.writeBytes("appops set " + pkg + " " + op + " allow\n");
                 }
                 os.writeBytes("exit\n");
             }
-            return process.waitFor() == 0;
+            process.waitFor();
         } catch (Exception e) {
             Log.w(TAG, "root grant failed: " + e.getMessage());
             return false;
         }
+        return allRuntimePermissionsGranted();
     }
 
     private void requestShizukuPermissionIfNeeded() {

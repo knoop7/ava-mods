@@ -12,7 +12,7 @@ All features are disabled by default. Enable each one in the mod settings before
 
 | Entity | Type | Notes |
 |--------|------|-------|
-| Portal Presence | binary_sensor | Meta face-presence via logcat (`READ_LOGS`) |
+| Portal Presence | binary_sensor | Meta face-presence via logcat, read through a Shizuku/root shell |
 | Presence Detection | switch | Enable/disable presence monitoring |
 | Ambient Light | sensor | Lux (TCS34x0) |
 | Light R / G / B | sensor | Colour channels (hardware dependent) |
@@ -28,18 +28,21 @@ All features are disabled by default. Enable each one in the mod settings before
 
 ## Permissions
 
-These cannot be granted from the Portal UI. Use ADB or root:
+The mod auto-requests permissions at runtime through Shizuku first, then root, then falls back to a manual provision. You no longer need to run `provision.sh` if Shizuku or root is available on the device.
 
 | Permission / app-op | Used for |
 |---------------------|----------|
-| `READ_LOGS` | Portal presence sensor |
 | `RECORD_AUDIO` | Sound level sensor |
 | `WRITE_SECURE_SETTINGS` | Screen sleep fallback |
 | `CAMERA` | Reserved for future camera features |
 | `WRITE_SETTINGS` (app-op) | Brightness control |
 | `SYSTEM_ALERT_WINDOW` (app-op) | Background overlay access |
 
-Provision with Ava connected over USB:
+Presence reads `logcat` through a privileged shell (Shizuku shell uid or root), which already
+holds log access — the app itself is never granted `READ_LOGS`. Without Shizuku or root, the
+presence sensor stays unavailable.
+
+Manual provision (only needed when Shizuku/root are unavailable):
 
 ```bash
 ./provision.sh com.example.ava
