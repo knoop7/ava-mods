@@ -1,5 +1,7 @@
 package com.ava.mods.portal;
 
+import android.Manifest;
+import android.content.pm.PackageManager;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.util.Log;
@@ -41,7 +43,9 @@ class PortalPresenceMonitor {
         running = true;
         lastBeatMs = 0L;
         present = false;
-        checkThread.start();
+        if (!checkThread.isAlive()) {
+            checkThread.start();
+        }
         checkHandler = new Handler(checkThread.getLooper());
         readerThread = new Thread(this::readLoop, "portal-presence-log");
         readerThread.setDaemon(true);
@@ -81,13 +85,9 @@ class PortalPresenceMonitor {
                 "logcat", "-v", "epoch",
                 "-s", "PresenceManager:I", "aloha.CameraServiceController:I"
         };
-        // Presence reads logcat through a privileged shell (Shizuku shell uid / root) which
-        // already holds log access. The app process is never granted READ_LOGS, so there is
-        // no in-app fallback: without Shizuku or root, presence simply stays unavailable.
-        Process proc = context == null ? null
-                : new PortalPermissionHelper(context).newPrivilegedProcess(cmd);
+        Process proc = startLogcatProcess(cmd);
         if (proc == null) {
-            Log.w(TAG, "PresenceMonitor needs a privileged shell — enable Shizuku or root");
+            Log.w(TAG, "PresenceMonitor: no logcat access — grant READ_LOGS (Shizuku/adb) and restart Ava");
             return;
         }
         process = proc;
@@ -115,6 +115,31 @@ class PortalPresenceMonitor {
         } catch (Exception e) {
             Log.w(TAG, "PresenceMonitor reader stopped: " + e.getMessage());
         }
+    }
+
+    /**
+     * Same order as portal-ha-bridge: in-app logcat when READ_LOGS is granted to Ava,
+     * then Shizuku/root shell as fallback.
+     */
+    private Process startLogcatProcess(String[] cmd) {
+        if (context != null
+                && context.checkSelfPermission(Manifest.permission.READ_LOGS)
+                == PackageManager.PERMISSION_GRANTED) {
+            try {
+                ProcessBuilder builder = new ProcessBuilder(cmd);
+                builder.redirectErrorStream(true);
+                Process proc = builder.start();
+                Log.i(TAG, "presence logcat in-app (READ_LOGS)");
+                return proc;
+            } catch (Exception e) {
+                Log.w(TAG, "in-app logcat failed: " + e.getMessage());
+            }
+        }
+        Process proc = new PortalPermissionHelper(context).newPrivilegedProcess(cmd);
+        if (proc != null) {
+            return proc;
+        }
+        return null;
     }
 
     private final Runnable checkRunnable = new PresenceCheckRunnable();

@@ -115,7 +115,7 @@
     {
       "id": "portal-support",
       "name": "Facebook Portal",
-      "version": "1.1.7",
+      "version": "1.1.9",
       "author": "Ava",
       "description": "Facebook Portal ambient sensors, presence detection, sound level, screen timeout, and alert tones",
       "path": "mods/devices/portal-support/",

@@ -1,7 +1,7 @@
 {
   "id": "portal-support",
   "name": "Facebook Portal",
-  "version": "1.1.7",
+  "version": "1.1.9",
   "author": "Ava",
   "description": "Facebook Portal ambient sensors, presence detection, sound level, screen timeout, and alert tones for Home Assistant",
   "icon": "mdi:tablet-dashboard",
@@ -9,7 +9,7 @@
     "libs/portal-support.jar"
   ],
   "manager": "com.ava.mods.portal.PortalSupportManager",
-  "jar_hash": "3718daef2e192caef5b989e113d09fc9",
+  "jar_hash": "3513c7d491a7baeccc53162cf8b8e54b",
   "permissions": [
     "android.permission.CAMERA",
     "android.permission.RECORD_AUDIO",
@@ -241,6 +241,23 @@
       "label": "Sound Level",
       "description": "Expose ambient sound level sensor (mic released during Portal calls)",
       "defaultValue": "false"
+    },
+    {
+      "type": "switch",
+      "key": "enhanced_presence",
+      "label": "Enhanced Presence",
+      "description": "Also count ambient sound above threshold as occupied (helps in low light)",
+      "defaultValue": "false"
+    },
+    {
+      "type": "number",
+      "key": "presence_sound_threshold",
+      "label": "Presence Sound Threshold",
+      "description": "Sound level (0–100) that counts as presence when enhanced presence is on",
+      "defaultValue": "8",
+      "min": 0,
+      "max": 100,
+      "step": 1
     },
     {
       "type": "switch",

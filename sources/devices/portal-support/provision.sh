@@ -53,11 +53,21 @@ for op in "${APPOPS[@]}"; do
     grant_appop "$op"
 done
 
+echo "Restarting $PKG so READ_LOGS takes effect..."
+"$ADB" "${TARGET[@]}" shell am force-stop "$PKG" 2>/dev/null || true
+
+DUMP="$("$ADB" "${TARGET[@]}" shell dumpsys package "$PKG" 2>/dev/null || true)"
+if echo "$DUMP" | grep -q "android.permission.READ_LOGS: granted=true"; then
+    echo "  verify READ_LOGS: OK"
+else
+    echo "  verify READ_LOGS: MISSING (enable Disable Permission Monitoring in Developer Options, reboot, retry)"
+fi
+
 cat <<EOF
 
-Note: Presence detection normally reads logcat through a Shizuku or root shell at runtime.
-After running this script, still install Shizuku (https://shizuku.rikka.app/) and authorize Ava
-if Portal Presence stays unavailable. Restart Ava after pm grant if a permission was newly granted.
+Presence reads Meta PresenceManager logcat (same as portal-ha-bridge).
+READ_LOGS is granted to Ava itself; restart the app after a new grant.
+Without ADB, authorize Shizuku for Ava — the mod can pm grant READ_LOGS at runtime.
 
 Done.
 EOF

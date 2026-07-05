@@ -25,23 +25,29 @@ All features are disabled by default. Enable each one in the mod settings before
 | Doorbell / Alert | button | Synthesized tones on the media stream |
 | Screen Timeout | switch | Idle screen-off timer |
 | Screen Timeout Minutes | number | 1–240 minutes; presence keeps the screen awake |
+| Enhanced Presence | mod setting | Sound threshold fallback when face logcat is weak (low light) |
 
 ## Permissions
 
-The mod auto-requests permissions at runtime through Shizuku first, then root, then falls back to a manual provision. You no longer need to run `provision.sh` if Shizuku or root is available on the device.
+Presence tails Meta's `PresenceManager` logcat heartbeat (same as [portal-ha-bridge](https://github.com/RoadRunner-1024/portal-ha-bridge)).
+Grant `READ_LOGS` to Ava via `./provision.sh`, Shizuku, or
+`adb shell am broadcast -a com.example.ava.ACTION_GRANT_READ_LOGS com.example.ava`,
+then **restart Ava** so the permission applies. Shizuku/root shell is a fallback when the app grant is pending.
+
+The mod auto-requests permissions at runtime through Shizuku first, then root, then falls back to manual provision.
 
 | Permission / app-op | Used for |
 |---------------------|----------|
 | `RECORD_AUDIO` | Sound level sensor |
 | `WRITE_SECURE_SETTINGS` | Screen sleep fallback |
 | `CAMERA` | Reserved for future camera features |
-| `READ_LOGS` | Best-effort via `provision.sh`; runtime presence uses Shizuku/root shell |
+| `READ_LOGS` | Portal presence — granted to Ava via ADB or Shizuku `pm grant`; in-app logcat (same as portal-ha-bridge) |
 | `WRITE_SETTINGS` (app-op) | Brightness control |
 | `SYSTEM_ALERT_WINDOW` (app-op) | Background overlay access |
 
-Presence reads `logcat` through a privileged shell (Shizuku shell uid or root), which already
-holds log access — the app itself is never granted `READ_LOGS`. Without Shizuku or root, the
-presence sensor stays unavailable.
+Presence reads `logcat` in the Ava process when `READ_LOGS` is granted (portal-ha-bridge path).
+Shizuku or root shell is used only as a fallback before the grant takes effect after restart.
+Without any log access channel, the presence sensor stays clear but the HA switch stays on.
 
 Manual provision via adb (grants the same permissions the mod requests at runtime):
 
@@ -49,13 +55,13 @@ Manual provision via adb (grants the same permissions the mod requests at runtim
 ./provision.sh com.example.ava
 ```
 
-Script: [provision.sh](https://github.com/knoop7/ava-mods/blob/main/sources/devices/portal-support/provision.sh) — `WRITE_SECURE_SETTINGS`, `RECORD_AUDIO`, `CAMERA`, `READ_LOGS` (best-effort), plus `WRITE_SETTINGS` and `SYSTEM_ALERT_WINDOW` app-ops. **Presence still needs Shizuku or root** authorized for Ava even after running the script.
+Script: [provision.sh](https://github.com/knoop7/ava-mods/blob/main/sources/devices/portal-support/provision.sh) — grants permissions and force-stops Ava so `READ_LOGS` applies. Shizuku can grant at runtime without ADB once Ava is authorized.
+
+Screen sleep uses Ava accessibility (`GLOBAL_ACTION_LOCK_SCREEN`) when `WRITE_SECURE_SETTINGS` enables it, then Shizuku display-off / shell keyevent fallbacks.
 
 ## Screen timeout
 
-When enabled, the timer sleeps the screen after the configured idle period. If presence detection is running and reports occupancy, the countdown resets — same behaviour as portal-ha-bridge.
-
-Screen sleep tries Ava `AccessibilityBridge` first, then a root `input keyevent` fallback. Without root or an accessible lock-screen hook, timeout will log a warning and stay on.
+When enabled, the timer sleeps the screen after the configured idle period. If presence detection (face or enhanced sound) reports occupancy, the countdown resets — same behaviour as portal-ha-bridge.
 
 ## Build
 

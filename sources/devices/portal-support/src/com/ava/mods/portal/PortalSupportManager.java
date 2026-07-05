@@ -16,6 +16,10 @@ public class PortalSupportManager implements PortalSensorBridge.Listener, Portal
         PortalSoundMonitor.Listener, PortalScreenTimeoutController.PresenceState {
 
     private static final String TAG = "PortalSupport";
+    private static final String PREFS = "portal_support";
+    private static final String KEY_PRESENCE_DETECTION = "presence_detection_enabled";
+    private static final String KEY_SCREEN_TIMEOUT = "screen_timeout_enabled";
+    private static final long SOUND_PRESENCE_HOLD_MS = 60_000L;
     private static volatile PortalSupportManager instance;
 
     private final Context context;
@@ -32,6 +36,8 @@ public class PortalSupportManager implements PortalSensorBridge.Listener, Portal
     private volatile boolean enableScreenTimeout;
     private volatile boolean presenceDetectionEnabled;
     private volatile boolean screenTimeoutEnabled;
+    private volatile boolean enhancedPresenceEnabled;
+    private volatile int presenceSoundThreshold = 8;
     private volatile float tapThreshold = 4.0f;
     private volatile float temperatureOffset = 0.0f;
     private volatile int screenTimeoutMinutes = 5;
@@ -42,10 +48,15 @@ public class PortalSupportManager implements PortalSensorBridge.Listener, Portal
     private PortalScreenTimeoutController screenTimeoutController;
     private PortalPermissionHelper permissionHelper;
     private volatile boolean portalPresent;
+    private volatile boolean facePresent;
+    private volatile long lastSoundActivityMs;
 
     private PortalSupportManager(Context context) {
         this.context = context.getApplicationContext();
         this.permissionHelper = new PortalPermissionHelper(this.context);
+        android.content.SharedPreferences prefs = this.context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        presenceDetectionEnabled = prefs.getBoolean(KEY_PRESENCE_DETECTION, false);
+        screenTimeoutEnabled = prefs.getBoolean(KEY_SCREEN_TIMEOUT, false);
     }
 
     public static PortalSupportManager getInstance(Context context) {
@@ -74,7 +85,8 @@ public class PortalSupportManager implements PortalSensorBridge.Listener, Portal
         switch (key) {
             case "enable_presence":
                 enablePresence = parseBoolean(value);
-                updatePresenceSubsystem();
+                reconcilePresence();
+                updateSoundSubsystem();
                 break;
             case "enable_ambient_light":
                 enableAmbientLight = parseBoolean(value);
@@ -99,6 +111,14 @@ public class PortalSupportManager implements PortalSensorBridge.Listener, Portal
             case "enable_sound_level":
                 enableSoundLevel = parseBoolean(value);
                 updateSoundSubsystem();
+                break;
+            case "enhanced_presence":
+                enhancedPresenceEnabled = parseBoolean(value);
+                updateSoundSubsystem();
+                reconcilePresence();
+                break;
+            case "presence_sound_threshold":
+                presenceSoundThreshold = clampSoundThreshold(parseInt(value, presenceSoundThreshold));
                 break;
             case "enable_doorbell_alert":
                 enableDoorbellAlert = parseBoolean(value);
@@ -132,7 +152,11 @@ public class PortalSupportManager implements PortalSensorBridge.Listener, Portal
 
     public void setPresenceDetection(String enabled) {
         presenceDetectionEnabled = parseBoolean(enabled);
-        updatePresenceSubsystem();
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .edit()
+                .putBoolean(KEY_PRESENCE_DETECTION, presenceDetectionEnabled)
+                .apply();
+        reconcilePresence();
         notifyStateListeners("presence_detection", Boolean.valueOf(presenceDetectionEnabled));
     }
 
@@ -151,6 +175,10 @@ public class PortalSupportManager implements PortalSensorBridge.Listener, Portal
 
     public void setScreenTimeout(String enabled) {
         screenTimeoutEnabled = parseBoolean(enabled);
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .edit()
+                .putBoolean(KEY_SCREEN_TIMEOUT, screenTimeoutEnabled)
+                .apply();
         updateScreenTimeoutSubsystem();
         notifyStateListeners("screen_timeout", Boolean.valueOf(screenTimeoutEnabled));
     }
@@ -279,11 +307,13 @@ public class PortalSupportManager implements PortalSensorBridge.Listener, Portal
 
     @Override
     public void onPresenceChanged(boolean present) {
-        portalPresent = present;
-        if (present && screenTimeoutController != null) {
-            screenTimeoutController.onPresenceActivity();
-        }
-        notifyStateListeners("portal_presence", Boolean.valueOf(isPortalPresent()));
+        facePresent = present;
+        recomputePresence();
+    }
+
+    @Override
+    public void onPresenceTick() {
+        recomputePresence();
     }
 
     @Override
@@ -317,28 +347,92 @@ public class PortalSupportManager implements PortalSensorBridge.Listener, Portal
 
     @Override
     public void onSoundLevel(int level) {
-        notifyStateListeners("sound_level", Integer.valueOf(level));
+        if (enableSoundLevel) {
+            notifyStateListeners("sound_level", Integer.valueOf(level));
+        }
+        if (enhancedPresenceEnabled && presenceDetectionEnabled && enablePresence
+                && level >= presenceSoundThreshold) {
+            lastSoundActivityMs = System.currentTimeMillis();
+            recomputePresence();
+        }
+    }
+
+    /** Match portal-ha-bridge reconcilePresence: persist switch, start monitor when logcat is available. */
+    private void reconcilePresence() {
+        if (!enablePresence || !presenceDetectionEnabled) {
+            if (presenceMonitor != null) {
+                presenceMonitor.release();
+                presenceMonitor = null;
+            }
+            portalPresent = false;
+            facePresent = false;
+            lastSoundActivityMs = 0L;
+            notifyStateListeners("portal_presence", Boolean.FALSE);
+            return;
+        }
+        permissionHelper.ensureReadLogsForPresence();
+        boolean canRead = permissionHelper.hasReadLogs() || permissionHelper.canUsePrivilegedLogcat();
+        if (!canRead) {
+            if (presenceMonitor != null) {
+                presenceMonitor.release();
+                presenceMonitor = null;
+            }
+            facePresent = false;
+            if (!enhancedPresenceEnabled) {
+                portalPresent = false;
+                lastSoundActivityMs = 0L;
+                notifyStateListeners("portal_presence", Boolean.FALSE);
+                Log.w(TAG, "presence enabled but READ_LOGS missing — run provision.sh or authorize Shizuku, then restart Ava");
+                return;
+            }
+            Log.w(TAG, "READ_LOGS missing — face presence off; enhanced sound-only active");
+            updateSoundSubsystem();
+            recomputePresence();
+            return;
+        }
+        if (presenceMonitor == null) {
+            presenceMonitor = new PortalPresenceMonitor(context, this);
+        }
+        presenceMonitor.start();
+        if (!permissionHelper.hasReadLogs()) {
+            Log.w(TAG, "READ_LOGS not in app process yet — using privileged shell; restart Ava after grant for in-app logcat");
+        }
+        updateSoundSubsystem();
+        recomputePresence();
     }
 
     private void updatePresenceSubsystem() {
-        if (enablePresence && presenceDetectionEnabled) {
-            permissionHelper.ensurePresencePrivilegedShell();
-            if (presenceMonitor == null) {
-                presenceMonitor = new PortalPresenceMonitor(context, this);
-            }
-            presenceMonitor.start();
+        reconcilePresence();
+    }
+
+    private void recomputePresence() {
+        if (!enablePresence || !presenceDetectionEnabled) {
+            portalPresent = false;
+            notifyStateListeners("portal_presence", Boolean.FALSE);
             return;
         }
-        if (presenceMonitor != null) {
-            presenceMonitor.release();
-            presenceMonitor = null;
+        boolean soundActive = enhancedPresenceEnabled && lastSoundActivityMs > 0L
+                && System.currentTimeMillis() - lastSoundActivityMs < SOUND_PRESENCE_HOLD_MS;
+        boolean combined = facePresent || soundActive;
+        if (combined == portalPresent) {
+            return;
         }
-        portalPresent = false;
-        notifyStateListeners("portal_presence", Boolean.FALSE);
+        portalPresent = combined;
+        if (combined && screenTimeoutController != null) {
+            screenTimeoutController.onPresenceActivity();
+        }
+        Log.i(TAG, "presence -> " + (combined ? "DETECTED" : "CLEAR")
+                + " (face=" + facePresent + " sound=" + soundActive + ")");
+        notifyStateListeners("portal_presence", Boolean.valueOf(isPortalPresent()));
+    }
+
+    private boolean needsSoundMonitor() {
+        return enableSoundLevel
+                || (enhancedPresenceEnabled && enablePresence && presenceDetectionEnabled);
     }
 
     private void updateSoundSubsystem() {
-        if (enableSoundLevel) {
+        if (needsSoundMonitor()) {
             if (!hasRecordAudio()) {
                 Log.w(TAG, "sound level enabled but RECORD_AUDIO missing — requesting via Shizuku/root");
                 permissionHelper.ensurePermission(Manifest.permission.RECORD_AUDIO);
@@ -357,6 +451,7 @@ public class PortalSupportManager implements PortalSensorBridge.Listener, Portal
 
     private void updateScreenTimeoutSubsystem() {
         if (enableScreenTimeout && screenTimeoutEnabled) {
+            PortalScreenControl.enableAccessibility(context);
             if (screenTimeoutController == null) {
                 screenTimeoutController = new PortalScreenTimeoutController(context, this);
             }
@@ -490,5 +585,15 @@ public class PortalSupportManager implements PortalSensorBridge.Listener, Portal
             return 240;
         }
         return minutes;
+    }
+
+    private int clampSoundThreshold(int threshold) {
+        if (threshold < 0) {
+            return 0;
+        }
+        if (threshold > 100) {
+            return 100;
+        }
+        return threshold;
     }
 }

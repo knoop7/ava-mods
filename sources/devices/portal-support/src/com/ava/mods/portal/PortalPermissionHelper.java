@@ -64,6 +64,31 @@ final class PortalPermissionHelper {
         return context.checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED;
     }
 
+    boolean hasReadLogs() {
+        return hasPermission("android.permission.READ_LOGS");
+    }
+
+    /** Request READ_LOGS via host broadcast + Shizuku/root pm grant (same as provision.sh). */
+    void ensureReadLogsForPresence() {
+        if (hasReadLogs()) {
+            return;
+        }
+        ensureHostShizukuInit();
+        requestHostGrant("android.permission.READ_LOGS");
+        String pkg = context.getPackageName();
+        if (execPrivileged("pm grant " + pkg + " android.permission.READ_LOGS") == 0 && hasReadLogs()) {
+            Log.i(TAG, "READ_LOGS granted for presence");
+            return;
+        }
+        if (!isShizukuReady() && !isRootAvailable()) {
+            requestShizukuPermissionIfNeeded();
+        }
+    }
+
+    boolean canUsePrivilegedLogcat() {
+        return isShizukuReady() || isRootAvailable();
+    }
+
     boolean ensurePermission(String permission) {
         if (hasPermission(permission)) {
             return true;
@@ -93,13 +118,8 @@ final class PortalPermissionHelper {
     }
 
     /**
-     * Start a long-running command with a privileged shell identity that already holds
-     * READ_LOGS (Shizuku shell uid or root), returning the live {@link Process} so the
-     * caller can stream stdout. This is how presence monitoring reads {@code logcat}
-     * without granting READ_LOGS to the app process (a runtime grant only takes effect
-     * after the app restarts, because the {@code log} gid is injected at process fork).
-     *
-     * @return a running process, or {@code null} when no privileged channel is available.
+     * Fallback logcat when READ_LOGS is not yet effective in the app process.
+     * Primary path is in-app ProcessBuilder after pm grant + app restart.
      */
     Process newPrivilegedProcess(String[] command) {
         Process process = tryShizukuProcess(command);
@@ -109,15 +129,6 @@ final class PortalPermissionHelper {
         return tryRootProcess(command);
     }
 
-    /** Prime Shizuku and prompt for authorization before presence logcat starts. */
-    void ensurePresencePrivilegedShell() {
-        ensureHostShizukuInit();
-        if (isShizukuReady() || isRootAvailable()) {
-            return;
-        }
-        Log.w(TAG, "presence needs Shizuku or root — requesting authorization");
-        requestShizukuPermissionIfNeeded();
-    }
 
     private Process tryShizukuProcess(String[] command) {
         if (!isShizukuReady()) {
@@ -212,6 +223,8 @@ final class PortalPermissionHelper {
             action = "com.example.ava.ACTION_GRANT_CAMERA";
         } else if ("android.permission.WRITE_SECURE_SETTINGS".equals(permissionOrAppOp)) {
             action = "com.example.ava.ACTION_GRANT_SECURE_SETTINGS";
+        } else if ("android.permission.READ_LOGS".equals(permissionOrAppOp)) {
+            action = "com.example.ava.ACTION_GRANT_READ_LOGS";
         } else if ("appops:WRITE_SETTINGS".equals(permissionOrAppOp)) {
             action = "com.example.ava.ACTION_GRANT_WRITE_SETTINGS";
         } else if ("appops:SYSTEM_ALERT_WINDOW".equals(permissionOrAppOp)) {

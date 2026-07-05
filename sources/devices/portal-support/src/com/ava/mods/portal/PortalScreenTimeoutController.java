@@ -16,6 +16,9 @@ class PortalScreenTimeoutController {
 
     interface PresenceState {
         boolean isPresent();
+
+        /** Re-evaluate combined presence (e.g. enhanced-sound hold expiry). */
+        void onPresenceTick();
     }
 
     private final Context context;
@@ -109,9 +112,12 @@ class PortalScreenTimeoutController {
         if (!enabled || !screenOn) {
             return;
         }
-        if (presenceState != null && presenceState.isPresent()) {
-            lastActivityMs = System.currentTimeMillis();
-            return;
+        if (presenceState != null) {
+            presenceState.onPresenceTick();
+            if (presenceState.isPresent()) {
+                lastActivityMs = System.currentTimeMillis();
+                return;
+            }
         }
         long idleMs = System.currentTimeMillis() - lastActivityMs;
         if (idleMs >= timeoutMinutes * 60_000L) {
