@@ -103,6 +103,16 @@
       "path": "mods/features/qualcomm-audio-concurrency-fix/"
     },
     {
+      "id": "phicomm-r1-support",
+      "name": "Phicomm R1",
+      "version": "1.2.6",
+      "author": "Ava",
+      "description": "Phicomm R1 voice LEDs, music RGB ring, and HA controls.",
+      "detail_description": "Stock msgcenter voice, dormant, and network offline LEDs on Phicomm R1; optional four-mic DOA default off; music RGB via JNI; HA switches and top-key sensor.",
+      "path": "mods/devices/phicomm-r1-support/",
+      "jar_hash": "c9db0d25df2a32268dba22f9b818f95e"
+    },
+    {
       "id": "portal-support",
       "name": "Facebook Portal",
       "version": "1.1.7",

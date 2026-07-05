@@ -1,0 +1,104 @@
+{
+  "id": "phicomm-r1-support",
+  "name": "Phicomm R1",
+  "version": "1.2.6",
+  "author": "Ava",
+  "description": "Phicomm R1 voice LEDs, music RGB ring, and HA controls.",
+  "detail_description": "Stock msgcenter voice, dormant, and network offline LEDs on Phicomm R1; optional four-mic DOA default off; music RGB via JNI; HA switches and top-key sensor.",
+  "icon": "mdi:led-strip-variant",
+  "voice_pipeline": true,
+  "libs": [
+    "libs/phicomm-r1-support.jar"
+  ],
+  "manager": "com.ava.mods.phicomm.PhicommR1SupportManager",
+  "jar_hash": "c9db0d25df2a32268dba22f9b818f95e",
+  "entities": [
+    {
+      "type": "switch",
+      "id": "voice_led",
+      "name": "Voice LED",
+      "icon": "mdi:led-on",
+      "on": "setVoiceLedEnabled:true",
+      "off": "setVoiceLedEnabled:false",
+      "read": "isVoiceLedEnabled"
+    },
+    {
+      "type": "switch",
+      "id": "music_rgb_light",
+      "name": "Music RGB Light",
+      "icon": "mdi:palette",
+      "on": "setMusicRgbLightEnabled:true",
+      "off": "setMusicRgbLightEnabled:false",
+      "read": "isMusicRgbLightEnabled"
+    },
+    {
+      "type": "text_sensor",
+      "id": "top_key",
+      "name": "Top Key",
+      "icon": "mdi:gesture-tap-button",
+      "category": "diagnostic",
+      "read": "getTopKeyEvent",
+      "enabledWhen": "enable_top_key_sensor"
+    },
+    {
+      "type": "text_sensor",
+      "id": "music_light_backend",
+      "name": "Music Light Backend",
+      "icon": "mdi:chip",
+      "category": "diagnostic",
+      "read": "getMusicLightBackend",
+      "enabledWhen": "enable_music_rgb_light"
+    }
+  ],
+  "config": [
+    {
+      "type": "switch",
+      "key": "enable_four_mic",
+      "label": "4-Mic Array (DOA)",
+      "description": "Bring up stock libUni4micHalJNI for directional wake LEDs. OFF by default — enable only on Phicomm R1 when you want DOA lights.",
+      "defaultValue": "false"
+    },
+    {
+      "type": "switch",
+      "key": "enable_voice_led",
+      "label": "Voice LED Effects",
+      "description": "Pipeline wake/loading lights. OFF = night silence for voice session LEDs.",
+      "defaultValue": "true"
+    },
+    {
+      "type": "switch",
+      "key": "enable_music_rgb_light",
+      "label": "Music RGB Breathing",
+      "description": "RGB ring while Ava plays music. JNI preferred; msgcenter 519 fallback. Ducked during voice.",
+      "defaultValue": "true"
+    },
+    {
+      "type": "switch",
+      "key": "enable_dormant_light",
+      "label": "Dormant Light",
+      "description": "Double-click top cover enters dormant (light 100); single-click exits.",
+      "defaultValue": "true"
+    },
+    {
+      "type": "switch",
+      "key": "enable_net_light",
+      "label": "Network Disconnect LED",
+      "description": "Light 254 when Wi-Fi/Ethernet is offline.",
+      "defaultValue": "true"
+    },
+    {
+      "type": "switch",
+      "key": "enable_volume_led",
+      "label": "Volume Ring LED (mod)",
+      "description": "Usually handled by system AudioService on 官改 firmware. Enable only if volume ring LEDs are missing.",
+      "defaultValue": "false"
+    },
+    {
+      "type": "switch",
+      "key": "enable_top_key_sensor",
+      "label": "Top Key Sensor",
+      "description": "Expose last top-cover gesture (single/double/triple/long) to Home Assistant.",
+      "defaultValue": "true"
+    }
+  ]
+}
