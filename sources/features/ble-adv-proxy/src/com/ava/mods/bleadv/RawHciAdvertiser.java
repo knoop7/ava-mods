@@ -17,7 +17,7 @@ final class RawHciAdvertiser {
     private static final String HELPER_NAME = "ble_adv_hci";
     private static final String TMP_PATH = "/data/local/tmp/ava_ble_adv_hci";
     /** Wait for Ava BLE coordinator to pause scans before MGMT inject. */
-    private static final int PRE_TX_SETTLE_MS = 120;
+    private static final int PRE_TX_SETTLE_MS = 200;
     private static final int TX_RETRY_COUNT = 3;
     private static final int TX_RETRY_GAP_MS = 40;
 

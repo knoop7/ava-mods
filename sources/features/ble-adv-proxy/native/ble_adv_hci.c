@@ -39,15 +39,21 @@
 #define OCF_SET_ADV_DATA 0x0008
 #define OCF_SET_ADV_ENABLE 0x000A
 
+#define MGMT_OP_READ_INDEX_LIST 0x0003
 #define MGMT_OP_ADD_ADVERTISING 0x003E
 #define MGMT_OP_REMOVE_ADVERTISING 0x003F
 #define MGMT_EV_CMD_COMPLETE 0x0001
 #define MGMT_EV_CMD_STATUS 0x0002
+#define MGMT_STATUS_INVALID_INDEX 0x11
 
 #define HCI_STATUS_DISALLOWED 0x0C
 #define ADV_LEN 31
-#define ADV_INST 1
 #define MIN_ADV_UNITS 0x20
+#define MAX_MGMT_CTRL 8
+#define MAX_ADV_INST 8
+
+static int g_cached_ctrl = -1;
+static int g_cached_inst = -1;
 
 struct sockaddr_hci {
     unsigned short hci_family;
@@ -226,13 +232,85 @@ static int mgmt_cmd(int fd, uint16_t op, uint16_t index, const uint8_t *params, 
     return 0x102;
 }
 
-/* ha-ble-adv BluetoothHCIAdapter.FAKE_ADV padded to 31 bytes. */
-static void fake_adv_padded(uint8_t *out) {
-    memset(out, 0, ADV_LEN);
-    out[0] = 0x1D;
-    out[1] = 0xFF;
-    out[2] = 0xFF;
-    out[3] = 0xFF;
+static int mgmt_read_controller_indices(int fd, uint16_t *out, int max_n) {
+    uint8_t pkt[6] = {0x03, 0x00, 0xFF, 0xFF, 0x00, 0x00};
+    if (write(fd, pkt, 6) < 0) {
+        return 0;
+    }
+
+    long deadline = now_ms() + 1500;
+    uint8_t buf[512];
+    while (now_ms() < deadline) {
+        struct pollfd pfd = {fd, POLLIN, 0};
+        int pr = poll(&pfd, 1, (int) (deadline - now_ms()));
+        if (pr <= 0) break;
+        int r = read(fd, buf, sizeof(buf));
+        if (r < 13) continue;
+        uint16_t ev = buf[0] | (buf[1] << 8);
+        uint16_t cop = buf[6] | (buf[7] << 8);
+        if (ev == MGMT_EV_CMD_STATUS && cop == MGMT_OP_READ_INDEX_LIST) {
+            return 0;
+        }
+        if (ev != MGMT_EV_CMD_COMPLETE || cop != MGMT_OP_READ_INDEX_LIST) {
+            continue;
+        }
+        if (buf[8] != 0) {
+            return 0;
+        }
+        int n = buf[9] | (buf[10] << 8);
+        if (n <= 0) {
+            return 0;
+        }
+        int copied = 0;
+        for (int i = 0; i < n && copied < max_n; i++) {
+            int off = 11 + i * 2;
+            if (off + 1 >= r) break;
+            out[copied++] = (uint16_t) (buf[off] | (buf[off + 1] << 8));
+        }
+        return copied;
+    }
+    return 0;
+}
+
+static void mgmt_clear_instances(int fd, uint16_t ctrl) {
+    for (int inst = 0; inst < MAX_ADV_INST; inst++) {
+        uint8_t rm[1] = {(uint8_t) inst};
+        mgmt_cmd(fd, MGMT_OP_REMOVE_ADVERTISING, ctrl, rm, 1);
+    }
+    usleep(10000);
+}
+
+static int mgmt_add_instance(int fd, uint16_t ctrl, uint8_t inst,
+                             int duration_ms, const uint8_t *padded) {
+    uint8_t params[11 + ADV_LEN];
+    int i = 0;
+    params[i++] = inst;
+    params[i++] = 0; params[i++] = 0; params[i++] = 0; params[i++] = 0;
+    params[i++] = 0; params[i++] = 0;
+    params[i++] = 0; params[i++] = 0;
+    params[i++] = ADV_LEN;
+    params[i++] = 0x00;
+    memcpy(params + i, padded, ADV_LEN);
+    i += ADV_LEN;
+
+    int st = mgmt_cmd(fd, MGMT_OP_ADD_ADVERTISING, ctrl, params, i);
+    if (st != 0) {
+        return st;
+    }
+    usleep((useconds_t) duration_ms * 1000);
+    uint8_t rm[1] = {inst};
+    mgmt_cmd(fd, MGMT_OP_REMOVE_ADVERTISING, ctrl, rm, 1);
+    return 0;
+}
+
+static int mgmt_try_ctrl_inst(int fd, uint16_t ctrl, uint8_t inst,
+                              int duration_ms, const uint8_t *padded, int *out_st) {
+    mgmt_clear_instances(fd, ctrl);
+    int st = mgmt_add_instance(fd, ctrl, inst, duration_ms, padded);
+    if (out_st) {
+        *out_st = st;
+    }
+    return st == 0 ? 0 : -1;
 }
 
 static int try_mgmt(int dev, int duration_ms, const uint8_t *padded) {
@@ -243,34 +321,57 @@ static int try_mgmt(int dev, int duration_ms, const uint8_t *padded) {
         return -1;
     }
 
-    /* Clear stale instance before add (repeat bursts / interrupted prior TX). */
-    uint8_t rm[1] = {ADV_INST};
-    mgmt_cmd(fd, MGMT_OP_REMOVE_ADVERTISING, (uint16_t) dev, rm, 1);
-    usleep(8000);
-
-    /* struct.pack("<BIHHBB{data_len}B", ADV_INST, 0, 0, 0, data_len, 0, *data) */
-    uint8_t params[11 + ADV_LEN];
-    int i = 0;
-    params[i++] = ADV_INST;
-    params[i++] = 0; params[i++] = 0; params[i++] = 0; params[i++] = 0;
-    params[i++] = 0; params[i++] = 0;
-    params[i++] = 0; params[i++] = 0;
-    params[i++] = ADV_LEN;
-    params[i++] = 0x00;
-    memcpy(params + i, padded, ADV_LEN);
-    i += ADV_LEN;
-
-    int st = mgmt_cmd(fd, MGMT_OP_ADD_ADVERTISING, (uint16_t) dev, params, i);
-    if (st != 0) {
-        printf("FAIL mgmt status=0x%02X\n", st & 0xFF);
-        if (g_verbose) fprintf(stderr, "mgmt add adv status 0x%02X\n", st);
-        close(fd);
-        return -2;
+    uint16_t ctrls[MAX_MGMT_CTRL];
+    int nctrl = mgmt_read_controller_indices(fd, ctrls, MAX_MGMT_CTRL);
+    if (nctrl <= 0) {
+        ctrls[0] = (uint16_t) dev;
+        nctrl = 1;
     }
-    usleep((useconds_t) duration_ms * 1000);
-    mgmt_cmd(fd, MGMT_OP_REMOVE_ADVERTISING, (uint16_t) dev, rm, 1);
+
+    int last_st = 0x102;
+
+    if (g_cached_ctrl >= 0 && g_cached_inst >= 0) {
+        last_st = 0;
+        if (mgmt_try_ctrl_inst(fd, (uint16_t) g_cached_ctrl, (uint8_t) g_cached_inst,
+                               duration_ms, padded, &last_st) == 0) {
+            printf("OK mgmt ctrl=%d inst=%d\n", g_cached_ctrl, g_cached_inst);
+            close(fd);
+            return 0;
+        }
+        g_cached_ctrl = -1;
+        g_cached_inst = -1;
+    }
+
+    for (int ci = 0; ci < nctrl; ci++) {
+        uint16_t ctrl = ctrls[ci];
+        for (int inst = 0; inst < MAX_ADV_INST; inst++) {
+            last_st = 0;
+            if (mgmt_try_ctrl_inst(fd, ctrl, (uint8_t) inst, duration_ms, padded, &last_st) == 0) {
+                g_cached_ctrl = (int) ctrl;
+                g_cached_inst = inst;
+                printf("OK mgmt ctrl=%d inst=%d\n", g_cached_ctrl, g_cached_inst);
+                close(fd);
+                return 0;
+            }
+            if (last_st != MGMT_STATUS_INVALID_INDEX && last_st != 0x0D && last_st != 0x0B) {
+                /* 0x0D invalid params, 0x0B rejected — try next instance anyway */
+            }
+        }
+    }
+
+    printf("FAIL mgmt status=0x%02X\n", last_st & 0xFF);
+    if (g_verbose) fprintf(stderr, "mgmt add adv exhausted ctrl/inst sweep, last=0x%02X\n", last_st);
     close(fd);
-    return 0;
+    return -2;
+}
+
+/* ha-ble-adv BluetoothHCIAdapter.FAKE_ADV padded to 31 bytes. */
+static void fake_adv_padded(uint8_t *out) {
+    memset(out, 0, ADV_LEN);
+    out[0] = 0x1D;
+    out[1] = 0xFF;
+    out[2] = 0xFF;
+    out[3] = 0xFF;
 }
 
 /* Detect transport, then emit a real short FAKE_ADV burst so the stack path is proven on-air. */
