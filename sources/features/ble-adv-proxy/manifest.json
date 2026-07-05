@@ -1,7 +1,7 @@
 {
   "id": "ble-adv-proxy",
   "name": "BLE ADV Proxy",
-  "version": "0.3.5",
+  "version": "0.3.6",
   "author": "Ava",
   "description": "Bidirectional raw BLE advertising proxy for ha-ble-adv. Scan nearby BLE broadcasts and send control packets to ceiling fans or lamps.",
   "detail_description": "esphome-ble_adv_proxy port for ha-ble-adv. Requires Ava Bluetooth detect or ESPHome BT proxy scan. Exposes ble_adv_proxy_name for ha-ble-adv adapter discovery.",
@@ -34,27 +34,6 @@
       "defaultValue": "true"
     },
     {
-      "type": "switch",
-      "key": "show_proxy_ready_sensor",
-      "label": "Show Proxy Ready Sensor",
-      "description": "Expose proxy ready status in Home Assistant. Off by default.",
-      "defaultValue": "false"
-    },
-    {
-      "type": "switch",
-      "key": "show_last_advertise_error_sensor",
-      "label": "Show Last Advertise Error Sensor",
-      "description": "Expose the last BLE advertise failure reason in Home Assistant. Off by default.",
-      "defaultValue": "false"
-    },
-    {
-      "type": "switch",
-      "key": "show_capability_sensors",
-      "label": "Show Capability Diagnostics",
-      "description": "Expose raw transport (mgmt/hci), privileged shell status, and 1:1 fidelity mode for troubleshooting.",
-      "defaultValue": "false"
-    },
-    {
       "type": "text",
       "key": "adapter_name",
       "label": "Adapter Name",
@@ -64,68 +43,13 @@
   ],
   "entities": [
     {
-      "type": "binary_sensor",
-      "id": "proxy_ready",
-      "name": "BLE ADV Proxy Ready",
-      "icon": "mdi:bluetooth-connect",
-      "class": "connectivity",
-      "category": "diagnostic",
-      "enabledByConfig": "show_proxy_ready_sensor",
-      "read": "isProxyReady"
-    },
-    {
-      "type": "text_sensor",
-      "id": "last_advertise_error",
-      "name": "BLE ADV Last Advertise Error",
-      "icon": "mdi:bluetooth-off",
-      "category": "diagnostic",
-      "enabledByConfig": "show_last_advertise_error_sensor",
-      "read": "getLastAdvertiseError"
-    },
-    {
       "type": "text_sensor",
       "id": "ble_adv_proxy_name",
       "name": "BLE ADV Proxy Name",
       "icon": "mdi:bluetooth",
       "category": "diagnostic",
       "read": "getAdapterName"
-    },
-    {
-      "type": "text_sensor",
-      "id": "capability_report",
-      "name": "BLE ADV Capability Report",
-      "icon": "mdi:bluetooth-audio",
-      "category": "diagnostic",
-      "enabledByConfig": "show_capability_sensors",
-      "read": "getCapabilityReport"
-    },
-    {
-      "type": "text_sensor",
-      "id": "raw_transport",
-      "name": "BLE ADV Raw Transport",
-      "icon": "mdi:bluetooth-settings",
-      "category": "diagnostic",
-      "enabledByConfig": "show_capability_sensors",
-      "read": "getRawTransport"
-    },
-    {
-      "type": "text_sensor",
-      "id": "privileged_shell",
-      "name": "BLE ADV Privileged Shell",
-      "icon": "mdi:shield-key",
-      "category": "diagnostic",
-      "enabledByConfig": "show_capability_sensors",
-      "read": "getPrivilegedShell"
-    },
-    {
-      "type": "text_sensor",
-      "id": "fidelity_mode",
-      "name": "BLE ADV Fidelity Mode",
-      "icon": "mdi:compare",
-      "category": "diagnostic",
-      "enabledByConfig": "show_capability_sensors",
-      "read": "getFidelityMode"
     }
   ],
-  "jar_hash": "4dc7c224df3d0c53c02b9d90e924dad0"
+  "jar_hash": "a14f4f146fc1511bdb1f50c7b1fad681"
 }

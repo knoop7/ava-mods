@@ -67,7 +67,6 @@ public class BleAdvProxyManager {
     private volatile Object hostApi;
     private volatile boolean haServicesReady = false;
     private volatile boolean setupDone = false;
-    private volatile String lastAdvertiseError = "";
 
     private BleAdvProxyManager(Context context) {
         this.context = context.getApplicationContext();
@@ -93,41 +92,6 @@ public class BleAdvProxyManager {
 
     public boolean isFeatureEnabled(Context ctx) {
         return featureEnabled;
-    }
-
-    public boolean isProxyReady() {
-        return featureEnabled && haServicesReady && setupDone;
-    }
-
-    public String getLastAdvertiseError() {
-        return lastAdvertiseError != null ? lastAdvertiseError : "";
-    }
-
-    /** Human-readable self-probe summary (ha-ble-adv transport + privileged shell). */
-    public String getCapabilityReport() {
-        BleAdvCapabilityProbe.Report report = lastCapabilityReport;
-        return report != null && report.summary != null ? report.summary : "capability not probed";
-    }
-
-    public String getRawTransport() {
-        BleAdvCapabilityProbe.Report report = lastCapabilityReport;
-        if (report != null && report.rawTransport != null) {
-            return report.rawTransport;
-        }
-        return rawHciAdvertiser.getLastTransport();
-    }
-
-    public String getPrivilegedShell() {
-        BleAdvCapabilityProbe.Report report = lastCapabilityReport;
-        if (report != null && report.privilegedShell != null) {
-            return report.privilegedShell;
-        }
-        return permissionHelper.getPrivilegedShellLabel();
-    }
-
-    public String getFidelityMode() {
-        BleAdvCapabilityProbe.Report report = lastCapabilityReport;
-        return report != null && report.fidelityMode != null ? report.fidelityMode : "unknown";
     }
 
     public String getAdapterName() {
@@ -169,7 +133,6 @@ public class BleAdvProxyManager {
         switch (key) {
             case "enabled":
                 featureEnabled = parseBoolean(value, true);
-                notifyProxyReadyChanged();
                 break;
             case "use_max_tx_power":
                 useMaxTxPower = parseBoolean(value, true);
@@ -201,13 +164,11 @@ public class BleAdvProxyManager {
         setupDone = false;
         hostApi = null;
         transmitQueue.clear();
-        notifyProxyReadyChanged();
     }
 
     public void onHomeassistantServicesSubscribed(Context ctx) {
         haServicesReady = true;
         notifyStateListeners("ble_adv_proxy_name", getAdapterName());
-        notifyProxyReadyChanged();
         scheduleCapabilityProbe();
         Log.d(TAG, "HA homeassistant services subscribed");
     }
@@ -297,7 +258,6 @@ public class BleAdvProxyManager {
         hostApi = null;
         haServicesReady = false;
         setupDone = false;
-        notifyProxyReadyChanged();
     }
 
     /** setup_svc_v0(ignored_duration, ignored_cids, ignored_macs) */
@@ -308,7 +268,6 @@ public class BleAdvProxyManager {
         dedupCache.clearDupes();
         dedupCache.configureSetup(ignoredDuration, ignoredCids, ignoredMacs);
         setupDone = true;
-        notifyProxyReadyChanged();
         Log.i(TAG, "setup_svc_v0 durationMs=" + ignoredDuration
                 + " ignoredCids=" + (ignoredCids != null ? ignoredCids.size() : 0)
                 + " ignoredMacs=" + (ignoredMacs != null ? ignoredMacs.size() : 0));
@@ -365,7 +324,6 @@ public class BleAdvProxyManager {
             float ignDurationMs
     ) {
         setupDone = true;
-        notifyProxyReadyChanged();
         int perBurstMs = computeBurstMs(durationMs);
         long intIgnDuration = (long) ignDurationMs;
 
@@ -493,10 +451,7 @@ public class BleAdvProxyManager {
                                         }
                                     });
                             lastCapabilityReport = report;
-                            notifyStateListeners("capability_report", report.summary);
-                            notifyStateListeners("raw_transport", report.rawTransport);
-                            notifyStateListeners("privileged_shell", report.privilegedShell);
-                            notifyStateListeners("fidelity_mode", report.fidelityMode);
+                            Log.d(TAG, "capability probe: " + report.summary);
                         }
                     });
                 } finally {
@@ -628,20 +583,12 @@ public class BleAdvProxyManager {
     }
 
     private void setLastAdvertiseError(String error) {
-        lastAdvertiseError = error != null ? error : "";
-        notifyStateListeners("last_advertise_error", lastAdvertiseError);
+        if (error != null && !error.isEmpty()) {
+            Log.w(TAG, "advertise error: " + error);
+        }
     }
 
     private void clearLastAdvertiseError() {
-        if (lastAdvertiseError == null || lastAdvertiseError.isEmpty()) {
-            return;
-        }
-        lastAdvertiseError = "";
-        notifyStateListeners("last_advertise_error", lastAdvertiseError);
-    }
-
-    private void notifyProxyReadyChanged() {
-        notifyStateListeners("proxy_ready", isProxyReady());
     }
 
     public boolean registerStateListener(String entityId, Object callback) {
@@ -661,20 +608,8 @@ public class BleAdvProxyManager {
     }
 
     private void pushCurrentState(String entityId, Object callback) {
-        if ("proxy_ready".equals(entityId)) {
-            notifySingleListener(callback, isProxyReady());
-        } else if ("last_advertise_error".equals(entityId)) {
-            notifySingleListener(callback, getLastAdvertiseError());
-        } else if ("ble_adv_proxy_name".equals(entityId)) {
+        if ("ble_adv_proxy_name".equals(entityId)) {
             notifySingleListener(callback, getAdapterName());
-        } else if ("capability_report".equals(entityId)) {
-            notifySingleListener(callback, getCapabilityReport());
-        } else if ("raw_transport".equals(entityId)) {
-            notifySingleListener(callback, getRawTransport());
-        } else if ("privileged_shell".equals(entityId)) {
-            notifySingleListener(callback, getPrivilegedShell());
-        } else if ("fidelity_mode".equals(entityId)) {
-            notifySingleListener(callback, getFidelityMode());
         }
     }
 
