@@ -10,14 +10,51 @@ import android.content.Context;
 import android.os.Build;
 import android.util.Log;
 
+import java.io.File;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Standalone mod-owned BLE LE scan — feeds {@link BleAdvProxyManager} without Ava proxy scan.
+ *
+ * <p>Uses a process-wide stable {@link ScanCallback} so {@link #stopScan(ScanCallback)} can tear
+ * down zombie registrations after Bluetooth stack restarts (Mi 9 / QCOM HAL).
  */
 final class BleAdvLeScanner {
     private static final String TAG = "BleAdvLeScanner";
     private static final long RESTART_DELAY_MS = 1500L;
+    private static final long STOP_SETTLE_MS = 150L;
+
+    /** Stable callback object — must not be recreated or stopScan cannot match scannerId N-1. */
+    private static final ScanCallback STABLE_CALLBACK = new ScanCallback() {
+        @Override
+        public void onScanResult(int callbackType, ScanResult result) {
+            BleAdvLeScanner owner = activeOwner;
+            if (owner != null) {
+                owner.handleScanResult(result);
+            }
+        }
+
+        @Override
+        public void onBatchScanResults(java.util.List<ScanResult> results) {
+            BleAdvLeScanner owner = activeOwner;
+            if (owner == null) {
+                return;
+            }
+            for (ScanResult result : results) {
+                owner.handleScanResult(result);
+            }
+        }
+
+        @Override
+        public void onScanFailed(int errorCode) {
+            BleAdvLeScanner owner = activeOwner;
+            if (owner != null) {
+                owner.handleScanFailed(errorCode);
+            }
+        }
+    };
+
+    private static volatile BleAdvLeScanner activeOwner;
 
     interface ResultHandler {
         void onScanResult(String mac, int rssi, byte[] raw);
@@ -31,8 +68,6 @@ final class BleAdvLeScanner {
     private final AtomicBoolean restartScheduled = new AtomicBoolean(false);
 
     private volatile ResultHandler resultHandler;
-    private volatile ScanCallback scanCallback;
-    private volatile BluetoothLeScanner scanner;
 
     BleAdvLeScanner(Context context, BleAdvPermissionHelper permissionHelper) {
         this.context = context.getApplicationContext();
@@ -46,6 +81,7 @@ final class BleAdvLeScanner {
     @SuppressLint("MissingPermission")
     void start() {
         desiredRunning.set(true);
+        activeOwner = this;
         if (pausedForExclusive.get()) {
             Log.d(TAG, "start deferred (exclusive active)");
             return;
@@ -55,29 +91,18 @@ final class BleAdvLeScanner {
             permissionHelper.ensurePrivilegedAccess();
             return;
         }
-        BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
-        if (adapter == null || !adapter.isEnabled()) {
-            Log.w(TAG, "Bluetooth adapter unavailable");
-            return;
-        }
-        BluetoothLeScanner leScanner = adapter.getBluetoothLeScanner();
+        BluetoothLeScanner leScanner = resolveScanner();
         if (leScanner == null) {
-            Log.w(TAG, "BluetoothLeScanner unavailable");
             return;
         }
-        scanner = leScanner;
-        if (scanCallback == null) {
-            scanCallback = buildCallback();
-        }
-        if (hardwareRunning.get()) {
-            return;
-        }
+        forceStopScan(leScanner);
         try {
-            leScanner.startScan(null, buildSettings(), scanCallback);
+            leScanner.startScan(null, buildSettings(), STABLE_CALLBACK);
             hardwareRunning.set(true);
             Log.i(TAG, "standalone LE scan started");
         } catch (Exception e) {
             Log.e(TAG, "startScan failed", e);
+            hardwareRunning.set(false);
             scheduleRestart();
         }
     }
@@ -87,14 +112,27 @@ final class BleAdvLeScanner {
         desiredRunning.set(false);
         pausedForExclusive.set(false);
         restartScheduled.set(false);
-        softStopHardware();
+        if (activeOwner == this) {
+            activeOwner = null;
+        }
+        BluetoothLeScanner leScanner = resolveScanner();
+        if (leScanner != null) {
+            forceStopScan(leScanner);
+        } else {
+            hardwareRunning.set(false);
+        }
         Log.i(TAG, "standalone LE scan stopped");
     }
 
     @SuppressLint("MissingPermission")
     void pauseForExclusive() {
         pausedForExclusive.set(true);
-        softStopHardware();
+        BluetoothLeScanner leScanner = resolveScanner();
+        if (leScanner != null) {
+            forceStopScan(leScanner);
+        } else {
+            hardwareRunning.set(false);
+        }
         Log.d(TAG, "scan paused for exclusive TX");
     }
 
@@ -111,22 +149,44 @@ final class BleAdvLeScanner {
     }
 
     @SuppressLint("MissingPermission")
-    private void softStopHardware() {
-        if (!hardwareRunning.get()) {
-            return;
-        }
-        BluetoothLeScanner leScanner = scanner;
-        ScanCallback callback = scanCallback;
-        if (leScanner == null || callback == null) {
-            hardwareRunning.set(false);
-            return;
-        }
+    private void forceStopScan(BluetoothLeScanner leScanner) {
         try {
-            leScanner.stopScan(callback);
+            leScanner.stopScan(STABLE_CALLBACK);
         } catch (Exception e) {
             Log.w(TAG, "stopScan failed: " + e.getMessage());
         }
         hardwareRunning.set(false);
+        settle(STOP_SETTLE_MS);
+    }
+
+    private BluetoothLeScanner resolveScanner() {
+        BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
+        if (adapter == null || !adapter.isEnabled()) {
+            Log.w(TAG, "Bluetooth adapter unavailable");
+            return null;
+        }
+        BluetoothLeScanner leScanner = adapter.getBluetoothLeScanner();
+        if (leScanner == null) {
+            Log.w(TAG, "BluetoothLeScanner unavailable");
+        }
+        return leScanner;
+    }
+
+    private void handleScanResult(ScanResult result) {
+        if (pausedForExclusive.get()) {
+            return;
+        }
+        deliver(result);
+    }
+
+    private void handleScanFailed(int errorCode) {
+        hardwareRunning.set(false);
+        Log.e(TAG, "scan failed error=" + errorCode);
+        BluetoothLeScanner leScanner = resolveScanner();
+        if (leScanner != null) {
+            forceStopScan(leScanner);
+        }
+        scheduleRestart();
     }
 
     private ScanSettings buildSettings() {
@@ -137,35 +197,6 @@ final class BleAdvLeScanner {
             builder.setCallbackType(ScanSettings.CALLBACK_TYPE_ALL_MATCHES);
         }
         return builder.build();
-    }
-
-    private ScanCallback buildCallback() {
-        return new ScanCallback() {
-            @Override
-            public void onScanResult(int callbackType, ScanResult result) {
-                if (pausedForExclusive.get()) {
-                    return;
-                }
-                deliver(result);
-            }
-
-            @Override
-            public void onBatchScanResults(java.util.List<ScanResult> results) {
-                if (pausedForExclusive.get()) {
-                    return;
-                }
-                for (ScanResult result : results) {
-                    deliver(result);
-                }
-            }
-
-            @Override
-            public void onScanFailed(int errorCode) {
-                hardwareRunning.set(false);
-                Log.e(TAG, "scan failed error=" + errorCode);
-                scheduleRestart();
-            }
-        };
     }
 
     private void deliver(ScanResult result) {
@@ -211,5 +242,16 @@ final class BleAdvLeScanner {
         }, "BleAdvScanRestart");
         t.setDaemon(true);
         t.start();
+    }
+
+    private static void settle(long ms) {
+        if (ms <= 0) {
+            return;
+        }
+        try {
+            Thread.sleep(ms);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 }

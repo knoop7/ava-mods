@@ -27,6 +27,7 @@ final class RawHciAdvertiser {
     private static volatile int jniConsecutiveFailures;
 
     private final Context context;
+    private final BleAdvPermissionHelper permissionHelper;
     private final BleAdvPrivilegedShell privilegedShell;
     private volatile String extractedPath;
     private volatile String extractedSoPath;
@@ -37,8 +38,12 @@ final class RawHciAdvertiser {
 
     RawHciAdvertiser(Context context, BleAdvPermissionHelper permissionHelper) {
         this.context = context.getApplicationContext();
+        this.permissionHelper = permissionHelper;
         this.privilegedShell = new BleAdvPrivilegedShell(context, permissionHelper);
         resolveHciIndex();
+        if (BleAdvTransportProbe.preferPrivilegedShell(permissionHelper)) {
+            Log.i(TAG, "HAL-only device: privileged shell preferred over JNI");
+        }
     }
 
     boolean hasHelperBinary() {
@@ -54,10 +59,19 @@ final class RawHciAdvertiser {
     }
 
     void warmup() {
+        if (preferShellFirst()) {
+            ensureExtractedElf();
+            permissionHelper.ensurePrivilegedAccess();
+            return;
+        }
         ensureJniLoaded();
     }
 
     void prepControllerForAdv() {
+        if (preferShellFirst()) {
+            runPrepViaShell();
+            return;
+        }
         if (!ensureJniLoaded()) {
             return;
         }
@@ -66,6 +80,20 @@ final class RawHciAdvertiser {
         } catch (Throwable t) {
             Log.w(TAG, "nativePrepController failed: " + t.getMessage());
         }
+    }
+
+    private void runPrepViaShell() {
+        String helper = ensureExtractedElf();
+        if (helper == null) {
+            return;
+        }
+        BleAdvPrivilegedShell.ExecResult result = privilegedShell.execHelperPrivilegedFirst(helper,
+                new String[]{String.valueOf(hciIndex), "prep", "0", "00"});
+        Log.d(TAG, "shell prep exit=" + result.exitCode + " out=" + result.output.trim());
+    }
+
+    private boolean preferShellFirst() {
+        return BleAdvTransportProbe.preferPrivilegedShell(permissionHelper);
     }
 
     String probeTransport() {
@@ -131,24 +159,31 @@ final class RawHciAdvertiser {
 
     private BleAdvPrivilegedShell.ExecResult runHelper(
             int dev, String mode, int durationMs, byte[] pdu) {
+        if (preferShellFirst()) {
+            String helper = ensureExtractedElf();
+            if (helper == null) {
+                return new BleAdvPrivilegedShell.ExecResult(-1, "no_helper_binary");
+            }
+            BleAdvPrivilegedShell.ExecResult shell = privilegedShell.execHelperPrivilegedFirst(helper,
+                    new String[]{
+                            String.valueOf(dev),
+                            mode,
+                            String.valueOf(durationMs),
+                            RawAdvParser.toHex(pdu),
+                    });
+            if (shell.exitCode == 0 && containsOk(shell.output)) {
+                return shell;
+            }
+            if (BleAdvTransportProbe.hasKernelHci() && shouldTryJni()) {
+                return runHelperJni(dev, mode, durationMs, pdu);
+            }
+            return shell;
+        }
+
         if (shouldTryJni()) {
-            try {
-                String out = BleAdvNative.nativeRun(dev, mode, durationMs, pdu);
-                String text = out != null ? out : "";
-                int code = containsOk(text) ? 0 : 1;
-                if (code == 0) {
-                    jniConsecutiveFailures = 0;
-                    Log.i(TAG, "JNI ok: " + text.trim());
-                } else {
-                    noteJniFailure(text);
-                    if (text.contains("status=0x14")) {
-                        Log.w(TAG, "JNI mgmt busy, will retry: " + text.trim());
-                    }
-                }
-                return new BleAdvPrivilegedShell.ExecResult(code, text + "\n");
-            } catch (Throwable t) {
-                noteJniFailure(t.getMessage());
-                Log.w(TAG, "JNI run failed, falling back to shell: " + t.getMessage());
+            BleAdvPrivilegedShell.ExecResult jni = runHelperJni(dev, mode, durationMs, pdu);
+            if (jni.exitCode == 0) {
+                return jni;
             }
         }
 
@@ -162,6 +197,32 @@ final class RawHciAdvertiser {
                 String.valueOf(durationMs),
                 RawAdvParser.toHex(pdu),
         });
+    }
+
+    private BleAdvPrivilegedShell.ExecResult runHelperJni(
+            int dev, String mode, int durationMs, byte[] pdu) {
+        if (!ensureJniLoaded()) {
+            return new BleAdvPrivilegedShell.ExecResult(-1, "jni_unavailable");
+        }
+        try {
+            String out = BleAdvNative.nativeRun(dev, mode, durationMs, pdu);
+            String text = out != null ? out : "";
+            int code = containsOk(text) ? 0 : 1;
+            if (code == 0) {
+                jniConsecutiveFailures = 0;
+                Log.i(TAG, "JNI ok: " + text.trim());
+            } else {
+                noteJniFailure(text);
+                if (text.contains("status=0x14")) {
+                    Log.w(TAG, "JNI mgmt busy, will retry: " + text.trim());
+                }
+            }
+            return new BleAdvPrivilegedShell.ExecResult(code, text + "\n");
+        } catch (Throwable t) {
+            noteJniFailure(t.getMessage());
+            Log.w(TAG, "JNI run failed: " + t.getMessage());
+            return new BleAdvPrivilegedShell.ExecResult(-1, t.getMessage());
+        }
     }
 
     private boolean shouldTryJni() {

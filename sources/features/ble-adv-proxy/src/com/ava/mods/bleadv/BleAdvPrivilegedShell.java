@@ -43,6 +43,27 @@ final class BleAdvPrivilegedShell {
         permissionHelper.ensurePrivilegedAccess();
     }
 
+    /** Run helper via Shizuku/root only (skip app-process exec on HAL-only phones). */
+    ExecResult execHelperPrivilegedFirst(String helperPath, String[] args) {
+        if (helperPath == null || args == null || args.length == 0) {
+            return new ExecResult(-1, "");
+        }
+        permissionHelper.ensurePrivilegedAccess();
+        String shellCmd = buildShellCommand(helperPath, args);
+        ExecResult shizuku = execViaProcess(permissionHelper.newShizukuProcess(
+                new String[]{"sh", "-c", shellCmd}));
+        if (shizuku != null && shizuku.exitCode == 0) {
+            noteCacheFromOutput(shizuku.output);
+            return shizuku;
+        }
+        ExecResult root = execViaProcess(permissionHelper.newRootProcess(shellCmd));
+        if (root != null && root.exitCode == 0) {
+            noteCacheFromOutput(root.output);
+            return root;
+        }
+        return root != null ? root : (shizuku != null ? shizuku : new ExecResult(-1, "no_privileged_shell"));
+    }
+
     /** Run helper with argv; prefers in-process exec over Shizuku shell (uid 2000). */
     ExecResult execHelper(String helperPath, String[] args) {
         if (helperPath == null || args == null || args.length == 0) {

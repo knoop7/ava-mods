@@ -507,6 +507,15 @@ static int run_mode(int dev, const char *mode, int duration_ms, const uint8_t *p
     if (strcmp(mode, "probe") == 0) {
         return probe_transport(dev) == 0 ? 0 : -1;
     }
+    if (strcmp(mode, "prep") == 0) {
+        int r = ble_adv_prep_controller(dev);
+        if (r == 0) {
+            RESULT_PRINTF("OK prep\n");
+            return 0;
+        }
+        RESULT_PRINTF("FAIL prep\n");
+        return -1;
+    }
     if (strcmp(mode, "auto") == 0 || strcmp(mode, "mgmt") == 0) {
         return try_mgmt(dev, duration_ms, padded);
     }
