@@ -63,12 +63,25 @@ final class PhicommLedLightJni {
         }
     }
 
-    static void clearRing() {
+    static void clearVoiceLoadingRing() {
+        if (!probe()) {
+            return;
+        }
+        set_color(MASK_RING, 0);
+    }
+
+    /** Full reset after music RGB — do not use for voice session teardown. */
+    static void clearMusicRing() {
         if (!probe()) {
             return;
         }
         set_color(MASK_RING, 0);
         set_color(MASK_FULL_RING, 0);
+    }
+
+    /** @deprecated use {@link #clearVoiceLoadingRing()} or {@link #clearMusicRing()} */
+    static void clearRing() {
+        clearMusicRing();
     }
 
     private static boolean probe() {

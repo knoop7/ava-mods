@@ -44,7 +44,7 @@ public final class PhicommLightController {
 
     public void turnOffLoadingLight() {
         if (PhicommLedLightJni.isAvailable()) {
-            PhicommLedLightJni.clearRing();
+            PhicommLedLightJni.clearVoiceLoadingRing();
         }
         bridge.sendMessage(LIGHT_WHAT, LIGHT_ID_LOADING, LIGHT_ACTION_CLOSE, null);
     }
@@ -58,6 +58,7 @@ public final class PhicommLightController {
     }
 
     public void turnOnLoadingLight(int accentRgb) {
+        bridge.sendMessage(LIGHT_WHAT, LIGHT_ID_LOADING, LIGHT_ACTION_CLOSE, null);
         if (PhicommLedLightJni.isAvailable()) {
             int rgb = accentRgb != 0
                 ? accentRgb & 0xFFFFFF
@@ -80,9 +81,8 @@ public final class PhicommLightController {
 
     public void turnOnWakeupIndexLight(int index, int accentRgb) {
         lastLightIndex = index;
-        if (PhicommLedLightJni.isAvailable() && accentRgb != 0) {
-            PhicommLedLightJni.setSegmentColor(index, accentRgb);
-            return;
+        if (PhicommLedLightJni.isAvailable()) {
+            PhicommLedLightJni.clearWakeSegments();
         }
         bridge.sendMessage(LIGHT_WHAT, index, LIGHT_ACTION_OPEN, null);
     }

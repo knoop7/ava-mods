@@ -1,7 +1,7 @@
 {
   "id": "phicomm-r1-support",
   "name": "Phicomm R1",
-  "version": "1.2.9",
+  "version": "1.2.10",
   "author": "Ava",
   "description": "Phicomm R1 native LED ring, voice-reactive, music RGB.",
   "detail_description": "Stock msgcenter voice and dormant lights; optional 4-mic directional wake; RGB music ring.",
@@ -11,7 +11,7 @@
     "libs/phicomm-r1-support.jar"
   ],
   "manager": "com.ava.mods.phicomm.PhicommR1SupportManager",
-  "jar_hash": "07dc04c2126e2c3092053571a79d69a4",
+  "jar_hash": "4ac8f7add6c0a8f06b5e311225f5abd1",
   "entities": [
     {
       "type": "switch",

@@ -144,13 +144,15 @@ public class PhicommR1SupportManager implements PhicommKeyEventListener.Handler 
     }
 
     public void setVoiceLedEnabled(boolean enabled) {
+        enableVoiceLed = enabled;
         if (!isSupported()) {
+            notifyEntityListeners(ENTITY_VOICE_LED, Boolean.valueOf(enabled));
             return;
         }
-        enableVoiceLed = enabled;
         if (!enabled) {
             voiceLightListener.onInterrupt();
             voiceSessionActive = false;
+            wakeAccentTracker.reset();
         }
         notifyEntityListeners(ENTITY_VOICE_LED, Boolean.valueOf(enabled));
         Log.i(TAG, "voice LED enabled=" + enabled);
@@ -299,9 +301,13 @@ public class PhicommR1SupportManager implements PhicommKeyEventListener.Handler 
 
             case "listening_started":
                 int accent = wakeAccentTracker.onListeningStarted(extras);
-                if (accent != 0 && voiceSessionActive) {
-                    voiceLightListener.setSessionAccentColor(accent);
-                    voiceLightListener.onWakeupSuccess(wakeAccentTracker.getPendingDoa(), accent);
+                if (voiceSessionActive) {
+                    if (accent != 0) {
+                        voiceLightListener.setSessionAccentColor(accent);
+                    }
+                    voiceLightListener.onWakeupSuccess(
+                        wakeAccentTracker.getPendingDoa(),
+                        wakeAccentTracker.getSessionAccentRgb());
                 }
                 break;
 
@@ -314,6 +320,7 @@ public class PhicommR1SupportManager implements PhicommKeyEventListener.Handler 
                 break;
 
             case "session_ended":
+            case "run_end":
             case "pipeline_error":
                 voiceLightListener.onInterrupt();
                 voiceSessionActive = false;

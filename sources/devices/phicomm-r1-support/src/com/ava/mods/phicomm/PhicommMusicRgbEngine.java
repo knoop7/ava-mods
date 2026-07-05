@@ -69,7 +69,7 @@ final class PhicommMusicRgbEngine implements Visualizer.OnDataCaptureListener {
         }
         fallback.clear();
         if (useJni) {
-            PhicommLedLightJni.clearRing();
+            PhicommLedLightJni.clearMusicRing();
         }
         lastReportedAmp = 0f;
     }
@@ -109,7 +109,7 @@ final class PhicommMusicRgbEngine implements Visualizer.OnDataCaptureListener {
 
         if (useJni) {
             if (scaled <= 0.001f) {
-                PhicommLedLightJni.clearRing();
+                PhicommLedLightJni.clearVoiceLoadingRing();
             } else {
                 int rgb = Color.HSVToColor(new float[] { hue, 1.0f, scaled });
                 PhicommLedLightJni.setRingColor(rgb);
