@@ -1,7 +1,7 @@
 {
   "id": "ble-adv-proxy",
   "name": "BLE ADV Proxy",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "author": "Ava",
   "description": "Bidirectional raw BLE advertising proxy for ha-ble-adv. Scan nearby BLE broadcasts and send control packets to ceiling fans or lamps.",
   "detail_description": "esphome-ble_adv_proxy port for ha-ble-adv. Requires Ava Bluetooth detect or ESPHome BT proxy scan. Exposes ble_adv_proxy_name for ha-ble-adv adapter discovery.",
@@ -127,5 +127,5 @@
       "read": "getFidelityMode"
     }
   ],
-  "jar_hash": "52d85e7dea151f0b9c41bd2f9ec051d3"
+  "jar_hash": "53cf0835d9e16b9ee905f2d9d4db429b"
 }

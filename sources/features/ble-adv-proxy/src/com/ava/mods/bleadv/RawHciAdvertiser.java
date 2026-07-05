@@ -17,7 +17,7 @@ final class RawHciAdvertiser {
     private static final String HELPER_NAME = "ble_adv_hci";
     private static final String JNI_LIB_NAME = "libble_adv_hci.so";
     private static final Object HELPER_LOCK = new Object();
-    private static final int PRE_TX_SETTLE_MS = 500;
+    private static final int PRE_TX_SETTLE_MS = 100;
     private static final int TX_RETRY_COUNT = 3;
     private static final int TX_RETRY_GAP_MS = 150;
 
@@ -181,7 +181,6 @@ final class RawHciAdvertiser {
     }
 
     private void settleBeforeTransmit() {
-        HostBlePause.pausePresenceAdvertising(context);
         try {
             Thread.sleep(PRE_TX_SETTLE_MS);
         } catch (InterruptedException e) {

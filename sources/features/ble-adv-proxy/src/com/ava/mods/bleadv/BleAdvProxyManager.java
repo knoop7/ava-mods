@@ -442,6 +442,7 @@ public class BleAdvProxyManager {
         boolean needsExactPdu = RawAdvParser.hasFlagsAd(raw);
         boolean tryRaw = rawHciEnabled && rawHciAdvertiser.isAvailable();
         if (tryRaw) {
+            pauseForRawAdvertise();
             String rawErr = rawHciAdvertiser.transmit(-1, "auto", burstMs, raw);
             if (rawErr == null) {
                 Log.d(TAG, "TX ok raw HCI/MGMT len=" + raw.length + " burst=" + burstMs + "ms");
@@ -514,6 +515,30 @@ public class BleAdvProxyManager {
         } catch (Exception e) {
             Log.w(TAG, "runExclusiveTransmit fallback", e);
             task.run();
+        }
+    }
+
+    /** Host pause + settle before raw MGMT (requires Ava BleAdvHostApi). */
+    private void pauseForRawAdvertise() {
+        Object api = hostApi;
+        if (api == null) {
+            HostBlePause.pausePresenceAdvertising(context);
+            return;
+        }
+        try {
+            api.getClass().getMethod("pausePresenceForRawAdvertise").invoke(api);
+            try {
+                api.getClass().getMethod("awaitRawAdvertiseSettle").invoke(api);
+            } catch (NoSuchMethodException ignored) {
+                try {
+                    Thread.sleep(400L);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "pausePresenceForRawAdvertise failed", e);
+            HostBlePause.pausePresenceAdvertising(context);
         }
     }
 
