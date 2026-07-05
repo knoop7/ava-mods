@@ -213,8 +213,10 @@ final class RawHciAdvertiser {
                 Log.i(TAG, "JNI ok: " + text.trim());
             } else {
                 noteJniFailure(text);
-                if (text.contains("status=0x14")) {
-                    Log.w(TAG, "JNI mgmt busy, will retry: " + text.trim());
+                if (text.contains("status=0x14") || text.contains("permission_denied")) {
+                    Log.w(TAG, "JNI mgmt permission denied (need root shell): " + text.trim());
+                } else if (text.contains("status=0x0A") || text.contains(" busy")) {
+                    Log.w(TAG, "JNI mgmt busy: " + text.trim());
                 }
             }
             return new BleAdvPrivilegedShell.ExecResult(code, text + "\n");

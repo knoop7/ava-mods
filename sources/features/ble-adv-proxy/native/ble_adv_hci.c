@@ -73,7 +73,8 @@ static void out_line(const char *fmt, ...) {
 #define MGMT_EV_CMD_COMPLETE 0x0001
 #define MGMT_EV_CMD_STATUS 0x0002
 #define MGMT_STATUS_INVALID_INDEX 0x11
-#define MGMT_STATUS_BUSY 0x14
+#define MGMT_STATUS_BUSY 0x0A
+#define MGMT_STATUS_PERMISSION_DENIED 0x14
 
 #define HCI_STATUS_DISALLOWED 0x0C
 #define ADV_LEN 31
@@ -268,6 +269,16 @@ static int mgmt_cmd(int fd, uint16_t op, uint16_t index, const uint8_t *params, 
     return 0x102;
 }
 
+static const char *mgmt_status_name(int st) {
+    switch (st & 0xFF) {
+        case 0x00: return "success";
+        case MGMT_STATUS_BUSY: return "busy";
+        case MGMT_STATUS_INVALID_INDEX: return "invalid_index";
+        case MGMT_STATUS_PERMISSION_DENIED: return "permission_denied";
+        default: return "error";
+    }
+}
+
 static int mgmt_read_controller_indices(int fd, uint16_t *out, int max_n) {
     uint8_t pkt[6] = {0x03, 0x00, 0xFF, 0xFF, 0x00, 0x00};
     if (write(fd, pkt, 6) < 0) {
@@ -412,7 +423,7 @@ static int try_mgmt(int dev, int duration_ms, const uint8_t *padded) {
                 close(fd);
                 return 0;
             }
-            if (last_st != MGMT_STATUS_BUSY) {
+            if (last_st != MGMT_STATUS_BUSY && last_st != MGMT_STATUS_PERMISSION_DENIED) {
                 break;
             }
         }
@@ -437,9 +448,18 @@ static int try_mgmt(int dev, int duration_ms, const uint8_t *padded) {
                     close(fd);
                     return 0;
                 }
+                if (last_st == MGMT_STATUS_PERMISSION_DENIED) {
+                    close(fd);
+                    RESULT_PRINTF("FAIL mgmt status=0x%02X (%s) nctrl=%d\n",
+                                  last_st & 0xFF, mgmt_status_name(last_st), nctrl);
+                    return -2;
+                }
                 if (last_st == MGMT_STATUS_BUSY) {
                     continue;
                 }
+                break;
+            }
+            if (last_st == MGMT_STATUS_PERMISSION_DENIED) {
                 break;
             }
             if (g_verbose) {
@@ -448,7 +468,8 @@ static int try_mgmt(int dev, int duration_ms, const uint8_t *padded) {
         }
     }
 
-    RESULT_PRINTF("FAIL mgmt status=0x%02X nctrl=%d\n", last_st & 0xFF, nctrl);
+    RESULT_PRINTF("FAIL mgmt status=0x%02X (%s) nctrl=%d\n",
+                  last_st & 0xFF, mgmt_status_name(last_st), nctrl);
     if (g_verbose) fprintf(stderr, "mgmt exhausted, last=0x%02X\n", last_st);
     close(fd);
     return -2;
