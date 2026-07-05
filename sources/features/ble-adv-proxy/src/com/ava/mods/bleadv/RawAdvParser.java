@@ -213,18 +213,6 @@ final class RawAdvParser {
         return new MappedAdv(builder.build(), fullyMapped, flagsDropped, note.toString());
     }
 
-    static String toHex(byte[] raw) {
-        if (raw == null) {
-            return "";
-        }
-        int len = Math.min(raw.length, MAX_PACKET_LEN);
-        StringBuilder sb = new StringBuilder(len * 2);
-        for (int i = 0; i < len; i++) {
-            sb.append(String.format("%02X", raw[i] & 0xFF));
-        }
-        return sb.toString();
-    }
-
     static byte[] fromHex(String hex) {
         if (hex == null) {
             return new byte[0];
@@ -243,6 +231,45 @@ final class RawAdvParser {
             out[i] = (byte) Integer.parseInt(cleaned.substring(idx, idx + 2), 16);
         }
         return out;
+    }
+
+    /** True when PDU contains a Flags AD (0x01) — Android AdvertiseData cannot emit it. */
+    static boolean hasFlagsAd(byte[] raw) {
+        if (raw == null || raw.length < 3) {
+            return false;
+        }
+        int i = 0;
+        int n = Math.min(raw.length, MAX_PACKET_LEN);
+        while (i < n) {
+            int fieldLen = raw[i] & 0xFF;
+            if (fieldLen == 0) {
+                break;
+            }
+            if (i + 1 >= n) {
+                break;
+            }
+            int type = raw[i + 1] & 0xFF;
+            if (type == AD_FLAGS) {
+                return true;
+            }
+            if (i + 1 + fieldLen > n) {
+                break;
+            }
+            i += 1 + fieldLen;
+        }
+        return false;
+    }
+
+    static String toHex(byte[] raw) {
+        if (raw == null) {
+            return "";
+        }
+        int len = Math.min(raw.length, MAX_PACKET_LEN);
+        StringBuilder sb = new StringBuilder(len * 2);
+        for (int i = 0; i < len; i++) {
+            sb.append(String.format("%02X", raw[i] & 0xFF));
+        }
+        return sb.toString();
     }
 
     private static int le16(byte[] data, int offset) {

@@ -57,7 +57,11 @@ public class BleAdvProxyManager {
     private volatile boolean featureEnabled = true;
     private volatile boolean useMaxTxPower = false;
     private volatile boolean rawHciEnabled = false;
+    private final BleAdvPermissionHelper permissionHelper;
     private final RawHciAdvertiser rawHciAdvertiser;
+    private final BleAdvCapabilityProbe capabilityProbe;
+    private volatile BleAdvCapabilityProbe.Report lastCapabilityReport;
+    private final AtomicBoolean probeRunning = new AtomicBoolean(false);
     private volatile String adapterNameOverride = "";
     private volatile String deviceName = "";
     private volatile Object hostApi;
@@ -67,7 +71,9 @@ public class BleAdvProxyManager {
 
     private BleAdvProxyManager(Context context) {
         this.context = context.getApplicationContext();
-        this.rawHciAdvertiser = new RawHciAdvertiser(this.context);
+        this.permissionHelper = new BleAdvPermissionHelper(this.context);
+        this.rawHciAdvertiser = new RawHciAdvertiser(this.context, permissionHelper);
+        this.capabilityProbe = new BleAdvCapabilityProbe(this.context, permissionHelper, rawHciAdvertiser);
     }
 
     public static BleAdvProxyManager getInstance(Context context) {
@@ -95,6 +101,33 @@ public class BleAdvProxyManager {
 
     public String getLastAdvertiseError() {
         return lastAdvertiseError != null ? lastAdvertiseError : "";
+    }
+
+    /** Human-readable self-probe summary (ha-ble-adv transport + privileged shell). */
+    public String getCapabilityReport() {
+        BleAdvCapabilityProbe.Report report = lastCapabilityReport;
+        return report != null && report.summary != null ? report.summary : "capability not probed";
+    }
+
+    public String getRawTransport() {
+        BleAdvCapabilityProbe.Report report = lastCapabilityReport;
+        if (report != null && report.rawTransport != null) {
+            return report.rawTransport;
+        }
+        return rawHciAdvertiser.getLastTransport();
+    }
+
+    public String getPrivilegedShell() {
+        BleAdvCapabilityProbe.Report report = lastCapabilityReport;
+        if (report != null && report.privilegedShell != null) {
+            return report.privilegedShell;
+        }
+        return permissionHelper.getPrivilegedShellLabel();
+    }
+
+    public String getFidelityMode() {
+        BleAdvCapabilityProbe.Report report = lastCapabilityReport;
+        return report != null && report.fidelityMode != null ? report.fidelityMode : "unknown";
     }
 
     public String getAdapterName() {
@@ -139,10 +172,11 @@ public class BleAdvProxyManager {
                 notifyProxyReadyChanged();
                 break;
             case "use_max_tx_power":
-                useMaxTxPower = parseBoolean(value, false);
+                useMaxTxPower = parseBoolean(value, true);
                 break;
             case "enable_raw_hci":
                 rawHciEnabled = parseBoolean(value, true);
+                scheduleCapabilityProbe();
                 break;
             case "adapter_name":
                 adapterNameOverride = value != null ? value : "";
@@ -157,6 +191,7 @@ public class BleAdvProxyManager {
         this.deviceName = deviceName != null ? deviceName : "";
         this.hostApi = hostApi;
         notifyStateListeners("ble_adv_proxy_name", getAdapterName());
+        scheduleCapabilityProbe();
         Log.i(TAG, "ESPHome connected (adapter=" + getAdapterName(ctx) + ")");
     }
 
@@ -172,6 +207,7 @@ public class BleAdvProxyManager {
         haServicesReady = true;
         notifyStateListeners("ble_adv_proxy_name", getAdapterName());
         notifyProxyReadyChanged();
+        scheduleCapabilityProbe();
         Log.d(TAG, "HA homeassistant services subscribed");
     }
 
@@ -310,6 +346,10 @@ public class BleAdvProxyManager {
      * ESP32: each repeat enqueues a separate send_packets_ entry with
      * {@code adv_time = max(MIN_ADV, 1.6 * duration)} (0.625&nbsp;ms units).
      */
+    /**
+     * ESP32: each repeat enqueues a separate send_packets_ entry with
+     * {@code adv_time = max(MIN_ADV, 1.6 * duration)} (0.625&nbsp;ms units).
+     */
     private static int computeBurstMs(float durationMs) {
         int scaled = Math.max(1, Math.round(durationMs * 1.6f));
         return Math.max(BleAdvTransmitter.ANDROID_MIN_BURST_MS, scaled);
@@ -373,6 +413,14 @@ public class BleAdvProxyManager {
                                     } else {
                                         clearLastAdvertiseError();
                                     }
+                                    if (i + 1 < job.repeat) {
+                                        try {
+                                            Thread.sleep(2L);
+                                        } catch (InterruptedException e) {
+                                            Thread.currentThread().interrupt();
+                                            break;
+                                        }
+                                    }
                                 }
                             }
                         });
@@ -388,18 +436,70 @@ public class BleAdvProxyManager {
     }
 
     /**
-     * Raw HCI when enabled and privileged shell is present; otherwise AdvertiseData fallback.
+     * Raw HCI/MGMT when enabled; AdvertiseData only if PDU has no custom Flags AD.
      */
     private String transmitOneBurst(BleAdvTransmitter transmitter, byte[] raw, int burstMs) {
+        boolean needsExactPdu = RawAdvParser.hasFlagsAd(raw);
         boolean tryRaw = rawHciEnabled && rawHciAdvertiser.isAvailable();
         if (tryRaw) {
-            String rawErr = rawHciAdvertiser.transmit(0, "auto", burstMs, raw);
+            String rawErr = rawHciAdvertiser.transmit(-1, "auto", burstMs, raw);
             if (rawErr == null) {
+                Log.d(TAG, "TX ok raw HCI/MGMT len=" + raw.length + " burst=" + burstMs + "ms");
                 return "";
             }
-            Log.w(TAG, "raw HCI failed, falling back to AdvertiseData: " + rawErr);
+            Log.w(TAG, "raw HCI failed: " + rawErr + " hex=" + RawAdvParser.toHex(raw));
+            if (needsExactPdu) {
+                return "flags_need_raw_hci:" + rawErr;
+            }
+        } else if (needsExactPdu) {
+            return "flags_need_raw_hci:" + privilegedShellLabel();
         }
-        return transmitter.transmitBlocking(raw, burstMs);
+        String err = transmitter.transmitBlocking(raw, burstMs);
+        if (err == null || err.isEmpty()) {
+            Log.d(TAG, "TX ok AdvertiseData burst=" + burstMs + "ms");
+        }
+        return err;
+    }
+
+    private String privilegedShellLabel() {
+        return permissionHelper.getPrivilegedShellLabel();
+    }
+
+    private void scheduleCapabilityProbe() {
+        if (!featureEnabled) {
+            return;
+        }
+        if (!probeRunning.compareAndSet(false, true)) {
+            return;
+        }
+        executor.execute(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    runExclusive(new Runnable() {
+                        @Override
+                        public void run() {
+                            BleAdvCapabilityProbe.Report report = capabilityProbe.probe(
+                                    rawHciEnabled,
+                                    useMaxTxPower,
+                                    new BleAdvCapabilityProbe.ExclusiveRunner() {
+                                        @Override
+                                        public void runExclusive(Runnable task) {
+                                            task.run();
+                                        }
+                                    });
+                            lastCapabilityReport = report;
+                            notifyStateListeners("capability_report", report.summary);
+                            notifyStateListeners("raw_transport", report.rawTransport);
+                            notifyStateListeners("privileged_shell", report.privilegedShell);
+                            notifyStateListeners("fidelity_mode", report.fidelityMode);
+                        }
+                    });
+                } finally {
+                    probeRunning.set(false);
+                }
+            }
+        });
     }
 
     private void runExclusive(Runnable task) {
@@ -528,6 +628,14 @@ public class BleAdvProxyManager {
             notifySingleListener(callback, getLastAdvertiseError());
         } else if ("ble_adv_proxy_name".equals(entityId)) {
             notifySingleListener(callback, getAdapterName());
+        } else if ("capability_report".equals(entityId)) {
+            notifySingleListener(callback, getCapabilityReport());
+        } else if ("raw_transport".equals(entityId)) {
+            notifySingleListener(callback, getRawTransport());
+        } else if ("privileged_shell".equals(entityId)) {
+            notifySingleListener(callback, getPrivilegedShell());
+        } else if ("fidelity_mode".equals(entityId)) {
+            notifySingleListener(callback, getFidelityMode());
         }
     }
 

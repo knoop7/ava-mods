@@ -1,20 +1,13 @@
 /*
  * ble_adv_hci - raw BLE advertising injector for the Ava ble-adv-proxy mod.
  *
- * Reproduces the FULL raw advertising PDU (including the codec Flags AD) byte-for-byte,
- * exactly like esphome-ble_adv_proxy's esp_ble_gap_config_adv_data_raw() and ha-ble-adv's
- * BluetoothHCIAdapter. Runs as a privileged (root) helper because opening an AF_BLUETOOTH
- * HCI / MGMT socket requires CAP_NET_ADMIN / CAP_NET_RAW.
+ * Mirrors ha-ble-adv BluetoothHCIAdapter._hci_advertise / _mgmt_advertise and
+ * esphome-ble_adv_proxy esp_ble_gap_config_adv_data_raw().
  *
  * Usage:  ble_adv_hci <hci_index> <auto|hci|mgmt> <duration_ms> <hex_pdu>
  *
- * Command byte layouts mirror ha-ble-adv (a proven implementation):
- *   HCI  : LE Set Advertising Parameters (0x2006), LE Set Advertising Data (0x2008),
- *          LE Set Advertise Enable (0x200A)
- *   MGMT : Add Advertising (0x003E) + Remove Advertising (0x003F)
- *
- * Prints "OK <transport>" on success or "FAIL <reason>" and returns a non-zero exit code
- * so the Java side can fall back to AdvertiseData when raw injection is unavailable.
+ * On Android the Bluetooth stack usually owns HCI LE advertising (status 0x0C);
+ * auto mode therefore tries MGMT Add Advertising first, then raw HCI.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -53,6 +46,8 @@
 
 #define HCI_STATUS_DISALLOWED 0x0C
 #define ADV_LEN 31
+#define ADV_INST 1
+#define MIN_ADV_UNITS 0x20
 
 struct sockaddr_hci {
     unsigned short hci_family;
@@ -86,8 +81,20 @@ static int hex_to_bytes(const char *hex, uint8_t *out, int max) {
     return n;
 }
 
-/* Send an HCI command and wait for its Command Complete / Status. Returns status byte
- * (0 = success), 0x100+ pseudo codes on local errors. */
+/* ha-ble-adv: patched_data = data + zeros to 31 bytes */
+static int pad_pdu(const uint8_t *in, int in_len, uint8_t *out) {
+    int n = in_len < ADV_LEN ? in_len : ADV_LEN;
+    memset(out, 0, ADV_LEN);
+    if (n > 0) memcpy(out, in, n);
+    return ADV_LEN;
+}
+
+static int min_adv_units(int duration_ms) {
+    int scaled = (int) (duration_ms * 1.6f);
+    if (scaled < MIN_ADV_UNITS) scaled = MIN_ADV_UNITS;
+    return scaled;
+}
+
 static int hci_cmd(int fd, uint16_t opcode, const uint8_t *params, int plen) {
     uint8_t pkt[4 + 259];
     pkt[0] = HCI_COMMAND_PKT;
@@ -97,7 +104,7 @@ static int hci_cmd(int fd, uint16_t opcode, const uint8_t *params, int plen) {
     if (plen > 0) memcpy(pkt + 4, params, plen);
     if (write(fd, pkt, 4 + plen) < 0) return 0x101;
 
-    long deadline = now_ms() + 1200;
+    long deadline = now_ms() + 1500;
     uint8_t buf[300];
     while (now_ms() < deadline) {
         struct pollfd pfd = {fd, POLLIN, 0};
@@ -114,7 +121,7 @@ static int hci_cmd(int fd, uint16_t opcode, const uint8_t *params, int plen) {
             if (op == opcode) return buf[3];
         }
     }
-    return 0x102; /* timeout */
+    return 0x102;
 }
 
 static int open_hci_raw(int dev) {
@@ -137,41 +144,33 @@ static int open_hci_raw(int dev) {
     return fd;
 }
 
-static int try_hci(int dev, int duration_ms, const uint8_t *data, int len) {
+static int try_hci(int dev, int duration_ms, const uint8_t *padded) {
     int fd = open_hci_raw(dev);
     if (fd < 0) {
         if (g_verbose) fprintf(stderr, "hci open/bind failed: %s\n", strerror(errno));
         return -1;
     }
 
-    uint8_t adv[ADV_LEN];
-    memset(adv, 0, sizeof(adv));
-    memcpy(adv, data, len < ADV_LEN ? len : ADV_LEN);
-
-    /* interval 0x20 = 20ms (fastest for ADV_IND) */
+    int adv_units = min_adv_units(duration_ms);
     uint8_t params[15] = {
-        0x20, 0x00,             /* min interval */
-        0x20, 0x00,             /* max interval */
-        0x00,                   /* ADV_IND */
-        0x00,                   /* own addr type: public */
-        0x00,                   /* peer addr type */
-        0, 0, 0, 0, 0, 0,       /* peer addr */
-        0x07,                   /* channel map 37/38/39 */
-        0x00                    /* filter policy */
+        (uint8_t) (adv_units & 0xFF), (uint8_t) ((adv_units >> 8) & 0xFF),
+        (uint8_t) (adv_units & 0xFF), (uint8_t) ((adv_units >> 8) & 0xFF),
+        0x00, 0x00, 0x00, 0, 0, 0, 0, 0, 0, 0x07, 0x00
     };
 
     (void) hci_cmd(fd, OCF_SET_ADV_ENABLE | (OGF_LE << 10), (uint8_t[]) {0x00}, 1);
     hci_cmd(fd, OCF_SET_ADV_PARAMS | (OGF_LE << 10), params, sizeof(params));
 
+    /* ha-ble-adv: bytearray([len(data), *data]) with len=31 after padding */
     uint8_t dpkt[1 + ADV_LEN];
     dpkt[0] = ADV_LEN;
-    memcpy(dpkt + 1, adv, ADV_LEN);
+    memcpy(dpkt + 1, padded, ADV_LEN);
     hci_cmd(fd, OCF_SET_ADV_DATA | (OGF_LE << 10), dpkt, sizeof(dpkt));
 
     int en = hci_cmd(fd, OCF_SET_ADV_ENABLE | (OGF_LE << 10), (uint8_t[]) {0x01}, 1);
     if (en == HCI_STATUS_DISALLOWED) {
         close(fd);
-        return HCI_STATUS_DISALLOWED; /* controller owned by stack -> caller tries mgmt */
+        return HCI_STATUS_DISALLOWED;
     }
     if (en != 0) {
         if (g_verbose) fprintf(stderr, "hci enable status 0x%02X\n", en);
@@ -211,7 +210,7 @@ static int mgmt_cmd(int fd, uint16_t op, uint16_t index, const uint8_t *params, 
     if (plen > 0) memcpy(pkt + 6, params, plen);
     if (write(fd, pkt, 6 + plen) < 0) return 0x101;
 
-    long deadline = now_ms() + 2000;
+    long deadline = now_ms() + 2500;
     uint8_t buf[512];
     while (now_ms() < deadline) {
         struct pollfd pfd = {fd, POLLIN, 0};
@@ -227,25 +226,32 @@ static int mgmt_cmd(int fd, uint16_t op, uint16_t index, const uint8_t *params, 
     return 0x102;
 }
 
-static int try_mgmt(int dev, int duration_ms, const uint8_t *data, int len) {
+/* ha-ble-adv BluetoothHCIAdapter.FAKE_ADV padded to 31 bytes. */
+static void fake_adv_padded(uint8_t *out) {
+    memset(out, 0, ADV_LEN);
+    out[0] = 0x1D;
+    out[1] = 0xFF;
+    out[2] = 0xFF;
+    out[3] = 0xFF;
+}
+
+static int try_mgmt(int dev, int duration_ms, const uint8_t *padded) {
     int fd = open_mgmt();
     if (fd < 0) {
         if (g_verbose) fprintf(stderr, "mgmt open/bind failed: %s\n", strerror(errno));
         return -1;
     }
-    uint8_t adv[ADV_LEN];
-    memset(adv, 0, sizeof(adv));
-    memcpy(adv, data, len < ADV_LEN ? len : ADV_LEN);
 
+    /* struct.pack("<BIHHBB{data_len}B", ADV_INST, 0, 0, 0, data_len, 0, *data) */
     uint8_t params[11 + ADV_LEN];
     int i = 0;
-    params[i++] = 0x01;                 /* instance 1 */
-    params[i++] = 0; params[i++] = 0; params[i++] = 0; params[i++] = 0; /* flags = 0 (use adv_data as-is) */
-    params[i++] = 0; params[i++] = 0;   /* duration */
-    params[i++] = 0; params[i++] = 0;   /* timeout */
-    params[i++] = ADV_LEN;              /* adv_data_len */
-    params[i++] = 0x00;                 /* scan_rsp_len */
-    memcpy(params + i, adv, ADV_LEN);
+    params[i++] = ADV_INST;
+    params[i++] = 0; params[i++] = 0; params[i++] = 0; params[i++] = 0;
+    params[i++] = 0; params[i++] = 0;
+    params[i++] = 0; params[i++] = 0;
+    params[i++] = ADV_LEN;
+    params[i++] = 0x00;
+    memcpy(params + i, padded, ADV_LEN);
     i += ADV_LEN;
 
     int st = mgmt_cmd(fd, MGMT_OP_ADD_ADVERTISING, (uint16_t) dev, params, i);
@@ -255,21 +261,64 @@ static int try_mgmt(int dev, int duration_ms, const uint8_t *data, int len) {
         return -2;
     }
     usleep((useconds_t) duration_ms * 1000);
-    uint8_t rm[1] = {0x01};
+    uint8_t rm[1] = {ADV_INST};
     mgmt_cmd(fd, MGMT_OP_REMOVE_ADVERTISING, (uint16_t) dev, rm, 1);
     close(fd);
     return 0;
 }
 
+/* Detect transport, then emit a real short FAKE_ADV burst so the stack path is proven on-air. */
+static int probe_transport(int dev) {
+    uint8_t padded[ADV_LEN];
+    fake_adv_padded(padded);
+    int probe_ms = 20;
+
+    int hci_fd = open_hci_raw(dev);
+    int hci_disallowed = 0;
+    if (hci_fd >= 0) {
+        int en = hci_cmd(hci_fd, OCF_SET_ADV_ENABLE | (OGF_LE << 10), (uint8_t[]) {0x01}, 1);
+        hci_cmd(hci_fd, OCF_SET_ADV_ENABLE | (OGF_LE << 10), (uint8_t[]) {0x00}, 1);
+        close(hci_fd);
+        if (en == HCI_STATUS_DISALLOWED) {
+            hci_disallowed = 1;
+        } else if (en == 0) {
+            int r = try_hci(dev, probe_ms, padded);
+            if (r == 0) {
+                printf("PROBE transport=hci tx=ok\n");
+                return 0;
+            }
+            printf("PROBE transport=hci tx=fail r=%d\n", r);
+            return 1;
+        }
+    }
+
+    if (hci_disallowed || hci_fd < 0) {
+        int r = try_mgmt(dev, probe_ms, padded);
+        if (r == 0) {
+            printf("PROBE transport=mgmt tx=ok\n");
+            return 0;
+        }
+        printf("PROBE transport=mgmt tx=fail r=%d\n", r);
+        return 1;
+    }
+
+    printf("PROBE transport=none hci_open=%d mgmt_open=%d\n",
+           hci_fd >= 0 ? 1 : 0, open_mgmt() >= 0 ? 1 : 0);
+    return 1;
+}
+
 int main(int argc, char **argv) {
     if (getenv("BLE_ADV_HCI_VERBOSE")) g_verbose = 1;
     if (argc < 5) {
-        fprintf(stderr, "usage: %s <hci_index> <auto|hci|mgmt> <duration_ms> <hex_pdu>\n", argv[0]);
+        fprintf(stderr, "usage: %s <hci_index> <auto|hci|mgmt|probe> <duration_ms> <hex_pdu>\n", argv[0]);
         printf("FAIL usage\n");
         return 2;
     }
     int dev = atoi(argv[1]);
     const char *mode = argv[2];
+    if (strcmp(mode, "probe") == 0) {
+        return probe_transport(dev) == 0 ? 0 : 1;
+    }
     int duration = atoi(argv[3]);
     if (duration < 20) duration = 20;
     if (duration > 5000) duration = 5000;
@@ -281,27 +330,55 @@ int main(int argc, char **argv) {
         return 2;
     }
 
+    uint8_t padded[ADV_LEN];
+    pad_pdu(data, len, padded);
+
     int want_hci = (strcmp(mode, "hci") == 0) || (strcmp(mode, "auto") == 0);
     int want_mgmt = (strcmp(mode, "mgmt") == 0) || (strcmp(mode, "auto") == 0);
 
-    if (want_hci) {
-        int r = try_hci(dev, duration, data, len);
-        if (r == 0) {
-            printf("OK hci\n");
-            return 0;
-        }
-        if (r != HCI_STATUS_DISALLOWED && strcmp(mode, "auto") != 0) {
-            printf("FAIL hci\n");
-            return 1;
-        }
-    }
-    if (want_mgmt) {
-        int r = try_mgmt(dev, duration, data, len);
+    /* Android: MGMT first in auto — stack owns HCI LE advertising. */
+    if (want_mgmt && strcmp(mode, "auto") == 0) {
+        int r = try_mgmt(dev, duration, padded);
         if (r == 0) {
             printf("OK mgmt\n");
             return 0;
         }
+        want_mgmt = 0;
     }
+
+    if (want_mgmt) {
+        int r = try_mgmt(dev, duration, padded);
+        if (r == 0) {
+            printf("OK mgmt\n");
+            return 0;
+        }
+        if (strcmp(mode, "mgmt") != 0) {
+            /* fall through to hci */
+        } else {
+            printf("FAIL mgmt\n");
+            return 1;
+        }
+    }
+
+    if (want_hci) {
+        int r = try_hci(dev, duration, padded);
+        if (r == 0) {
+            printf("OK hci\n");
+            return 0;
+        }
+        if (r == HCI_STATUS_DISALLOWED && strcmp(mode, "auto") == 0) {
+            r = try_mgmt(dev, duration, padded);
+            if (r == 0) {
+                printf("OK mgmt\n");
+                return 0;
+            }
+        }
+        if (strcmp(mode, "auto") != 0 || r != HCI_STATUS_DISALLOWED) {
+            printf("FAIL hci\n");
+            return 1;
+        }
+    }
+
     printf("FAIL unavailable\n");
     return 1;
 }
