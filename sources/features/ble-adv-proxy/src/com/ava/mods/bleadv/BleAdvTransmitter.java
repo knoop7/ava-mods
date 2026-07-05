@@ -13,10 +13,18 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-/** Sends one raw ADV burst inside an exclusive BLE window provided by Ava core. */
+/**
+ * Sends raw ADV bursts inside an exclusive BLE window provided by Ava core.
+ *
+ * <p>Maps to esphome-ble_adv_proxy's {@code esp_ble_gap_config_adv_data_raw} +
+ * {@code esp_ble_gap_start_advertising} cycle. Android {@code ADVERTISE_MODE_LOW_LATENCY}
+ * emits roughly every 100&nbsp;ms, so per-burst windows below that are clamped.
+ */
 final class BleAdvTransmitter {
     private static final String TAG = "BleAdvTransmitter";
     private static final long START_TIMEOUT_MS = 1500L;
+    /** ESP32 MIN_ADV = 0x20 (20&nbsp;ms); Android needs a full LOW_LATENCY period. */
+    static final int ANDROID_MIN_BURST_MS = 100;
 
     private final Context context;
     private final boolean useMaxTxPower;
@@ -107,7 +115,7 @@ final class BleAdvTransmitter {
                 }
                 return lastError;
             }
-            int sleepMs = Math.max(32, durationMs);
+            int sleepMs = Math.max(ANDROID_MIN_BURST_MS, durationMs);
             Thread.sleep(sleepMs);
             return "";
         } catch (InterruptedException e) {

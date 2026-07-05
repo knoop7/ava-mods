@@ -1,7 +1,7 @@
 {
   "id": "ble-adv-proxy",
   "name": "BLE ADV Proxy",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "author": "Ava",
   "description": "Bidirectional raw BLE advertising proxy for ha-ble-adv. Scan nearby BLE broadcasts and send control packets to ceiling fans or lamps.",
   "detail_description": "esphome-ble_adv_proxy port for ha-ble-adv. Requires Ava Bluetooth detect or ESPHome BT proxy scan. Exposes ble_adv_proxy_name for ha-ble-adv adapter discovery.",
@@ -29,9 +29,9 @@
     {
       "type": "switch",
       "key": "enable_raw_hci",
-      "label": "Raw HCI (root, 1:1)",
-      "description": "Root only. Inject the full raw PDU (Flags included) via HCI/MGMT for true 1:1 with ha-ble-adv. Needs a device whose Bluetooth uses the kernel HCI transport; otherwise auto-falls back to AdvertiseData.",
-      "defaultValue": "false"
+      "label": "Raw HCI (Shizuku/root, 1:1)",
+      "description": "Inject the full raw PDU (Flags included) via privileged HCI/MGMT for true 1:1 with ha-ble-adv. Uses Shizuku shell on Portal devices, or su on rooted devices. Auto-falls back to AdvertiseData when unavailable.",
+      "defaultValue": "true"
     },
     {
       "type": "switch",
@@ -84,5 +84,5 @@
       "read": "getAdapterName"
     }
   ],
-  "jar_hash": "1122fc3081a4591c37c3e8057d15d305"
+  "jar_hash": "4cb899e5bd0269ba8b39821e425383f2"
 }

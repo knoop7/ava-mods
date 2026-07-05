@@ -14,12 +14,17 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * 1:1 port of esphome-ble_adv_proxy for Ava (Android transmit via AdvertiseData).
+ * 1:1 port of esphome-ble_adv_proxy for Ava.
  *
  * <p>Services: setup_svc_v0, adv_svc (legacy), adv_svc_v1
  * <p>Event: esphome.ble_adv.raw_adv with keys raw + orig
+ *
+ * <p>Transmit semantics mirror ESP32: each {@code repeat} is a separate advertising burst
+ * ({@code esp_ble_gap_config_adv_data_raw} + {@code esp_ble_gap_start_advertising} cycle),
+ * not one merged window.
  */
 public class BleAdvProxyManager {
     private static final String TAG = "BleAdvProxyManager";
@@ -32,17 +37,11 @@ public class BleAdvProxyManager {
     private static final int REPEAT_NB = 3;
     private static final int MIN_VIABLE_PACKET_LEN = 5;
 
-    // Android's LOW_LATENCY advertise interval is ~100ms, so a single short per-burst window
-    // (ha-ble-adv sends e.g. 20-30ms x repeat) may emit zero ADV events. Collapse the whole
-    // repeat x duration budget into one continuous window, clamped to keep the exclusive BLE
-    // window (which pauses proxy scan / presence) bounded.
-    private static final int MIN_ADV_WINDOW_MS = 120;
-    private static final int MAX_ADV_WINDOW_MS = 1800;
-
     private final Context context;
     private final BleAdvDedupCache dedupCache = new BleAdvDedupCache();
     private final ConcurrentLinkedQueue<TransmitJob> transmitQueue = new ConcurrentLinkedQueue<>();
     private final AtomicBoolean drainRunning = new AtomicBoolean(false);
+    private final AtomicLong recvDebugCounter = new AtomicLong();
     private final ExecutorService executor = Executors.newSingleThreadExecutor(new java.util.concurrent.ThreadFactory() {
         @Override
         public Thread newThread(Runnable r) {
@@ -143,7 +142,7 @@ public class BleAdvProxyManager {
                 useMaxTxPower = parseBoolean(value, false);
                 break;
             case "enable_raw_hci":
-                rawHciEnabled = parseBoolean(value, false);
+                rawHciEnabled = parseBoolean(value, true);
                 break;
             case "adapter_name":
                 adapterNameOverride = value != null ? value : "";
@@ -183,11 +182,6 @@ public class BleAdvProxyManager {
         if (raw == null || raw.length < MIN_VIABLE_PACKET_LEN) {
             return;
         }
-        // Android's ScanRecord.getBytes() hands back a fixed-size legacy buffer (advertising data,
-        // plus scan-response for active scans) zero-padded to its maximum length — typically 62
-        // bytes. The ESP32 ble_adv_proxy operates on the real PDU, so trim the trailing AD padding
-        // to the true payload length first. Without this every packet is 62 bytes and the >31 guard
-        // silently drops the entire scan stream (raw_adv never fires, ha-ble-adv listen stays None).
         byte[] adv = trimAdvPadding(raw);
         if (adv.length < MIN_VIABLE_PACKET_LEN || adv.length > 31) {
             return;
@@ -199,10 +193,21 @@ public class BleAdvProxyManager {
         if (!dedupCache.checkAddDupePacket(adv, expiresAt)) {
             return;
         }
+        if (recvDebugCounter.incrementAndGet() % 50 == 1) {
+            Log.d(TAG, "raw_adv sample orig=" + normalizeMac(mac) + " rssi=" + rssi
+                    + " len=" + adv.length + " raw=" + RawAdvParser.toHex(adv));
+        }
         Map<String, String> payload = new HashMap<>();
         payload.put(KEY_RAW, RawAdvParser.toHex(adv));
-        payload.put(KEY_ORIGIN, mac != null ? mac.toUpperCase() : "");
+        payload.put(KEY_ORIGIN, normalizeMac(mac));
         fireHomeassistantEvent(EVENT_RAW_ADV, payload);
+    }
+
+    private static String normalizeMac(String mac) {
+        if (mac == null) {
+            return "";
+        }
+        return mac.replace('-', ':').trim().toUpperCase(java.util.Locale.ROOT);
     }
 
     /**
@@ -301,6 +306,15 @@ public class BleAdvProxyManager {
         handleAdvertiseV1Internal(raw, duration, intRepeat, ignoredAdvs, ignDuration);
     }
 
+    /**
+     * ESP32: each repeat enqueues a separate send_packets_ entry with
+     * {@code adv_time = max(MIN_ADV, 1.6 * duration)} (0.625&nbsp;ms units).
+     */
+    private static int computeBurstMs(float durationMs) {
+        int scaled = Math.max(1, Math.round(durationMs * 1.6f));
+        return Math.max(BleAdvTransmitter.ANDROID_MIN_BURST_MS, scaled);
+    }
+
     private void handleAdvertiseV1Internal(
             String raw,
             float durationMs,
@@ -310,15 +324,11 @@ public class BleAdvProxyManager {
     ) {
         setupDone = true;
         notifyProxyReadyChanged();
-        int perBurst = Math.max(1, (int) durationMs);
+        int perBurstMs = computeBurstMs(durationMs);
         long intIgnDuration = (long) ignDurationMs;
 
-        // Same packet is repeated by ha-ble-adv to fight radio collisions; on Android we advertise
-        // continuously for the aggregate budget instead, which is equivalent and guarantees output.
-        long budget = (long) perBurst * Math.max(1, repeat);
-        int window = (int) Math.max(MIN_ADV_WINDOW_MS, Math.min(MAX_ADV_WINDOW_MS, budget));
-        Log.d(TAG, "send adv - " + raw + ", perBurst " + perBurst + "ms x repeat " + repeat
-                + " -> window " + window + "ms");
+        Log.d(TAG, "send adv - " + raw + ", duration " + durationMs + "ms x repeat " + repeat
+                + " -> perBurst " + perBurstMs + "ms (ESP32 sequential)");
 
         byte[] rawBytes;
         try {
@@ -333,7 +343,7 @@ public class BleAdvProxyManager {
             dedupCache.ignoreHexEcho(ignoredAdv, intIgnDuration);
         }
 
-        transmitQueue.offer(new TransmitJob(rawBytes, window));
+        transmitQueue.offer(new TransmitJob(rawBytes, perBurstMs, repeat));
         drainTransmitQueue();
     }
 
@@ -351,24 +361,18 @@ public class BleAdvProxyManager {
                         if (job == null) {
                             break;
                         }
+                        // One exclusive window for the whole repeat sequence (matches ESP32 gap
+                        // between bursts while avoiding scan restart per packet).
                         runExclusive(new Runnable() {
                             @Override
                             public void run() {
-                                // B-layer: true 1:1 raw injection (Flags included) via root HCI/MGMT.
-                                if (rawHciEnabled && rawHciAdvertiser.isAvailable()) {
-                                    String rawErr = rawHciAdvertiser.transmit(0, "auto", job.durationMs, job.raw);
-                                    if (rawErr == null) {
+                                for (int i = 0; i < job.repeat; i++) {
+                                    String err = transmitOneBurst(transmitter, job.raw, job.perBurstMs);
+                                    if (err != null && !err.isEmpty()) {
+                                        setLastAdvertiseError(err);
+                                    } else {
                                         clearLastAdvertiseError();
-                                        return;
                                     }
-                                    Log.w(TAG, "raw HCI unavailable, falling back to AdvertiseData: " + rawErr);
-                                }
-                                // A-layer: best-effort AdvertiseData (byte-exact except Flags).
-                                String error = transmitter.transmitBlocking(job.raw, job.durationMs);
-                                if (error != null && !error.isEmpty()) {
-                                    setLastAdvertiseError(error);
-                                } else {
-                                    clearLastAdvertiseError();
                                 }
                             }
                         });
@@ -381,6 +385,21 @@ public class BleAdvProxyManager {
                 }
             }
         });
+    }
+
+    /**
+     * Raw HCI when enabled and privileged shell is present; otherwise AdvertiseData fallback.
+     */
+    private String transmitOneBurst(BleAdvTransmitter transmitter, byte[] raw, int burstMs) {
+        boolean tryRaw = rawHciEnabled && rawHciAdvertiser.isAvailable();
+        if (tryRaw) {
+            String rawErr = rawHciAdvertiser.transmit(0, "auto", burstMs, raw);
+            if (rawErr == null) {
+                return "";
+            }
+            Log.w(TAG, "raw HCI failed, falling back to AdvertiseData: " + rawErr);
+        }
+        return transmitter.transmitBlocking(raw, burstMs);
     }
 
     private void runExclusive(Runnable task) {
@@ -538,11 +557,13 @@ public class BleAdvProxyManager {
 
     private static final class TransmitJob {
         final byte[] raw;
-        final int durationMs;
+        final int perBurstMs;
+        final int repeat;
 
-        TransmitJob(byte[] raw, int durationMs) {
+        TransmitJob(byte[] raw, int perBurstMs, int repeat) {
             this.raw = raw;
-            this.durationMs = durationMs;
+            this.perBurstMs = perBurstMs;
+            this.repeat = Math.max(1, repeat);
         }
     }
 }

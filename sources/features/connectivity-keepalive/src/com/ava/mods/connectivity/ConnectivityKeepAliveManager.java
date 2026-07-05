@@ -56,8 +56,6 @@ public class ConnectivityKeepAliveManager {
                     instance = current;
                 }
             }
-        } else {
-            current.bootstrapFromAvaConfig();
         }
         return current;
     }
