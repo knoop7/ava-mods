@@ -8,15 +8,17 @@ import android.util.Log;
  */
 final class BleAdvExclusiveSession {
     private static final String TAG = "BleAdvExclusive";
-    private static final int ENTER_SETTLE_MS = 1000;
-    private static final int EXIT_SETTLE_MS = 200;
+    private static final int ENTER_SETTLE_MS = 400;
+    private static final int EXIT_SETTLE_MS = 150;
 
     private final Object lock = new Object();
     private final BleAdvLeScanner scanner;
+    private final Runnable prepController;
     private volatile boolean active;
 
-    BleAdvExclusiveSession(BleAdvLeScanner scanner) {
+    BleAdvExclusiveSession(BleAdvLeScanner scanner, Runnable prepController) {
         this.scanner = scanner;
+        this.prepController = prepController;
     }
 
     boolean isActive() {
@@ -31,6 +33,13 @@ final class BleAdvExclusiveSession {
             active = true;
             scanner.pauseForExclusive();
             settle(ENTER_SETTLE_MS);
+            if (prepController != null) {
+                try {
+                    prepController.run();
+                } catch (Exception e) {
+                    Log.w(TAG, "prepController failed", e);
+                }
+            }
             try {
                 task.run();
             } finally {

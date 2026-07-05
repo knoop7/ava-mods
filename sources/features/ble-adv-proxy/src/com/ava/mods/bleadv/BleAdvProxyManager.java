@@ -5,6 +5,7 @@ import android.util.Log;
 
 import java.lang.reflect.Method;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -36,10 +37,12 @@ public class BleAdvProxyManager {
 
     private static final int REPEAT_NB = 3;
     private static final int MIN_VIABLE_PACKET_LEN = 5;
+    private static final int MAX_TRANSMIT_QUEUE = 6;
 
     private final Context context;
     private final BleAdvDedupCache dedupCache = new BleAdvDedupCache();
     private final ConcurrentLinkedQueue<TransmitJob> transmitQueue = new ConcurrentLinkedQueue<>();
+    private final Object transmitQueueLock = new Object();
     private final AtomicBoolean drainRunning = new AtomicBoolean(false);
     private final AtomicLong recvDebugCounter = new AtomicLong();
     private final ExecutorService executor = Executors.newSingleThreadExecutor(new java.util.concurrent.ThreadFactory() {
@@ -77,7 +80,12 @@ public class BleAdvProxyManager {
         this.rawHciAdvertiser = new RawHciAdvertiser(this.context, permissionHelper);
         this.capabilityProbe = new BleAdvCapabilityProbe(this.context, permissionHelper, rawHciAdvertiser);
         this.leScanner = new BleAdvLeScanner(this.context, permissionHelper);
-        this.exclusiveSession = new BleAdvExclusiveSession(leScanner);
+        this.exclusiveSession = new BleAdvExclusiveSession(leScanner, new Runnable() {
+            @Override
+            public void run() {
+                rawHciAdvertiser.prepControllerForAdv();
+            }
+        });
         this.leScanner.setResultHandler(new BleAdvLeScanner.ResultHandler() {
             @Override
             public void onScanResult(String mac, int rssi, byte[] raw) {
@@ -392,8 +400,24 @@ public class BleAdvProxyManager {
             dedupCache.ignoreHexEcho(ignoredAdv, intIgnDuration);
         }
 
-        transmitQueue.offer(new TransmitJob(rawBytes, perBurstMs, repeat));
+        offerTransmitJob(new TransmitJob(rawBytes, perBurstMs, repeat));
         drainTransmitQueue();
+    }
+
+    private void offerTransmitJob(TransmitJob job) {
+        synchronized (transmitQueueLock) {
+            for (TransmitJob existing : transmitQueue) {
+                if (Arrays.equals(existing.raw, job.raw) && existing.perBurstMs == job.perBurstMs) {
+                    Log.d(TAG, "coalesce: skip duplicate queued adv len=" + job.raw.length);
+                    return;
+                }
+            }
+            while (transmitQueue.size() >= MAX_TRANSMIT_QUEUE) {
+                transmitQueue.poll();
+                Log.w(TAG, "transmit queue full, dropped oldest job");
+            }
+            transmitQueue.offer(job);
+        }
     }
 
     private void drainTransmitQueue() {
@@ -405,15 +429,17 @@ public class BleAdvProxyManager {
             public void run() {
                 try {
                     BleAdvTransmitter transmitter = new BleAdvTransmitter(context, useMaxTxPower);
-                    // One exclusive window for the whole queue — avoids scan restart between HA bursts.
-                    runExclusive(new Runnable() {
-                        @Override
-                        public void run() {
-                            while (true) {
-                                final TransmitJob job = transmitQueue.poll();
-                                if (job == null) {
-                                    break;
-                                }
+                    while (true) {
+                        final TransmitJob job;
+                        synchronized (transmitQueueLock) {
+                            job = transmitQueue.poll();
+                        }
+                        if (job == null) {
+                            break;
+                        }
+                        runExclusive(new Runnable() {
+                            @Override
+                            public void run() {
                                 for (int i = 0; i < job.repeat; i++) {
                                     String err = transmitOneBurst(transmitter, job.raw, job.perBurstMs);
                                     if (err != null && !err.isEmpty()) {
@@ -431,8 +457,8 @@ public class BleAdvProxyManager {
                                     }
                                 }
                             }
-                        }
-                    });
+                        });
+                    }
                 } finally {
                     drainRunning.set(false);
                     if (!transmitQueue.isEmpty()) {
@@ -559,6 +585,7 @@ public class BleAdvProxyManager {
             return;
         }
         permissionHelper.ensurePrivilegedAccess();
+        rawHciAdvertiser.warmup();
         leScanner.start();
     }
 

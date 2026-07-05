@@ -19,10 +19,12 @@ final class RawHciAdvertiser {
     private static final Object HELPER_LOCK = new Object();
     private static final int PRE_TX_SETTLE_MS = 200;
     private static final int TX_RETRY_COUNT = 2;
-    private static final int TX_RETRY_GAP_MS = 500;
+    private static final int TX_RETRY_GAP_MS = 300;
+    private static final int JNI_FAIL_DISABLE_THRESHOLD = 2;
 
     private static volatile boolean jniAttempted;
     private static volatile boolean jniLoaded;
+    private static volatile int jniConsecutiveFailures;
 
     private final Context context;
     private final BleAdvPrivilegedShell privilegedShell;
@@ -49,6 +51,21 @@ final class RawHciAdvertiser {
 
     String getLastTransport() {
         return lastTransport != null ? lastTransport : "unavailable";
+    }
+
+    void warmup() {
+        ensureJniLoaded();
+    }
+
+    void prepControllerForAdv() {
+        if (!ensureJniLoaded()) {
+            return;
+        }
+        try {
+            BleAdvNative.nativePrepController(hciIndex);
+        } catch (Throwable t) {
+            Log.w(TAG, "nativePrepController failed: " + t.getMessage());
+        }
     }
 
     String probeTransport() {
@@ -114,18 +131,23 @@ final class RawHciAdvertiser {
 
     private BleAdvPrivilegedShell.ExecResult runHelper(
             int dev, String mode, int durationMs, byte[] pdu) {
-        if (ensureJniLoaded()) {
+        if (shouldTryJni()) {
             try {
                 String out = BleAdvNative.nativeRun(dev, mode, durationMs, pdu);
                 String text = out != null ? out : "";
                 int code = containsOk(text) ? 0 : 1;
                 if (code == 0) {
+                    jniConsecutiveFailures = 0;
                     Log.i(TAG, "JNI ok: " + text.trim());
-                } else if (text.contains("status=0x14")) {
-                    Log.w(TAG, "JNI mgmt busy, will retry: " + text.trim());
+                } else {
+                    noteJniFailure(text);
+                    if (text.contains("status=0x14")) {
+                        Log.w(TAG, "JNI mgmt busy, will retry: " + text.trim());
+                    }
                 }
                 return new BleAdvPrivilegedShell.ExecResult(code, text + "\n");
             } catch (Throwable t) {
+                noteJniFailure(t.getMessage());
                 Log.w(TAG, "JNI run failed, falling back to shell: " + t.getMessage());
             }
         }
@@ -140,6 +162,17 @@ final class RawHciAdvertiser {
                 String.valueOf(durationMs),
                 RawAdvParser.toHex(pdu),
         });
+    }
+
+    private boolean shouldTryJni() {
+        return jniLoaded && jniConsecutiveFailures < JNI_FAIL_DISABLE_THRESHOLD;
+    }
+
+    private void noteJniFailure(String reason) {
+        jniConsecutiveFailures++;
+        if (jniConsecutiveFailures >= JNI_FAIL_DISABLE_THRESHOLD) {
+            Log.w(TAG, "JNI disabled after " + jniConsecutiveFailures + " failures: " + reason);
+        }
     }
 
     private boolean ensureJniLoaded() {

@@ -2,6 +2,14 @@
 #include <string.h>
 #include "ble_adv_hci.h"
 
+JNIEXPORT jint JNICALL
+Java_com_ava_mods_bleadv_BleAdvNative_nativePrepController(JNIEnv *env, jclass clazz,
+                                                           jint dev) {
+    (void) env;
+    (void) clazz;
+    return (jint) ble_adv_prep_controller((int) dev);
+}
+
 JNIEXPORT jstring JNICALL
 Java_com_ava_mods_bleadv_BleAdvNative_nativeRun(JNIEnv *env, jclass clazz,
                                                 jint dev, jstring jmode,

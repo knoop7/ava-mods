@@ -303,9 +303,9 @@ final class BleAdvPermissionHelper {
 
     private Class<?> loadHostClass(String name) throws ClassNotFoundException {
         ClassLoader[] loaders = new ClassLoader[] {
-                context.getClassLoader(),
-                Thread.currentThread().getContextClassLoader(),
                 context.getApplicationContext().getClassLoader(),
+                Thread.currentThread().getContextClassLoader(),
+                context.getClassLoader(),
                 RawHciAdvertiser.class.getClassLoader(),
                 ClassLoader.getSystemClassLoader(),
         };

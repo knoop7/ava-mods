@@ -1,7 +1,7 @@
 {
   "id": "ble-adv-proxy",
   "name": "BLE ADV Proxy",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "author": "Ava",
   "description": "Bidirectional raw BLE advertising proxy for ha-ble-adv. Standalone mode owns BLE scan/TX on the device.",
   "detail_description": "esphome-ble_adv_proxy port for ha-ble-adv. Standalone mode (default) runs its own LE scan and MGMT/HCI transmit without Ava Bluetooth detect. Set ble_adv_standalone:false in manifest only for legacy unified host scan. Requires Shizuku or root for 1:1 raw PDU (Flags included).",
@@ -57,5 +57,5 @@
       "read": "getAdapterName"
     }
   ],
-  "jar_hash": "1e1eab4ae6508643499cbef011a6f8b0"
+  "jar_hash": "2b7370ff4dcfd2176c3cc48519caf147"
 }

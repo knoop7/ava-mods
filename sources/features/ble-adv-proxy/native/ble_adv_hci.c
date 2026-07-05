@@ -252,7 +252,7 @@ static int mgmt_cmd(int fd, uint16_t op, uint16_t index, const uint8_t *params, 
     if (plen > 0) memcpy(pkt + 6, params, plen);
     if (write(fd, pkt, 6 + plen) < 0) return 0x101;
 
-    long deadline = now_ms() + 2500;
+    long deadline = now_ms() + 1000;
     uint8_t buf[512];
     while (now_ms() < deadline) {
         struct pollfd pfd = {fd, POLLIN, 0};
@@ -335,7 +335,7 @@ static void prep_controller_for_adv(int dev, int mgmt_fd,
     for (int i = 0; i < nctrl; i++) {
         mgmt_stop_le_discovery(mgmt_fd, ctrls[i]);
     }
-    usleep(200000);
+    usleep(100000);
 }
 
 static int mgmt_add_only(int fd, uint16_t ctrl, uint8_t inst, const uint8_t *padded) {
@@ -357,7 +357,7 @@ static int mgmt_one_shot(int fd, uint16_t ctrl, uint8_t inst,
                          int duration_ms, const uint8_t *padded, int *out_st) {
     uint8_t rm[1] = {inst};
     (void) mgmt_cmd(fd, MGMT_OP_REMOVE_ADVERTISING, ctrl, rm, 1);
-    usleep(200000);
+    usleep(100000);
 
     int st = mgmt_add_only(fd, ctrl, inst, padded);
     if (out_st) {
@@ -400,10 +400,10 @@ static int try_mgmt(int dev, int duration_ms, const uint8_t *padded) {
     static const int inst_order[] = {1, 0, 2, 3, 4, 5, 6, 7};
 
     if (g_cached_ctrl >= 0 && g_cached_inst >= 0) {
-        for (int attempt = 0; attempt < 6; attempt++) {
+        for (int attempt = 0; attempt < 3; attempt++) {
             if (attempt > 0) {
                 prep_controller_for_adv(dev, fd, ctrls, nctrl);
-                usleep(400000);
+                usleep(200000);
             }
             last_st = 0;
             if (mgmt_one_shot(fd, (uint16_t) g_cached_ctrl, (uint8_t) g_cached_inst,
@@ -424,10 +424,10 @@ static int try_mgmt(int dev, int duration_ms, const uint8_t *padded) {
         uint16_t ctrl = ctrls[ci];
         for (size_t oi = 0; oi < sizeof(inst_order) / sizeof(inst_order[0]); oi++) {
             int inst = inst_order[oi];
-            for (int attempt = 0; attempt < 6; attempt++) {
+            for (int attempt = 0; attempt < 3; attempt++) {
                 if (attempt > 0) {
                     prep_controller_for_adv(dev, fd, ctrls, nctrl);
-                    usleep(400000);
+                    usleep(200000);
                 }
                 last_st = 0;
                 if (mgmt_one_shot(fd, ctrl, (uint8_t) inst, duration_ms, padded, &last_st) == 0) {
@@ -563,6 +563,23 @@ finish:
     }
 #endif
     return rc == 0 ? 0 : -1;
+}
+
+int ble_adv_prep_controller(int dev) {
+    int fd = open_mgmt();
+    if (fd < 0) {
+        hci_disable_le_scan(dev);
+        return -1;
+    }
+    uint16_t ctrls[MAX_MGMT_CTRL];
+    int nctrl = mgmt_read_controller_indices(fd, ctrls, MAX_MGMT_CTRL);
+    if (nctrl <= 0) {
+        ctrls[0] = (uint16_t) dev;
+        nctrl = 1;
+    }
+    prep_controller_for_adv(dev, fd, ctrls, nctrl);
+    close(fd);
+    return 0;
 }
 
 #ifdef BLE_ADV_STANDALONE

@@ -15,6 +15,9 @@ int ble_adv_execute(int dev, const char *mode, int duration_ms,
                     const uint8_t *data, int data_len,
                     char *out, int out_cap);
 
+/** Stop LE scan via HCI + MGMT before advertising (call after Java stopScan). */
+int ble_adv_prep_controller(int dev);
+
 #ifdef __cplusplus
 }
 #endif

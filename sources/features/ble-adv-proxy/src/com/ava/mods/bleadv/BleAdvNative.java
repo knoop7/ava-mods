@@ -6,4 +6,6 @@ final class BleAdvNative {
     }
 
     static native String nativeRun(int dev, String mode, int durationMs, byte[] pdu);
+
+    static native int nativePrepController(int dev);
 }
