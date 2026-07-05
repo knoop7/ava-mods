@@ -305,6 +305,15 @@ static void mgmt_remove_instance(int fd, uint16_t ctrl, uint8_t inst) {
     usleep(50000);
 }
 
+/* Drop every adv instance on a controller (Android stack / AdvertiseData probes). */
+static void mgmt_clear_all_instances(int fd, uint16_t ctrl) {
+    for (int inst = 0; inst < MAX_ADV_INST; inst++) {
+        uint8_t rm[1] = {(uint8_t) inst};
+        mgmt_cmd(fd, MGMT_OP_REMOVE_ADVERTISING, ctrl, rm, 1);
+    }
+    usleep(200000);
+}
+
 static int mgmt_add_instance(int fd, uint16_t ctrl, uint8_t inst,
                              int duration_ms, const uint8_t *padded) {
     uint8_t params[11 + ADV_LEN];
@@ -319,9 +328,9 @@ static int mgmt_add_instance(int fd, uint16_t ctrl, uint8_t inst,
     i += ADV_LEN;
 
     int st = MGMT_STATUS_BUSY;
-    for (int attempt = 0; attempt < 5; attempt++) {
+    for (int attempt = 0; attempt < 10; attempt++) {
         if (attempt > 0) {
-            usleep(120000);
+            usleep(200000);
         }
         st = mgmt_cmd(fd, MGMT_OP_ADD_ADVERTISING, ctrl, params, i);
         if (st == 0 || st != MGMT_STATUS_BUSY) {
@@ -371,6 +380,7 @@ static int try_mgmt(int dev, int duration_ms, const uint8_t *padded) {
     int last_st = 0x102;
 
     if (g_cached_ctrl >= 0 && g_cached_inst >= 0) {
+        mgmt_clear_all_instances(fd, (uint16_t) g_cached_ctrl);
         last_st = 0;
         if (mgmt_try_ctrl_inst(fd, (uint16_t) g_cached_ctrl, (uint8_t) g_cached_inst,
                                duration_ms, padded, &last_st) == 0) {
@@ -384,6 +394,7 @@ static int try_mgmt(int dev, int duration_ms, const uint8_t *padded) {
 
     for (int ci = 0; ci < nctrl; ci++) {
         uint16_t ctrl = ctrls[ci];
+        mgmt_clear_all_instances(fd, ctrl);
         /* ha-ble-adv uses instance 1; try it first, then 2..N, then 0. */
         static const int inst_order[] = {1, 2, 3, 4, 5, 6, 7, 0};
         for (size_t oi = 0; oi < sizeof(inst_order) / sizeof(inst_order[0]); oi++) {

@@ -69,6 +69,14 @@ final class BleAdvCapabilityProbe {
             report.rawTransport = "unavailable";
         }
 
+        /* AdvertiseData grabs MGMT instance 0 on Android and causes 0x14 BUSY for raw TX. */
+        if (rawHciEnabled) {
+            report.fidelityMode = "raw_failed";
+            report.summary = buildSummary(report);
+            Log.w(TAG, report.summary + " (skipped AdvertiseData probe; holds MGMT)");
+            return report;
+        }
+
         report.fidelityMode = probeAdvertiseDataTransmit(useMaxTxPower, exclusiveRunner, report);
         report.summary = buildSummary(report);
         Log.i(TAG, report.summary);

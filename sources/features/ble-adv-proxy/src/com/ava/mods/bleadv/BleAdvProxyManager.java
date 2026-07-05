@@ -482,6 +482,7 @@ public class BleAdvProxyManager {
                     runExclusive(new Runnable() {
                         @Override
                         public void run() {
+                            pauseForRawAdvertise();
                             BleAdvCapabilityProbe.Report report = capabilityProbe.probe(
                                     rawHciEnabled,
                                     useMaxTxPower,
