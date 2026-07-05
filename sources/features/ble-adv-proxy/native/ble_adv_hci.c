@@ -18,6 +18,32 @@
 #include <stdint.h>
 #include <sys/socket.h>
 #include <time.h>
+#include <stdarg.h>
+#include "ble_adv_hci.h"
+
+#ifdef BLE_ADV_JNI
+static char g_out[512];
+
+static void out_reset(void) {
+    g_out[0] = '\0';
+}
+
+static void out_line(const char *fmt, ...) {
+    char tmp[256];
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(tmp, sizeof(tmp), fmt, ap);
+    va_end(ap);
+    size_t used = strlen(g_out);
+    if (used + 1 < sizeof(g_out)) {
+        strncat(g_out, tmp, sizeof(g_out) - used - 1);
+    }
+}
+
+#define RESULT_PRINTF(...) out_line(__VA_ARGS__)
+#else
+#define RESULT_PRINTF(...) printf(__VA_ARGS__)
+#endif
 
 #ifndef AF_BLUETOOTH
 #define AF_BLUETOOTH 31
@@ -323,7 +349,7 @@ static int try_mgmt(int dev, int duration_ms, const uint8_t *padded) {
 
     int fd = open_mgmt();
     if (fd < 0) {
-        printf("FAIL mgmt open errno=%d\n", errno);
+        RESULT_PRINTF("FAIL mgmt open errno=%d\n", errno);
         if (g_verbose) fprintf(stderr, "mgmt open/bind failed: %s\n", strerror(errno));
         return -1;
     }
@@ -341,7 +367,7 @@ static int try_mgmt(int dev, int duration_ms, const uint8_t *padded) {
         last_st = 0;
         if (mgmt_try_ctrl_inst(fd, (uint16_t) g_cached_ctrl, (uint8_t) g_cached_inst,
                                duration_ms, padded, &last_st) == 0) {
-            printf("OK mgmt ctrl=%d inst=%d\n", g_cached_ctrl, g_cached_inst);
+            RESULT_PRINTF("OK mgmt ctrl=%d inst=%d\n", g_cached_ctrl, g_cached_inst);
             close(fd);
             return 0;
         }
@@ -360,7 +386,7 @@ static int try_mgmt(int dev, int duration_ms, const uint8_t *padded) {
                 if (mgmt_try_ctrl_inst(fd, ctrl, (uint8_t) inst, duration_ms, padded, &last_st) == 0) {
                     g_cached_ctrl = (int) ctrl;
                     g_cached_inst = inst;
-                    printf("OK mgmt ctrl=%d inst=%d\n", g_cached_ctrl, g_cached_inst);
+                    RESULT_PRINTF("OK mgmt ctrl=%d inst=%d\n", g_cached_ctrl, g_cached_inst);
                     close(fd);
                     return 0;
                 }
@@ -371,7 +397,7 @@ static int try_mgmt(int dev, int duration_ms, const uint8_t *padded) {
         }
     }
 
-    printf("FAIL mgmt status=0x%02X nctrl=%d\n", last_st & 0xFF, nctrl);
+    RESULT_PRINTF("FAIL mgmt status=0x%02X nctrl=%d\n", last_st & 0xFF, nctrl);
     if (g_verbose) fprintf(stderr, "mgmt sweep exhausted, last=0x%02X\n", last_st);
     close(fd);
     return -2;
@@ -403,10 +429,10 @@ static int probe_transport(int dev) {
         } else if (en == 0) {
             int r = try_hci(dev, probe_ms, padded);
             if (r == 0) {
-                printf("PROBE transport=hci tx=ok\n");
+                RESULT_PRINTF("PROBE transport=hci tx=ok\n");
                 return 0;
             }
-            printf("PROBE transport=hci tx=fail r=%d\n", r);
+            RESULT_PRINTF("PROBE transport=hci tx=fail r=%d\n", r);
             return 1;
         }
     }
@@ -414,23 +440,86 @@ static int probe_transport(int dev) {
     if (hci_disallowed || hci_fd < 0) {
         int r = try_mgmt(dev, probe_ms, padded);
         if (r == 0) {
-            printf("PROBE transport=mgmt tx=ok\n");
+            RESULT_PRINTF("PROBE transport=mgmt tx=ok\n");
             return 0;
         }
-        printf("PROBE transport=mgmt tx=fail r=%d\n", r);
+        RESULT_PRINTF("PROBE transport=mgmt tx=fail r=%d\n", r);
         return 1;
     }
 
-    printf("PROBE transport=none hci_open=%d mgmt_open=%d\n",
+    RESULT_PRINTF("PROBE transport=none hci_open=%d mgmt_open=%d\n",
            hci_fd >= 0 ? 1 : 0, open_mgmt() >= 0 ? 1 : 0);
     return 1;
 }
 
+static int run_mode(int dev, const char *mode, int duration_ms, const uint8_t *padded) {
+    if (strcmp(mode, "probe") == 0) {
+        return probe_transport(dev) == 0 ? 0 : -1;
+    }
+    if (strcmp(mode, "auto") == 0 || strcmp(mode, "mgmt") == 0) {
+        return try_mgmt(dev, duration_ms, padded);
+    }
+    if (strcmp(mode, "hci") == 0) {
+        int r = try_hci(dev, duration_ms, padded);
+        if (r == 0) {
+            RESULT_PRINTF("OK hci\n");
+            return 0;
+        }
+        if (r == HCI_STATUS_DISALLOWED) {
+            r = try_mgmt(dev, duration_ms, padded);
+            if (r == 0) {
+                return 0;
+            }
+        }
+        RESULT_PRINTF("FAIL hci\n");
+        return -1;
+    }
+    RESULT_PRINTF("FAIL unavailable\n");
+    return -1;
+}
+
+int ble_adv_execute(int dev, const char *mode, int duration_ms,
+                    const uint8_t *data, int data_len,
+                    char *out, int out_cap) {
+    int rc = -1;
+#ifdef BLE_ADV_JNI
+    out_reset();
+#endif
+    if (out != NULL && out_cap > 0) {
+        out[0] = '\0';
+    }
+    if (mode == NULL || data == NULL || data_len < 1) {
+        RESULT_PRINTF("FAIL bad_args\n");
+        goto finish;
+    }
+    if (duration_ms < 20) {
+        duration_ms = 20;
+    }
+    if (duration_ms > 5000) {
+        duration_ms = 5000;
+    }
+    uint8_t padded[ADV_LEN];
+    pad_pdu(data, data_len, padded);
+    rc = run_mode(dev, mode, duration_ms, padded);
+
+finish:
+#ifdef BLE_ADV_JNI
+    if (out != NULL && out_cap > 0) {
+        if (g_out[0] != '\0') {
+            strncpy(out, g_out, (size_t) out_cap - 1);
+            out[out_cap - 1] = '\0';
+        }
+    }
+#endif
+    return rc == 0 ? 0 : -1;
+}
+
+#ifdef BLE_ADV_STANDALONE
 int main(int argc, char **argv) {
     if (getenv("BLE_ADV_HCI_VERBOSE")) g_verbose = 1;
     if (argc < 5) {
         fprintf(stderr, "usage: %s <hci_index> <auto|hci|mgmt|probe> <duration_ms> <hex_pdu>\n", argv[0]);
-        printf("FAIL usage\n");
+        RESULT_PRINTF("FAIL usage\n");
         return 2;
     }
     int dev = atoi(argv[1]);
@@ -445,49 +534,22 @@ int main(int argc, char **argv) {
     uint8_t data[64];
     int len = hex_to_bytes(argv[4], data, sizeof(data));
     if (len < 1) {
-        printf("FAIL badhex\n");
+        RESULT_PRINTF("FAIL badhex\n");
         return 2;
     }
 
-    uint8_t padded[ADV_LEN];
-    pad_pdu(data, len, padded);
-
-    /* auto: MGMT only on Android (HCI LE adv owned by framework). */
-    if (strcmp(mode, "auto") == 0) {
-        int r = try_mgmt(dev, duration, padded);
-        if (r == 0) {
-            printf("OK mgmt\n");
-            return 0;
+    char out[512];
+    memset(out, 0, sizeof(out));
+    int rc = ble_adv_execute(dev, mode, duration, data, len, out, sizeof(out));
+    if (rc == 0) {
+        if (out[0] != '\0') {
+            printf("%s", out);
         }
-        return 1;
+        return 0;
     }
-
-    if (strcmp(mode, "mgmt") == 0) {
-        int r = try_mgmt(dev, duration, padded);
-        if (r == 0) {
-            printf("OK mgmt\n");
-            return 0;
-        }
-        return 1;
+    if (out[0] != '\0') {
+        printf("%s", out);
     }
-
-    if (strcmp(mode, "hci") == 0) {
-        int r = try_hci(dev, duration, padded);
-        if (r == 0) {
-            printf("OK hci\n");
-            return 0;
-        }
-        if (r == HCI_STATUS_DISALLOWED) {
-            r = try_mgmt(dev, duration, padded);
-            if (r == 0) {
-                printf("OK mgmt\n");
-                return 0;
-            }
-        }
-        printf("FAIL hci\n");
-        return 1;
-    }
-
-    printf("FAIL unavailable\n");
     return 1;
 }
+#endif

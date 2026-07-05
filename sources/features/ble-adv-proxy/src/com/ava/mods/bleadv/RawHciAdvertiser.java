@@ -10,20 +10,26 @@ import java.io.InputStream;
 import java.io.OutputStream;
 
 /**
- * True 1:1 raw advertising via native helper — runs in Ava app process when possible.
+ * True 1:1 raw advertising — prefers in-process JNI (app uid + MGMT), shell fallback.
  */
 final class RawHciAdvertiser {
     private static final String TAG = "BleAdvRawHci";
     private static final String HELPER_NAME = "ble_adv_hci";
+    private static final String JNI_LIB_NAME = "libble_adv_hci.so";
     private static final Object HELPER_LOCK = new Object();
     private static final int PRE_TX_SETTLE_MS = 250;
     private static final int TX_RETRY_COUNT = 2;
     private static final int TX_RETRY_GAP_MS = 80;
 
+    private static volatile boolean jniAttempted;
+    private static volatile boolean jniLoaded;
+
     private final Context context;
     private final BleAdvPrivilegedShell privilegedShell;
     private volatile String extractedPath;
+    private volatile String extractedSoPath;
     private volatile String deployedFingerprint;
+    private volatile String deployedSoFingerprint;
     private volatile int hciIndex = 0;
     private volatile String lastTransport = "unavailable";
 
@@ -34,7 +40,7 @@ final class RawHciAdvertiser {
     }
 
     boolean hasHelperBinary() {
-        return resolveAbiResource() != null;
+        return resolveAbiResource(HELPER_NAME) != null || resolveAbiResource(JNI_LIB_NAME) != null;
     }
 
     boolean isAvailable() {
@@ -50,13 +56,8 @@ final class RawHciAdvertiser {
             lastTransport = "unavailable";
             return lastTransport;
         }
-        String helper = ensureExtracted();
-        if (helper == null) {
-            lastTransport = "unavailable";
-            return lastTransport;
-        }
         synchronized (HELPER_LOCK) {
-            BleAdvPrivilegedShell.ExecResult result = runHelper(helper,
+            BleAdvPrivilegedShell.ExecResult result = runHelper(
                     hciIndex, "probe", 20, BleAdvCapabilityProbe.FAKE_ADV_PDU);
             String out = result.output != null ? result.output : "";
             if (out.contains("transport=mgmt") && out.contains("tx=ok")) {
@@ -79,10 +80,6 @@ final class RawHciAdvertiser {
         if (!hasHelperBinary()) {
             return "no_helper_binary";
         }
-        String helper = ensureExtracted();
-        if (helper == null) {
-            return "no_helper_binary";
-        }
 
         int dev = hciIndexArg >= 0 ? hciIndexArg : hciIndex;
         String effectiveMode = resolveTransmitMode(mode);
@@ -100,7 +97,7 @@ final class RawHciAdvertiser {
                     }
                 }
                 BleAdvPrivilegedShell.ExecResult result = runHelper(
-                        helper, dev, effectiveMode, durationMs, fullPdu);
+                        dev, effectiveMode, durationMs, fullPdu);
                 if (result.exitCode == 0 && containsOk(result.output)) {
                     updateTransportFromOutput(result.output);
                     logTransport(result.output);
@@ -116,13 +113,56 @@ final class RawHciAdvertiser {
     }
 
     private BleAdvPrivilegedShell.ExecResult runHelper(
-            String helper, int dev, String mode, int durationMs, byte[] pdu) {
+            int dev, String mode, int durationMs, byte[] pdu) {
+        if (ensureJniLoaded()) {
+            try {
+                String out = BleAdvNative.nativeRun(dev, mode, durationMs, pdu);
+                String text = out != null ? out : "";
+                int code = containsOk(text) ? 0 : 1;
+                if (code == 0) {
+                    Log.d(TAG, "JNI ok: " + text.trim());
+                }
+                return new BleAdvPrivilegedShell.ExecResult(code, text + "\n");
+            } catch (Throwable t) {
+                Log.w(TAG, "JNI run failed, falling back to shell: " + t.getMessage());
+            }
+        }
+
+        String helper = ensureExtractedElf();
+        if (helper == null) {
+            return new BleAdvPrivilegedShell.ExecResult(-1, "no_helper_binary");
+        }
         return privilegedShell.execHelper(helper, new String[]{
                 String.valueOf(dev),
                 mode,
                 String.valueOf(durationMs),
                 RawAdvParser.toHex(pdu),
         });
+    }
+
+    private boolean ensureJniLoaded() {
+        if (jniAttempted) {
+            return jniLoaded;
+        }
+        synchronized (HELPER_LOCK) {
+            if (jniAttempted) {
+                return jniLoaded;
+            }
+            jniAttempted = true;
+            String soPath = ensureExtractedSo();
+            if (soPath == null) {
+                Log.d(TAG, "JNI library resource missing");
+                return false;
+            }
+            try {
+                System.load(soPath);
+                jniLoaded = true;
+                Log.i(TAG, "JNI loaded: " + soPath);
+            } catch (Throwable t) {
+                Log.w(TAG, "JNI load failed: " + t.getMessage());
+            }
+            return jniLoaded;
+        }
     }
 
     private String resolveTransmitMode(String mode) {
@@ -138,7 +178,8 @@ final class RawHciAdvertiser {
         return "mgmt";
     }
 
-    private static void settleBeforeTransmit() {
+    private void settleBeforeTransmit() {
+        HostBlePause.pausePresenceAdvertising(context);
         try {
             Thread.sleep(PRE_TX_SETTLE_MS);
         } catch (InterruptedException e) {
@@ -186,16 +227,26 @@ final class RawHciAdvertiser {
         hciIndex = 0;
     }
 
-    private String ensureExtracted() {
-        String resource = resolveAbiResource();
+    private String ensureExtractedElf() {
+        return ensureExtracted(HELPER_NAME, resolveAbiResource(HELPER_NAME));
+    }
+
+    private String ensureExtractedSo() {
+        return ensureExtracted(JNI_LIB_NAME, resolveAbiResource(JNI_LIB_NAME));
+    }
+
+    private String ensureExtracted(String fileName, String resource) {
         if (resource == null) {
             return null;
         }
-        if (extractedPath != null && resource.equals(deployedFingerprint) && new File(extractedPath).exists()) {
-            return extractedPath;
+        boolean isSo = JNI_LIB_NAME.equals(fileName);
+        String cachedPath = isSo ? extractedSoPath : extractedPath;
+        String cachedFp = isSo ? deployedSoFingerprint : deployedFingerprint;
+        if (cachedPath != null && resource.equals(cachedFp) && new File(cachedPath).exists()) {
+            return cachedPath;
         }
         File outDir = context.getDir("native", Context.MODE_PRIVATE);
-        File out = new File(outDir, HELPER_NAME);
+        File out = new File(outDir, fileName);
         InputStream in = null;
         OutputStream fos = null;
         try {
@@ -211,12 +262,20 @@ final class RawHciAdvertiser {
                 fos.write(buf, 0, n);
             }
             fos.flush();
-            out.setExecutable(true, false);
-            extractedPath = out.getAbsolutePath();
-            deployedFingerprint = resource;
-            return extractedPath;
+            if (!isSo) {
+                out.setExecutable(true, false);
+            }
+            String path = out.getAbsolutePath();
+            if (isSo) {
+                extractedSoPath = path;
+                deployedSoFingerprint = resource;
+            } else {
+                extractedPath = path;
+                deployedFingerprint = resource;
+            }
+            return path;
         } catch (Exception e) {
-            Log.w(TAG, "helper extraction failed", e);
+            Log.w(TAG, "helper extraction failed: " + fileName, e);
             return null;
         } finally {
             closeQuietly(in);
@@ -224,7 +283,7 @@ final class RawHciAdvertiser {
         }
     }
 
-    private String resolveAbiResource() {
+    private String resolveAbiResource(String fileName) {
         String[] abis = Build.SUPPORTED_ABIS != null && Build.SUPPORTED_ABIS.length > 0
                 ? Build.SUPPORTED_ABIS
                 : new String[]{Build.CPU_ABI};
@@ -232,7 +291,7 @@ final class RawHciAdvertiser {
             if (abi == null) {
                 continue;
             }
-            String resource = "native/" + abi + "/" + HELPER_NAME;
+            String resource = "native/" + abi + "/" + fileName;
             if (getClass().getClassLoader().getResource(resource) != null) {
                 return resource;
             }

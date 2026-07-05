@@ -72,7 +72,11 @@ if [ -n "$NDK_DIR" ] && [ -f "$NATIVE_DIR/ble_adv_hci.c" ]; then
             esac
             if [ -x "$CC_BIN" ]; then
                 mkdir -p "$PREBUILT_DIR/$abi"
-                "$CC_BIN" -O2 -s -o "$PREBUILT_DIR/$abi/ble_adv_hci" "$NATIVE_DIR/ble_adv_hci.c"
+                "$CC_BIN" -O2 -s -DBLE_ADV_STANDALONE \
+                    -o "$PREBUILT_DIR/$abi/ble_adv_hci" "$NATIVE_DIR/ble_adv_hci.c"
+                "$CC_BIN" -O2 -s -fPIC -shared -DBLE_ADV_JNI \
+                    -o "$PREBUILT_DIR/$abi/libble_adv_hci.so" \
+                    "$NATIVE_DIR/ble_adv_hci.c" "$NATIVE_DIR/ble_adv_jni.c"
             else
                 echo "  warn: compiler for $abi not found, keeping prebuilt"
             fi
@@ -87,6 +91,10 @@ if [ -d "$PREBUILT_DIR" ]; then
         if [ -f "$PREBUILT_DIR/$abi/ble_adv_hci" ]; then
             mkdir -p "$BUILD_DIR/mod-dex/native/$abi"
             cp "$PREBUILT_DIR/$abi/ble_adv_hci" "$BUILD_DIR/mod-dex/native/$abi/ble_adv_hci"
+        fi
+        if [ -f "$PREBUILT_DIR/$abi/libble_adv_hci.so" ]; then
+            mkdir -p "$BUILD_DIR/mod-dex/native/$abi"
+            cp "$PREBUILT_DIR/$abi/libble_adv_hci.so" "$BUILD_DIR/mod-dex/native/$abi/libble_adv_hci.so"
         fi
     done
 fi
