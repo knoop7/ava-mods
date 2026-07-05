@@ -64,8 +64,10 @@ static void out_line(const char *fmt, ...) {
 #define OCF_SET_ADV_PARAMS 0x0006
 #define OCF_SET_ADV_DATA 0x0008
 #define OCF_SET_ADV_ENABLE 0x000A
+#define OCF_SET_SCAN_ENABLE 0x000C
 
 #define MGMT_OP_READ_INDEX_LIST 0x0003
+#define MGMT_OP_STOP_DISCOVERY 0x0024
 #define MGMT_OP_ADD_ADVERTISING 0x003E
 #define MGMT_OP_REMOVE_ADVERTISING 0x003F
 #define MGMT_EV_CMD_COMPLETE 0x0001
@@ -95,6 +97,10 @@ struct hci_filter {
 };
 
 static int g_verbose = 0;
+
+static void hci_disable_le_scan(int dev);
+static void prep_controller_for_adv(int dev, int mgmt_fd,
+                                    const uint16_t *ctrls, int nctrl);
 
 static long now_ms(void) {
     struct timespec ts;
@@ -178,6 +184,9 @@ static int open_hci_raw(int dev) {
 }
 
 static int try_hci(int dev, int duration_ms, const uint8_t *padded) {
+    hci_disable_le_scan(dev);
+    usleep(100000);
+
     int fd = open_hci_raw(dev);
     if (fd < 0) {
         if (g_verbose) fprintf(stderr, "hci open/bind failed: %s\n", strerror(errno));
@@ -299,23 +308,37 @@ static int mgmt_read_controller_indices(int fd, uint16_t *out, int max_n) {
     return 0;
 }
 
-static void mgmt_remove_instance(int fd, uint16_t ctrl, uint8_t inst) {
-    uint8_t rm[1] = {inst};
-    mgmt_cmd(fd, MGMT_OP_REMOVE_ADVERTISING, ctrl, rm, 1);
-    usleep(50000);
+/* Release LE scan before MGMT Add Advertising — Java stopScan() is not enough on Android. */
+static void hci_disable_le_scan(int dev) {
+    int fd = open_hci_raw(dev);
+    if (fd < 0) {
+        if (g_verbose) fprintf(stderr, "hci disable scan: open failed\n");
+        return;
+    }
+    uint8_t params[2] = {0x00, 0x00};
+    int st = hci_cmd(fd, OCF_SET_SCAN_ENABLE | (OGF_LE << 10), params, sizeof(params));
+    if (g_verbose) fprintf(stderr, "hci disable scan status=0x%02X\n", st & 0xFF);
+    close(fd);
 }
 
-/* Drop every adv instance on a controller (Android stack / AdvertiseData probes). */
-static void mgmt_clear_all_instances(int fd, uint16_t ctrl) {
-    for (int inst = 0; inst < MAX_ADV_INST; inst++) {
-        uint8_t rm[1] = {(uint8_t) inst};
-        mgmt_cmd(fd, MGMT_OP_REMOVE_ADVERTISING, ctrl, rm, 1);
+static void mgmt_stop_le_discovery(int fd, uint16_t ctrl) {
+    static const uint8_t addr_types[] = {0x01, 0x02, 0x00};
+    for (size_t i = 0; i < sizeof(addr_types) / sizeof(addr_types[0]); i++) {
+        uint8_t t = addr_types[i];
+        (void) mgmt_cmd(fd, MGMT_OP_STOP_DISCOVERY, ctrl, &t, 1);
+    }
+}
+
+static void prep_controller_for_adv(int dev, int mgmt_fd,
+                                    const uint16_t *ctrls, int nctrl) {
+    hci_disable_le_scan(dev);
+    for (int i = 0; i < nctrl; i++) {
+        mgmt_stop_le_discovery(mgmt_fd, ctrls[i]);
     }
     usleep(200000);
 }
 
-static int mgmt_add_instance(int fd, uint16_t ctrl, uint8_t inst,
-                             int duration_ms, const uint8_t *padded) {
+static int mgmt_add_only(int fd, uint16_t ctrl, uint8_t inst, const uint8_t *padded) {
     uint8_t params[11 + ADV_LEN];
     int i = 0;
     params[i++] = inst;
@@ -326,33 +349,27 @@ static int mgmt_add_instance(int fd, uint16_t ctrl, uint8_t inst,
     params[i++] = 0x00;
     memcpy(params + i, padded, ADV_LEN);
     i += ADV_LEN;
-
-    int st = MGMT_STATUS_BUSY;
-    for (int attempt = 0; attempt < 10; attempt++) {
-        if (attempt > 0) {
-            usleep(200000);
-        }
-        st = mgmt_cmd(fd, MGMT_OP_ADD_ADVERTISING, ctrl, params, i);
-        if (st == 0 || st != MGMT_STATUS_BUSY) {
-            break;
-        }
-    }
-    if (st != 0) {
-        return st;
-    }
-    usleep((useconds_t) duration_ms * 1000);
-    mgmt_remove_instance(fd, ctrl, inst);
-    return 0;
+    return mgmt_cmd(fd, MGMT_OP_ADD_ADVERTISING, ctrl, params, i);
 }
 
-static int mgmt_try_ctrl_inst(int fd, uint16_t ctrl, uint8_t inst,
-                              int duration_ms, const uint8_t *padded, int *out_st) {
-    mgmt_remove_instance(fd, ctrl, inst);
-    int st = mgmt_add_instance(fd, ctrl, inst, duration_ms, padded);
+/* ha-ble-adv _mgmt_advertise: REMOVE inst -> ADD -> sleep -> REMOVE (no instance sweep). */
+static int mgmt_one_shot(int fd, uint16_t ctrl, uint8_t inst,
+                         int duration_ms, const uint8_t *padded, int *out_st) {
+    uint8_t rm[1] = {inst};
+    (void) mgmt_cmd(fd, MGMT_OP_REMOVE_ADVERTISING, ctrl, rm, 1);
+    usleep(200000);
+
+    int st = mgmt_add_only(fd, ctrl, inst, padded);
     if (out_st) {
         *out_st = st;
     }
-    return st == 0 ? 0 : -1;
+    if (st != 0) {
+        return -1;
+    }
+    usleep((useconds_t) duration_ms * 1000);
+    mgmt_cmd(fd, MGMT_OP_REMOVE_ADVERTISING, ctrl, rm, 1);
+    usleep(50000);
+    return 0;
 }
 
 static int try_mgmt(int dev, int duration_ms, const uint8_t *padded) {
@@ -377,16 +394,26 @@ static int try_mgmt(int dev, int duration_ms, const uint8_t *padded) {
         nctrl = 1;
     }
 
+    prep_controller_for_adv(dev, fd, ctrls, nctrl);
+
     int last_st = 0x102;
+    static const int inst_order[] = {1, 0, 2, 3, 4, 5, 6, 7};
 
     if (g_cached_ctrl >= 0 && g_cached_inst >= 0) {
-        mgmt_clear_all_instances(fd, (uint16_t) g_cached_ctrl);
-        last_st = 0;
-        if (mgmt_try_ctrl_inst(fd, (uint16_t) g_cached_ctrl, (uint8_t) g_cached_inst,
-                               duration_ms, padded, &last_st) == 0) {
-            RESULT_PRINTF("OK mgmt ctrl=%d inst=%d\n", g_cached_ctrl, g_cached_inst);
-            close(fd);
-            return 0;
+        for (int attempt = 0; attempt < 6; attempt++) {
+            if (attempt > 0) {
+                usleep(400000);
+            }
+            last_st = 0;
+            if (mgmt_one_shot(fd, (uint16_t) g_cached_ctrl, (uint8_t) g_cached_inst,
+                              duration_ms, padded, &last_st) == 0) {
+                RESULT_PRINTF("OK mgmt ctrl=%d inst=%d\n", g_cached_ctrl, g_cached_inst);
+                close(fd);
+                return 0;
+            }
+            if (last_st != MGMT_STATUS_BUSY) {
+                break;
+            }
         }
         g_cached_ctrl = -1;
         g_cached_inst = -1;
@@ -394,18 +421,24 @@ static int try_mgmt(int dev, int duration_ms, const uint8_t *padded) {
 
     for (int ci = 0; ci < nctrl; ci++) {
         uint16_t ctrl = ctrls[ci];
-        mgmt_clear_all_instances(fd, ctrl);
-        /* ha-ble-adv uses instance 1; try it first, then 2..N, then 0. */
-        static const int inst_order[] = {1, 2, 3, 4, 5, 6, 7, 0};
         for (size_t oi = 0; oi < sizeof(inst_order) / sizeof(inst_order[0]); oi++) {
             int inst = inst_order[oi];
-            last_st = 0;
-            if (mgmt_try_ctrl_inst(fd, ctrl, (uint8_t) inst, duration_ms, padded, &last_st) == 0) {
-                g_cached_ctrl = (int) ctrl;
-                g_cached_inst = inst;
-                RESULT_PRINTF("OK mgmt ctrl=%d inst=%d\n", g_cached_ctrl, g_cached_inst);
-                close(fd);
-                return 0;
+            for (int attempt = 0; attempt < 6; attempt++) {
+                if (attempt > 0) {
+                    usleep(400000);
+                }
+                last_st = 0;
+                if (mgmt_one_shot(fd, ctrl, (uint8_t) inst, duration_ms, padded, &last_st) == 0) {
+                    g_cached_ctrl = (int) ctrl;
+                    g_cached_inst = inst;
+                    RESULT_PRINTF("OK mgmt ctrl=%d inst=%d\n", g_cached_ctrl, g_cached_inst);
+                    close(fd);
+                    return 0;
+                }
+                if (last_st == MGMT_STATUS_BUSY) {
+                    continue;
+                }
+                break;
             }
             if (g_verbose) {
                 fprintf(stderr, "TRY ctrl=%u inst=%d st=0x%02X\n", ctrl, inst, last_st & 0xFF);
@@ -414,7 +447,7 @@ static int try_mgmt(int dev, int duration_ms, const uint8_t *padded) {
     }
 
     RESULT_PRINTF("FAIL mgmt status=0x%02X nctrl=%d\n", last_st & 0xFF, nctrl);
-    if (g_verbose) fprintf(stderr, "mgmt sweep exhausted, last=0x%02X\n", last_st);
+    if (g_verbose) fprintf(stderr, "mgmt exhausted, last=0x%02X\n", last_st);
     close(fd);
     return -2;
 }

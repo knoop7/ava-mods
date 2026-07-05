@@ -155,7 +155,6 @@ public class BleAdvProxyManager {
         this.hostApi = hostApi;
         setHostPresenceAdvertisingSuppressed(true);
         notifyStateListeners("ble_adv_proxy_name", getAdapterName());
-        scheduleCapabilityProbe();
         Log.i(TAG, "ESPHome connected (adapter=" + getAdapterName(ctx) + ")");
     }
 
@@ -169,7 +168,6 @@ public class BleAdvProxyManager {
     public void onHomeassistantServicesSubscribed(Context ctx) {
         haServicesReady = true;
         notifyStateListeners("ble_adv_proxy_name", getAdapterName());
-        scheduleCapabilityProbe();
         Log.d(TAG, "HA homeassistant services subscribed");
     }
 

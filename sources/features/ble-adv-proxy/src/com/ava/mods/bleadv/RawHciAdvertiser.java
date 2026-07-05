@@ -17,9 +17,9 @@ final class RawHciAdvertiser {
     private static final String HELPER_NAME = "ble_adv_hci";
     private static final String JNI_LIB_NAME = "libble_adv_hci.so";
     private static final Object HELPER_LOCK = new Object();
-    private static final int PRE_TX_SETTLE_MS = 300;
-    private static final int TX_RETRY_COUNT = 4;
-    private static final int TX_RETRY_GAP_MS = 250;
+    private static final int PRE_TX_SETTLE_MS = 200;
+    private static final int TX_RETRY_COUNT = 2;
+    private static final int TX_RETRY_GAP_MS = 500;
 
     private static volatile boolean jniAttempted;
     private static volatile boolean jniLoaded;
