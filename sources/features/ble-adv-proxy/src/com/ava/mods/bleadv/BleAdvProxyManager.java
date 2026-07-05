@@ -190,6 +190,7 @@ public class BleAdvProxyManager {
     public void onEspHomeConnected(Context ctx, String deviceName, Object hostApi) {
         this.deviceName = deviceName != null ? deviceName : "";
         this.hostApi = hostApi;
+        setHostPresenceAdvertisingSuppressed(true);
         notifyStateListeners("ble_adv_proxy_name", getAdapterName());
         scheduleCapabilityProbe();
         Log.i(TAG, "ESPHome connected (adapter=" + getAdapterName(ctx) + ")");
@@ -291,6 +292,7 @@ public class BleAdvProxyManager {
     }
 
     public void onDestroy() {
+        setHostPresenceAdvertisingSuppressed(false);
         transmitQueue.clear();
         hostApi = null;
         haServicesReady = false;
@@ -520,25 +522,36 @@ public class BleAdvProxyManager {
 
     /** Host pause + settle before raw MGMT (requires Ava BleAdvHostApi). */
     private void pauseForRawAdvertise() {
+        setHostPresenceAdvertisingSuppressed(true);
         Object api = hostApi;
         if (api == null) {
-            HostBlePause.pausePresenceAdvertising(context);
             return;
         }
         try {
-            api.getClass().getMethod("pausePresenceForRawAdvertise").invoke(api);
+            api.getClass().getMethod("awaitRawAdvertiseSettle").invoke(api);
+        } catch (NoSuchMethodException ignored) {
             try {
-                api.getClass().getMethod("awaitRawAdvertiseSettle").invoke(api);
-            } catch (NoSuchMethodException ignored) {
-                try {
-                    Thread.sleep(400L);
-                } catch (InterruptedException ie) {
-                    Thread.currentThread().interrupt();
-                }
+                Thread.sleep(600L);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
             }
         } catch (Exception e) {
-            Log.w(TAG, "pausePresenceForRawAdvertise failed", e);
-            HostBlePause.pausePresenceAdvertising(context);
+            Log.w(TAG, "awaitRawAdvertiseSettle failed", e);
+        }
+    }
+
+    private void setHostPresenceAdvertisingSuppressed(boolean suppressed) {
+        Object api = hostApi;
+        if (api == null) {
+            return;
+        }
+        try {
+            api.getClass()
+                    .getMethod("setPresenceAdvertisingSuppressed", boolean.class)
+                    .invoke(api, suppressed);
+            Log.d(TAG, "host presence suppress=" + suppressed);
+        } catch (Exception e) {
+            Log.w(TAG, "setPresenceAdvertisingSuppressed(" + suppressed + ") failed", e);
         }
     }
 
