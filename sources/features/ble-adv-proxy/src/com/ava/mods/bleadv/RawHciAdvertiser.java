@@ -16,6 +16,10 @@ final class RawHciAdvertiser {
     private static final String TAG = "BleAdvRawHci";
     private static final String HELPER_NAME = "ble_adv_hci";
     private static final String TMP_PATH = "/data/local/tmp/ava_ble_adv_hci";
+    /** Wait for Ava BLE coordinator to pause scans before MGMT inject. */
+    private static final int PRE_TX_SETTLE_MS = 120;
+    private static final int TX_RETRY_COUNT = 3;
+    private static final int TX_RETRY_GAP_MS = 40;
 
     private final Context context;
     private final BleAdvPrivilegedShell privilegedShell;
@@ -42,9 +46,6 @@ final class RawHciAdvertiser {
         return lastTransport != null ? lastTransport : "unavailable";
     }
 
-    /**
-     * Detect MGMT vs HCI, then emit ha-ble-adv FAKE_ADV on-air for {@code probe_ms}.
-     */
     String probeTransport() {
         if (!privilegedShell.isPrivilegedAvailable() || !hasHelperBinary()) {
             lastTransport = "unavailable";
@@ -86,23 +87,60 @@ final class RawHciAdvertiser {
         }
 
         int dev = hciIndexArg >= 0 ? hciIndexArg : hciIndex;
-        String effectiveMode = (mode == null || mode.isEmpty()) ? "auto" : mode;
+        String effectiveMode = resolveTransmitMode(mode);
         String hex = RawAdvParser.toHex(fullPdu);
         String helperCmd = TMP_PATH + " " + dev + " " + effectiveMode + " " + durationMs + " " + hex;
         String staged = "cp -f '" + helper + "' " + TMP_PATH + " && chmod 755 " + TMP_PATH;
         String command = staged + " && " + helperCmd;
 
-        BleAdvPrivilegedShell.ExecResult result = privilegedShell.execCapture(command);
-        if (result.exitCode == 0 && containsOk(result.output)) {
-            updateTransportFromOutput(result.output);
-            logTransport(result.output);
-            return null;
+        settleBeforeTransmit();
+
+        String lastReason = "privileged_exec_failed";
+        for (int attempt = 0; attempt < TX_RETRY_COUNT; attempt++) {
+            if (attempt > 0) {
+                try {
+                    Thread.sleep(TX_RETRY_GAP_MS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return "interrupted";
+                }
+            }
+            BleAdvPrivilegedShell.ExecResult result = privilegedShell.execCapture(command);
+            if (result.exitCode == 0 && containsOk(result.output)) {
+                updateTransportFromOutput(result.output);
+                logTransport(result.output);
+                return null;
+            }
+            lastReason = result.output.isEmpty()
+                    ? ("exit_" + result.exitCode)
+                    : result.output.trim();
+            Log.w(TAG, "raw TX attempt " + (attempt + 1) + " failed: " + lastReason);
+            if (!lastReason.contains("mgmt")) {
+                break;
+            }
         }
-        String reason = result.output.isEmpty()
-                ? ("exit_" + result.exitCode)
-                : result.output.trim();
-        Log.w(TAG, "raw HCI failed code=" + result.exitCode + " out=" + reason);
-        return reason.isEmpty() ? "privileged_exec_failed" : reason;
+        return lastReason.isEmpty() ? "privileged_exec_failed" : lastReason;
+    }
+
+    private String resolveTransmitMode(String mode) {
+        if (mode != null && !mode.isEmpty() && !"auto".equals(mode)) {
+            return mode;
+        }
+        if ("mgmt".equals(lastTransport)) {
+            return "mgmt";
+        }
+        if ("hci".equals(lastTransport)) {
+            return "hci";
+        }
+        return "mgmt";
+    }
+
+    private static void settleBeforeTransmit() {
+        try {
+            Thread.sleep(PRE_TX_SETTLE_MS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     private void updateTransportFromOutput(String out) {

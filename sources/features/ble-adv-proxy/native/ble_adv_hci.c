@@ -238,9 +238,15 @@ static void fake_adv_padded(uint8_t *out) {
 static int try_mgmt(int dev, int duration_ms, const uint8_t *padded) {
     int fd = open_mgmt();
     if (fd < 0) {
+        printf("FAIL mgmt open errno=%d\n", errno);
         if (g_verbose) fprintf(stderr, "mgmt open/bind failed: %s\n", strerror(errno));
         return -1;
     }
+
+    /* Clear stale instance before add (repeat bursts / interrupted prior TX). */
+    uint8_t rm[1] = {ADV_INST};
+    mgmt_cmd(fd, MGMT_OP_REMOVE_ADVERTISING, (uint16_t) dev, rm, 1);
+    usleep(8000);
 
     /* struct.pack("<BIHHBB{data_len}B", ADV_INST, 0, 0, 0, data_len, 0, *data) */
     uint8_t params[11 + ADV_LEN];
@@ -256,12 +262,12 @@ static int try_mgmt(int dev, int duration_ms, const uint8_t *padded) {
 
     int st = mgmt_cmd(fd, MGMT_OP_ADD_ADVERTISING, (uint16_t) dev, params, i);
     if (st != 0) {
+        printf("FAIL mgmt status=0x%02X\n", st & 0xFF);
         if (g_verbose) fprintf(stderr, "mgmt add adv status 0x%02X\n", st);
         close(fd);
         return -2;
     }
     usleep((useconds_t) duration_ms * 1000);
-    uint8_t rm[1] = {ADV_INST};
     mgmt_cmd(fd, MGMT_OP_REMOVE_ADVERTISING, (uint16_t) dev, rm, 1);
     close(fd);
     return 0;
@@ -333,50 +339,40 @@ int main(int argc, char **argv) {
     uint8_t padded[ADV_LEN];
     pad_pdu(data, len, padded);
 
-    int want_hci = (strcmp(mode, "hci") == 0) || (strcmp(mode, "auto") == 0);
-    int want_mgmt = (strcmp(mode, "mgmt") == 0) || (strcmp(mode, "auto") == 0);
-
-    /* Android: MGMT first in auto — stack owns HCI LE advertising. */
-    if (want_mgmt && strcmp(mode, "auto") == 0) {
+    /* auto: MGMT only on Android (HCI LE adv owned by framework). */
+    if (strcmp(mode, "auto") == 0) {
         int r = try_mgmt(dev, duration, padded);
         if (r == 0) {
             printf("OK mgmt\n");
             return 0;
         }
-        want_mgmt = 0;
+        return 1;
     }
 
-    if (want_mgmt) {
+    if (strcmp(mode, "mgmt") == 0) {
         int r = try_mgmt(dev, duration, padded);
         if (r == 0) {
             printf("OK mgmt\n");
             return 0;
         }
-        if (strcmp(mode, "mgmt") != 0) {
-            /* fall through to hci */
-        } else {
-            printf("FAIL mgmt\n");
-            return 1;
-        }
+        return 1;
     }
 
-    if (want_hci) {
+    if (strcmp(mode, "hci") == 0) {
         int r = try_hci(dev, duration, padded);
         if (r == 0) {
             printf("OK hci\n");
             return 0;
         }
-        if (r == HCI_STATUS_DISALLOWED && strcmp(mode, "auto") == 0) {
+        if (r == HCI_STATUS_DISALLOWED) {
             r = try_mgmt(dev, duration, padded);
             if (r == 0) {
                 printf("OK mgmt\n");
                 return 0;
             }
         }
-        if (strcmp(mode, "auto") != 0 || r != HCI_STATUS_DISALLOWED) {
-            printf("FAIL hci\n");
-            return 1;
-        }
+        printf("FAIL hci\n");
+        return 1;
     }
 
     printf("FAIL unavailable\n");
