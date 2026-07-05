@@ -402,6 +402,7 @@ static int try_mgmt(int dev, int duration_ms, const uint8_t *padded) {
     if (g_cached_ctrl >= 0 && g_cached_inst >= 0) {
         for (int attempt = 0; attempt < 6; attempt++) {
             if (attempt > 0) {
+                prep_controller_for_adv(dev, fd, ctrls, nctrl);
                 usleep(400000);
             }
             last_st = 0;
@@ -425,6 +426,7 @@ static int try_mgmt(int dev, int duration_ms, const uint8_t *padded) {
             int inst = inst_order[oi];
             for (int attempt = 0; attempt < 6; attempt++) {
                 if (attempt > 0) {
+                    prep_controller_for_adv(dev, fd, ctrls, nctrl);
                     usleep(400000);
                 }
                 last_st = 0;

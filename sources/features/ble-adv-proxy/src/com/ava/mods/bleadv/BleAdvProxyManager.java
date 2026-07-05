@@ -57,6 +57,7 @@ public class BleAdvProxyManager {
     private volatile boolean featureEnabled = true;
     private volatile boolean useMaxTxPower = false;
     private volatile boolean rawHciEnabled = false;
+    private volatile boolean rawHciConfigInitialized = false;
     private final BleAdvPermissionHelper permissionHelper;
     private final RawHciAdvertiser rawHciAdvertiser;
     private final BleAdvCapabilityProbe capabilityProbe;
@@ -138,8 +139,13 @@ public class BleAdvProxyManager {
                 useMaxTxPower = parseBoolean(value, true);
                 break;
             case "enable_raw_hci":
-                rawHciEnabled = parseBoolean(value, true);
-                scheduleCapabilityProbe();
+                boolean nextRawHci = parseBoolean(value, true);
+                boolean userToggled = rawHciConfigInitialized && nextRawHci != rawHciEnabled;
+                rawHciEnabled = nextRawHci;
+                rawHciConfigInitialized = true;
+                if (userToggled) {
+                    scheduleCapabilityProbe();
+                }
                 break;
             case "adapter_name":
                 adapterNameOverride = value != null ? value : "";
@@ -354,16 +360,15 @@ public class BleAdvProxyManager {
             public void run() {
                 try {
                     BleAdvTransmitter transmitter = new BleAdvTransmitter(context, useMaxTxPower);
-                    while (true) {
-                        final TransmitJob job = transmitQueue.poll();
-                        if (job == null) {
-                            break;
-                        }
-                        // One exclusive window for the whole repeat sequence (matches ESP32 gap
-                        // between bursts while avoiding scan restart per packet).
-                        runExclusive(new Runnable() {
-                            @Override
-                            public void run() {
+                    // One exclusive window for the whole queue — avoids scan restart between HA bursts.
+                    runExclusive(new Runnable() {
+                        @Override
+                        public void run() {
+                            while (true) {
+                                final TransmitJob job = transmitQueue.poll();
+                                if (job == null) {
+                                    break;
+                                }
                                 for (int i = 0; i < job.repeat; i++) {
                                     String err = transmitOneBurst(transmitter, job.raw, job.perBurstMs);
                                     if (err != null && !err.isEmpty()) {
@@ -376,13 +381,13 @@ public class BleAdvProxyManager {
                                             Thread.sleep(2L);
                                         } catch (InterruptedException e) {
                                             Thread.currentThread().interrupt();
-                                            break;
+                                            return;
                                         }
                                     }
                                 }
                             }
-                        });
-                    }
+                        }
+                    });
                 } finally {
                     drainRunning.set(false);
                     if (!transmitQueue.isEmpty()) {
@@ -403,7 +408,7 @@ public class BleAdvProxyManager {
             pauseForRawAdvertise();
             String rawErr = rawHciAdvertiser.transmit(-1, "auto", burstMs, raw);
             if (rawErr == null) {
-                Log.d(TAG, "TX ok raw HCI/MGMT len=" + raw.length + " burst=" + burstMs + "ms");
+                Log.i(TAG, "TX ok raw HCI/MGMT len=" + raw.length + " burst=" + burstMs + "ms");
                 return "";
             }
             Log.w(TAG, "raw HCI failed: " + rawErr + " hex=" + RawAdvParser.toHex(raw));
@@ -425,7 +430,7 @@ public class BleAdvProxyManager {
     }
 
     private void scheduleCapabilityProbe() {
-        if (!featureEnabled) {
+        if (!featureEnabled || haServicesReady || drainRunning.get() || !transmitQueue.isEmpty()) {
             return;
         }
         if (!probeRunning.compareAndSet(false, true)) {

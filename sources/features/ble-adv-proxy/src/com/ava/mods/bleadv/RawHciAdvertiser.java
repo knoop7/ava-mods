@@ -120,9 +120,9 @@ final class RawHciAdvertiser {
                 String text = out != null ? out : "";
                 int code = containsOk(text) ? 0 : 1;
                 if (code == 0) {
-                    Log.d(TAG, "JNI ok: " + text.trim());
+                    Log.i(TAG, "JNI ok: " + text.trim());
                 } else if (text.contains("status=0x14")) {
-                    Log.d(TAG, "JNI mgmt busy, will retry: " + text.trim());
+                    Log.w(TAG, "JNI mgmt busy, will retry: " + text.trim());
                 }
                 return new BleAdvPrivilegedShell.ExecResult(code, text + "\n");
             } catch (Throwable t) {
