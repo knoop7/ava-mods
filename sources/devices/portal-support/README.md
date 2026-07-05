@@ -35,6 +35,7 @@ The mod auto-requests permissions at runtime through Shizuku first, then root, t
 | `RECORD_AUDIO` | Sound level sensor |
 | `WRITE_SECURE_SETTINGS` | Screen sleep fallback |
 | `CAMERA` | Reserved for future camera features |
+| `READ_LOGS` | Best-effort via `provision.sh`; runtime presence uses Shizuku/root shell |
 | `WRITE_SETTINGS` (app-op) | Brightness control |
 | `SYSTEM_ALERT_WINDOW` (app-op) | Background overlay access |
 
@@ -42,11 +43,13 @@ Presence reads `logcat` through a privileged shell (Shizuku shell uid or root), 
 holds log access — the app itself is never granted `READ_LOGS`. Without Shizuku or root, the
 presence sensor stays unavailable.
 
-Manual provision (only needed when Shizuku/root are unavailable):
+Manual provision via adb (grants the same permissions the mod requests at runtime):
 
 ```bash
 ./provision.sh com.example.ava
 ```
+
+Script: [provision.sh](https://github.com/knoop7/ava-mods/blob/main/sources/devices/portal-support/provision.sh) — `WRITE_SECURE_SETTINGS`, `RECORD_AUDIO`, `CAMERA`, `READ_LOGS` (best-effort), plus `WRITE_SETTINGS` and `SYSTEM_ALERT_WINDOW` app-ops. **Presence still needs Shizuku or root** authorized for Ava even after running the script.
 
 ## Screen timeout
 

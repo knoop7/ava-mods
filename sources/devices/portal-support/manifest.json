@@ -1,7 +1,7 @@
 {
   "id": "portal-support",
   "name": "Facebook Portal",
-  "version": "1.1.6",
+  "version": "1.1.7",
   "author": "Ava",
   "description": "Facebook Portal ambient sensors, presence detection, sound level, screen timeout, and alert tones for Home Assistant",
   "icon": "mdi:tablet-dashboard",
@@ -9,11 +9,12 @@
     "libs/portal-support.jar"
   ],
   "manager": "com.ava.mods.portal.PortalSupportManager",
-  "jar_hash": "68e348a9b974f9c5f6cc2e745e7a16da",
+  "jar_hash": "3718daef2e192caef5b989e113d09fc9",
   "permissions": [
     "android.permission.CAMERA",
     "android.permission.RECORD_AUDIO",
-    "android.permission.WRITE_SECURE_SETTINGS"
+    "android.permission.WRITE_SECURE_SETTINGS",
+    "android.permission.READ_LOGS"
   ],
   "entities": [
     {

@@ -21,7 +21,8 @@ final class PortalPermissionHelper {
     private static final String[] GRANT_PERMISSIONS = {
             "android.permission.WRITE_SECURE_SETTINGS",
             "android.permission.RECORD_AUDIO",
-            "android.permission.CAMERA"
+            "android.permission.CAMERA",
+            "android.permission.READ_LOGS"
     };
 
     private static final String[] GRANT_APPOPS = {
