@@ -322,6 +322,7 @@ public class PortalSupportManager implements PortalSensorBridge.Listener, Portal
 
     private void updatePresenceSubsystem() {
         if (enablePresence && presenceDetectionEnabled) {
+            permissionHelper.ensurePresencePrivilegedShell();
             if (presenceMonitor == null) {
                 presenceMonitor = new PortalPresenceMonitor(context, this);
             }

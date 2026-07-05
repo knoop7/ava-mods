@@ -108,6 +108,16 @@ final class PortalPermissionHelper {
         return tryRootProcess(command);
     }
 
+    /** Prime Shizuku and prompt for authorization before presence logcat starts. */
+    void ensurePresencePrivilegedShell() {
+        ensureHostShizukuInit();
+        if (isShizukuReady() || isRootAvailable()) {
+            return;
+        }
+        Log.w(TAG, "presence needs Shizuku or root — requesting authorization");
+        requestShizukuPermissionIfNeeded();
+    }
+
     private Process tryShizukuProcess(String[] command) {
         if (!isShizukuReady()) {
             return null;
