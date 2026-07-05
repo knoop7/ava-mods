@@ -14,14 +14,33 @@ Android port of [esphome-ble_adv_proxy](https://github.com/NicoIIT/esphome-ble_a
 
 ## Ava core requirements
 
-This mod alone is not enough. Ava main app must provide:
+**Standalone mode (default, `ble_adv_standalone: true`):**
+
+- Mod owns `BluetoothLeScanner` scan + exclusive MGMT/HCI TX
+- Ava `detect_enabled` stays off; host does not forward proxy scan
+- Manifest declares `bluetooth_scan`, `bluetooth_connect`, `bluetooth_advertise` (granted on mod enable)
+- `BleAdvHostApi` still used for `fireHomeassistantEvent` only
+
+**Legacy integrated mode (`ble_adv_standalone: false`):**
+
+- `ModBleAdvProxyBridge` unified proxy scan forwards to `onScanResult`
+- `BleAdvHostApi` + `BleOperationCoordinator` pause host scan during transmit
+- Ava Bluetooth detect must stay on
+
+Both modes need:
 
 - `ModBleAdvProxyBridge` with `"ble_adv_proxy": true` manifest opt-in
-- `BleAdvHostApi` (`fireHomeassistantEvent`, `runExclusiveTransmit`)
-- `BleOperationCoordinator` (pause proxy scan / presence ADV during transmit)
-- ESPHome services: `setup_svc_v0`, `adv_svc`, `adv_svc_v1` (always)
-- Optional diagnostic: `ble_adv_proxy_name` when **Show Adapter Name Sensor** is enabled in mod config
+- ESPHome services: `setup_svc_v0`, `adv_svc`, `adv_svc_v1`
 - `SubscribeHomeassistantServicesRequest` handling
+
+## Permissions
+
+Standalone scan/TX needs runtime BLE permissions. Ava grants them when you enable the mod
+(Shizuku/root `pm grant` first, then system dialog). Manual adb:
+
+```bash
+./provision.sh com.example.ava
+```
 
 ## Build
 

@@ -4,6 +4,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.net.Uri;
+import android.os.Build;
 import android.provider.Settings;
 import android.util.Log;
 
@@ -34,6 +35,44 @@ final class BleAdvPermissionHelper {
             return;
         }
         requestShizukuPermissionIfNeeded();
+    }
+
+    /** Runtime BLE scan permission (BLUETOOTH_SCAN on API 31+, else fine location). */
+    boolean hasBluetoothScanPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            return isGranted("android.permission.BLUETOOTH_SCAN");
+        }
+        return isGranted("android.permission.ACCESS_FINE_LOCATION")
+                || isGranted("android.permission.ACCESS_COARSE_LOCATION");
+    }
+
+    /** Runtime BLE advertise permission (API 31+). */
+    boolean hasBluetoothAdvertisePermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            return isGranted("android.permission.BLUETOOTH_ADVERTISE");
+        }
+        return true;
+    }
+
+    boolean hasBluetoothConnectPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            return isGranted("android.permission.BLUETOOTH_CONNECT");
+        }
+        return true;
+    }
+
+    boolean hasRequiredBlePermissions() {
+        return hasBluetoothScanPermission()
+                && hasBluetoothConnectPermission()
+                && hasBluetoothAdvertisePermission();
+    }
+
+    private boolean isGranted(String permission) {
+        try {
+            return context.checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED;
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     String getPrivilegedShellLabel() {

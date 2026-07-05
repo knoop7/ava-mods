@@ -61,6 +61,8 @@ public class BleAdvProxyManager {
     private final BleAdvPermissionHelper permissionHelper;
     private final RawHciAdvertiser rawHciAdvertiser;
     private final BleAdvCapabilityProbe capabilityProbe;
+    private final BleAdvLeScanner leScanner;
+    private final BleAdvExclusiveSession exclusiveSession;
     private volatile BleAdvCapabilityProbe.Report lastCapabilityReport;
     private final AtomicBoolean probeRunning = new AtomicBoolean(false);
     private volatile String adapterNameOverride = "";
@@ -74,6 +76,14 @@ public class BleAdvProxyManager {
         this.permissionHelper = new BleAdvPermissionHelper(this.context);
         this.rawHciAdvertiser = new RawHciAdvertiser(this.context, permissionHelper);
         this.capabilityProbe = new BleAdvCapabilityProbe(this.context, permissionHelper, rawHciAdvertiser);
+        this.leScanner = new BleAdvLeScanner(this.context, permissionHelper);
+        this.exclusiveSession = new BleAdvExclusiveSession(leScanner);
+        this.leScanner.setResultHandler(new BleAdvLeScanner.ResultHandler() {
+            @Override
+            public void onScanResult(String mac, int rssi, byte[] raw) {
+                deliverScanResult(mac, rssi, raw);
+            }
+        });
     }
 
     public static BleAdvProxyManager getInstance(Context context) {
@@ -134,6 +144,11 @@ public class BleAdvProxyManager {
         switch (key) {
             case "enabled":
                 featureEnabled = parseBoolean(value, true);
+                if (!featureEnabled) {
+                    stopStandaloneScan();
+                } else if (isStandalone() && haServicesReady) {
+                    startStandaloneScan();
+                }
                 break;
             case "use_max_tx_power":
                 useMaxTxPower = parseBoolean(value, true);
@@ -159,14 +174,24 @@ public class BleAdvProxyManager {
     public void onEspHomeConnected(Context ctx, String deviceName, Object hostApi) {
         this.deviceName = deviceName != null ? deviceName : "";
         this.hostApi = hostApi;
-        setHostPresenceAdvertisingSuppressed(true);
+        BleAdvManifestReader.invalidateCache();
+        if (isStandalone()) {
+            permissionHelper.ensurePrivilegedAccess();
+            if (!permissionHelper.hasRequiredBlePermissions()) {
+                Log.w(TAG, "standalone: missing BLE runtime permissions — enable mod in store to grant");
+            }
+        } else {
+            setHostPresenceAdvertisingSuppressed(true);
+        }
         notifyStateListeners("ble_adv_proxy_name", getAdapterName());
-        Log.i(TAG, "ESPHome connected (adapter=" + getAdapterName(ctx) + ")");
+        Log.i(TAG, "ESPHome connected (adapter=" + getAdapterName(ctx)
+                + " standalone=" + isStandalone() + ")");
     }
 
     public void onEspHomeDisconnected(Context ctx) {
         haServicesReady = false;
         setupDone = false;
+        stopStandaloneScan();
         hostApi = null;
         transmitQueue.clear();
     }
@@ -174,11 +199,28 @@ public class BleAdvProxyManager {
     public void onHomeassistantServicesSubscribed(Context ctx) {
         haServicesReady = true;
         notifyStateListeners("ble_adv_proxy_name", getAdapterName());
-        Log.d(TAG, "HA homeassistant services subscribed");
+        if (isStandalone() && featureEnabled) {
+            startStandaloneScan();
+        }
+        Log.d(TAG, "HA homeassistant services subscribed (standalone=" + isStandalone() + ")");
     }
 
+    /**
+     * Legacy integrated path — host forwards proxy scan results here.
+     * Standalone mod uses {@link BleAdvLeScanner} instead.
+     */
     public void onScanResult(Context ctx, String mac, int rssi, byte[] raw) {
+        if (isStandalone()) {
+            return;
+        }
+        deliverScanResult(mac, rssi, raw);
+    }
+
+    private void deliverScanResult(String mac, int rssi, byte[] raw) {
         if (!featureEnabled || !haServicesReady || !setupDone) {
+            return;
+        }
+        if (exclusiveSession.isActive()) {
             return;
         }
         if (raw == null || raw.length < MIN_VIABLE_PACKET_LEN) {
@@ -257,7 +299,10 @@ public class BleAdvProxyManager {
     }
 
     public void onDestroy() {
-        setHostPresenceAdvertisingSuppressed(false);
+        if (!isStandalone()) {
+            setHostPresenceAdvertisingSuppressed(false);
+        }
+        stopStandaloneScan();
         transmitQueue.clear();
         hostApi = null;
         haServicesReady = false;
@@ -465,6 +510,10 @@ public class BleAdvProxyManager {
     }
 
     private void runExclusive(Runnable task) {
+        if (isStandalone()) {
+            exclusiveSession.runExclusive(task);
+            return;
+        }
         Object api = hostApi;
         if (api == null) {
             task.run();
@@ -479,24 +528,42 @@ public class BleAdvProxyManager {
         }
     }
 
-    /** Host pause + settle before raw MGMT (requires Ava BleAdvHostApi). */
+    /** Pause competing BLE activity before raw MGMT inject. */
     private void pauseForRawAdvertise() {
-        setHostPresenceAdvertisingSuppressed(true);
-        Object api = hostApi;
-        if (api == null) {
+        if (!isStandalone()) {
+            setHostPresenceAdvertisingSuppressed(true);
+            Object api = hostApi;
+            if (api == null) {
+                return;
+            }
+            try {
+                api.getClass().getMethod("awaitRawAdvertiseSettle").invoke(api);
+            } catch (NoSuchMethodException ignored) {
+                try {
+                    Thread.sleep(600L);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "awaitRawAdvertiseSettle failed", e);
+            }
+        }
+    }
+
+    private boolean isStandalone() {
+        return BleAdvManifestReader.isStandalone(context);
+    }
+
+    private void startStandaloneScan() {
+        if (!isStandalone() || !featureEnabled || !haServicesReady) {
             return;
         }
-        try {
-            api.getClass().getMethod("awaitRawAdvertiseSettle").invoke(api);
-        } catch (NoSuchMethodException ignored) {
-            try {
-                Thread.sleep(600L);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-        } catch (Exception e) {
-            Log.w(TAG, "awaitRawAdvertiseSettle failed", e);
-        }
+        permissionHelper.ensurePrivilegedAccess();
+        leScanner.start();
+    }
+
+    private void stopStandaloneScan() {
+        leScanner.stop();
     }
 
     private void setHostPresenceAdvertisingSuppressed(boolean suppressed) {
