@@ -10,16 +10,15 @@ import java.io.InputStream;
 import java.io.OutputStream;
 
 /**
- * True 1:1 raw advertising via native helper + mod-owned privileged shell.
+ * True 1:1 raw advertising via native helper — runs in Ava app process when possible.
  */
 final class RawHciAdvertiser {
     private static final String TAG = "BleAdvRawHci";
     private static final String HELPER_NAME = "ble_adv_hci";
-    private static final String TMP_PATH = "/data/local/tmp/ava_ble_adv_hci";
-    /** Wait for Ava BLE coordinator to pause scans before MGMT inject. */
-    private static final int PRE_TX_SETTLE_MS = 200;
-    private static final int TX_RETRY_COUNT = 3;
-    private static final int TX_RETRY_GAP_MS = 40;
+    private static final Object HELPER_LOCK = new Object();
+    private static final int PRE_TX_SETTLE_MS = 250;
+    private static final int TX_RETRY_COUNT = 2;
+    private static final int TX_RETRY_GAP_MS = 80;
 
     private final Context context;
     private final BleAdvPrivilegedShell privilegedShell;
@@ -30,7 +29,7 @@ final class RawHciAdvertiser {
 
     RawHciAdvertiser(Context context, BleAdvPermissionHelper permissionHelper) {
         this.context = context.getApplicationContext();
-        this.privilegedShell = new BleAdvPrivilegedShell(permissionHelper);
+        this.privilegedShell = new BleAdvPrivilegedShell(context, permissionHelper);
         resolveHciIndex();
     }
 
@@ -39,7 +38,7 @@ final class RawHciAdvertiser {
     }
 
     boolean isAvailable() {
-        return privilegedShell.isPrivilegedAvailable() && hasHelperBinary();
+        return hasHelperBinary();
     }
 
     String getLastTransport() {
@@ -47,7 +46,7 @@ final class RawHciAdvertiser {
     }
 
     String probeTransport() {
-        if (!privilegedShell.isPrivilegedAvailable() || !hasHelperBinary()) {
+        if (!hasHelperBinary()) {
             lastTransport = "unavailable";
             return lastTransport;
         }
@@ -56,30 +55,29 @@ final class RawHciAdvertiser {
             lastTransport = "unavailable";
             return lastTransport;
         }
-        String staged = "cp -f '" + helper + "' " + TMP_PATH + " && chmod 755 " + TMP_PATH;
-        String command = staged + " && " + TMP_PATH + " " + hciIndex + " probe 20 "
-                + RawAdvParser.toHex(BleAdvCapabilityProbe.FAKE_ADV_PDU);
-        BleAdvPrivilegedShell.ExecResult result = privilegedShell.execCapture(command);
-        String out = result.output != null ? result.output : "";
-        if (out.contains("transport=mgmt") && out.contains("tx=ok")) {
-            lastTransport = "mgmt";
-        } else if (out.contains("transport=hci") && out.contains("tx=ok")) {
-            lastTransport = "hci";
-        } else {
-            lastTransport = "unavailable";
-            Log.w(TAG, "transport probe failed code=" + result.exitCode + " out=" + out.trim());
+        synchronized (HELPER_LOCK) {
+            BleAdvPrivilegedShell.ExecResult result = runHelper(helper,
+                    hciIndex, "probe", 20, BleAdvCapabilityProbe.FAKE_ADV_PDU);
+            String out = result.output != null ? result.output : "";
+            if (out.contains("transport=mgmt") && out.contains("tx=ok")) {
+                lastTransport = "mgmt";
+            } else if (out.contains("transport=hci") && out.contains("tx=ok")) {
+                lastTransport = "hci";
+            } else {
+                lastTransport = "unavailable";
+                Log.w(TAG, "transport probe failed code=" + result.exitCode + " out=" + out.trim());
+            }
+            Log.i(TAG, "transport probe -> " + lastTransport + " (on-air FAKE_ADV)");
+            return lastTransport;
         }
-        Log.i(TAG, "transport probe -> " + lastTransport + " (on-air FAKE_ADV)");
-        return lastTransport;
     }
 
-    synchronized String transmit(int hciIndexArg, String mode, int durationMs, byte[] fullPdu) {
+    String transmit(int hciIndexArg, String mode, int durationMs, byte[] fullPdu) {
         if (fullPdu == null || fullPdu.length == 0) {
             return "empty_pdu";
         }
-        privilegedShell.ensurePrivilegedAccess();
-        if (!privilegedShell.isPrivilegedAvailable()) {
-            return "no_privileged_shell:" + privilegedShell.getPrivilegedShellLabel();
+        if (!hasHelperBinary()) {
+            return "no_helper_binary";
         }
         String helper = ensureExtracted();
         if (helper == null) {
@@ -88,38 +86,43 @@ final class RawHciAdvertiser {
 
         int dev = hciIndexArg >= 0 ? hciIndexArg : hciIndex;
         String effectiveMode = resolveTransmitMode(mode);
-        String hex = RawAdvParser.toHex(fullPdu);
-        String helperCmd = TMP_PATH + " " + dev + " " + effectiveMode + " " + durationMs + " " + hex;
-        String staged = "cp -f '" + helper + "' " + TMP_PATH + " && chmod 755 " + TMP_PATH;
-        String command = staged + " && " + helperCmd;
-
         settleBeforeTransmit();
 
-        String lastReason = "privileged_exec_failed";
-        for (int attempt = 0; attempt < TX_RETRY_COUNT; attempt++) {
-            if (attempt > 0) {
-                try {
-                    Thread.sleep(TX_RETRY_GAP_MS);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    return "interrupted";
+        synchronized (HELPER_LOCK) {
+            String lastReason = "privileged_exec_failed";
+            for (int attempt = 0; attempt < TX_RETRY_COUNT; attempt++) {
+                if (attempt > 0) {
+                    try {
+                        Thread.sleep(TX_RETRY_GAP_MS);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        return "interrupted";
+                    }
                 }
+                BleAdvPrivilegedShell.ExecResult result = runHelper(
+                        helper, dev, effectiveMode, durationMs, fullPdu);
+                if (result.exitCode == 0 && containsOk(result.output)) {
+                    updateTransportFromOutput(result.output);
+                    logTransport(result.output);
+                    return null;
+                }
+                lastReason = result.output.isEmpty()
+                        ? ("exit_" + result.exitCode)
+                        : result.output.trim();
+                Log.w(TAG, "raw TX attempt " + (attempt + 1) + " failed: " + lastReason);
             }
-            BleAdvPrivilegedShell.ExecResult result = privilegedShell.execCapture(command);
-            if (result.exitCode == 0 && containsOk(result.output)) {
-                updateTransportFromOutput(result.output);
-                logTransport(result.output);
-                return null;
-            }
-            lastReason = result.output.isEmpty()
-                    ? ("exit_" + result.exitCode)
-                    : result.output.trim();
-            Log.w(TAG, "raw TX attempt " + (attempt + 1) + " failed: " + lastReason);
-            if (!lastReason.contains("mgmt")) {
-                break;
-            }
+            return lastReason.isEmpty() ? "privileged_exec_failed" : lastReason;
         }
-        return lastReason.isEmpty() ? "privileged_exec_failed" : lastReason;
+    }
+
+    private BleAdvPrivilegedShell.ExecResult runHelper(
+            String helper, int dev, String mode, int durationMs, byte[] pdu) {
+        return privilegedShell.execHelper(helper, new String[]{
+                String.valueOf(dev),
+                mode,
+                String.valueOf(durationMs),
+                RawAdvParser.toHex(pdu),
+        });
     }
 
     private String resolveTransmitMode(String mode) {
@@ -191,7 +194,8 @@ final class RawHciAdvertiser {
         if (extractedPath != null && resource.equals(deployedFingerprint) && new File(extractedPath).exists()) {
             return extractedPath;
         }
-        File out = new File(context.getFilesDir(), HELPER_NAME);
+        File outDir = context.getDir("native", Context.MODE_PRIVATE);
+        File out = new File(outDir, HELPER_NAME);
         InputStream in = null;
         OutputStream fos = null;
         try {

@@ -314,6 +314,13 @@ static int mgmt_try_ctrl_inst(int fd, uint16_t ctrl, uint8_t inst,
 }
 
 static int try_mgmt(int dev, int duration_ms, const uint8_t *padded) {
+    const char *hint_ctrl = getenv("BLE_ADV_HINT_CTRL");
+    const char *hint_inst = getenv("BLE_ADV_HINT_INST");
+    if (hint_ctrl && hint_inst) {
+        g_cached_ctrl = atoi(hint_ctrl);
+        g_cached_inst = atoi(hint_inst);
+    }
+
     int fd = open_mgmt();
     if (fd < 0) {
         printf("FAIL mgmt open errno=%d\n", errno);
@@ -344,23 +351,28 @@ static int try_mgmt(int dev, int duration_ms, const uint8_t *padded) {
 
     for (int ci = 0; ci < nctrl; ci++) {
         uint16_t ctrl = ctrls[ci];
-        for (int inst = 0; inst < MAX_ADV_INST; inst++) {
-            last_st = 0;
-            if (mgmt_try_ctrl_inst(fd, ctrl, (uint8_t) inst, duration_ms, padded, &last_st) == 0) {
-                g_cached_ctrl = (int) ctrl;
-                g_cached_inst = inst;
-                printf("OK mgmt ctrl=%d inst=%d\n", g_cached_ctrl, g_cached_inst);
-                close(fd);
-                return 0;
-            }
-            if (last_st != MGMT_STATUS_INVALID_INDEX && last_st != 0x0D && last_st != 0x0B) {
-                /* 0x0D invalid params, 0x0B rejected — try next instance anyway */
+        /* ha-ble-adv uses instance 1; try 1..N then 0. */
+        for (int pass = 0; pass < 2; pass++) {
+            int inst_start = (pass == 0) ? 1 : 0;
+            int inst_end = (pass == 0) ? MAX_ADV_INST : 1;
+            for (int inst = inst_start; inst < inst_end; inst++) {
+                last_st = 0;
+                if (mgmt_try_ctrl_inst(fd, ctrl, (uint8_t) inst, duration_ms, padded, &last_st) == 0) {
+                    g_cached_ctrl = (int) ctrl;
+                    g_cached_inst = inst;
+                    printf("OK mgmt ctrl=%d inst=%d\n", g_cached_ctrl, g_cached_inst);
+                    close(fd);
+                    return 0;
+                }
+                if (g_verbose) {
+                    fprintf(stderr, "TRY ctrl=%u inst=%d st=0x%02X\n", ctrl, inst, last_st & 0xFF);
+                }
             }
         }
     }
 
-    printf("FAIL mgmt status=0x%02X\n", last_st & 0xFF);
-    if (g_verbose) fprintf(stderr, "mgmt add adv exhausted ctrl/inst sweep, last=0x%02X\n", last_st);
+    printf("FAIL mgmt status=0x%02X nctrl=%d\n", last_st & 0xFF, nctrl);
+    if (g_verbose) fprintf(stderr, "mgmt sweep exhausted, last=0x%02X\n", last_st);
     close(fd);
     return -2;
 }

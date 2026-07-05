@@ -55,7 +55,7 @@ final class BleAdvCapabilityProbe {
         permissionHelper.ensurePrivilegedAccess();
         report.privilegedShell = permissionHelper.getPrivilegedShellLabel();
 
-        if (permissionHelper.isPrivilegedAvailable() && report.helperPresent) {
+        if (report.helperPresent) {
             String transport = rawHciAdvertiser.probeTransport();
             report.rawTransport = transport != null ? transport : "unavailable";
             if ("mgmt".equals(transport) || "hci".equals(transport)) {
