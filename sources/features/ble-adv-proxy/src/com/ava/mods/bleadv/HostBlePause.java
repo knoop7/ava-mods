@@ -8,31 +8,38 @@ import android.util.Log;
  */
 final class HostBlePause {
     private static final String TAG = "BleAdvHostPause";
+    private static final String PRESENCE_MGR = "com.example.ava.bluetooth.BluetoothPresenceManager";
 
     private HostBlePause() {
     }
 
     static void pausePresenceAdvertising(Context context) {
         try {
-            Class<?> mgr = load(context, "com.example.ava.bluetooth.BluetoothPresenceManager");
+            Class<?> mgr = loadHostClass(context, PRESENCE_MGR);
             Object instance = mgr.getMethod("getInstance", Context.class)
                     .invoke(null, context.getApplicationContext());
             mgr.getMethod("stopAdvertising").invoke(instance);
             Log.d(TAG, "stopped host presence advertising");
-            Thread.sleep(80L);
+            Thread.sleep(120L);
         } catch (Exception e) {
             Log.d(TAG, "stopAdvertising unavailable: " + e.getMessage());
         }
     }
 
-    private static Class<?> load(Context context, String name) throws ClassNotFoundException {
+    private static Class<?> loadHostClass(Context context, String name) throws ClassNotFoundException {
+        ClassNotFoundException last = null;
         ClassLoader loader = context.getClassLoader();
-        if (loader != null) {
+        while (loader != null) {
             try {
                 return Class.forName(name, false, loader);
-            } catch (ClassNotFoundException ignored) {
+            } catch (ClassNotFoundException e) {
+                last = e;
+                loader = loader.getParent();
             }
         }
-        return Class.forName(name);
+        if (last != null) {
+            throw last;
+        }
+        throw new ClassNotFoundException(name);
     }
 }

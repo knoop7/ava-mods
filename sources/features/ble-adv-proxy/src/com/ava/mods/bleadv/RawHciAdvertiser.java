@@ -17,9 +17,9 @@ final class RawHciAdvertiser {
     private static final String HELPER_NAME = "ble_adv_hci";
     private static final String JNI_LIB_NAME = "libble_adv_hci.so";
     private static final Object HELPER_LOCK = new Object();
-    private static final int PRE_TX_SETTLE_MS = 250;
-    private static final int TX_RETRY_COUNT = 2;
-    private static final int TX_RETRY_GAP_MS = 80;
+    private static final int PRE_TX_SETTLE_MS = 500;
+    private static final int TX_RETRY_COUNT = 3;
+    private static final int TX_RETRY_GAP_MS = 150;
 
     private static volatile boolean jniAttempted;
     private static volatile boolean jniLoaded;
@@ -121,6 +121,8 @@ final class RawHciAdvertiser {
                 int code = containsOk(text) ? 0 : 1;
                 if (code == 0) {
                     Log.d(TAG, "JNI ok: " + text.trim());
+                } else if (text.contains("status=0x14")) {
+                    Log.d(TAG, "JNI mgmt busy, will retry: " + text.trim());
                 }
                 return new BleAdvPrivilegedShell.ExecResult(code, text + "\n");
             } catch (Throwable t) {

@@ -71,6 +71,7 @@ static void out_line(const char *fmt, ...) {
 #define MGMT_EV_CMD_COMPLETE 0x0001
 #define MGMT_EV_CMD_STATUS 0x0002
 #define MGMT_STATUS_INVALID_INDEX 0x11
+#define MGMT_STATUS_BUSY 0x14
 
 #define HCI_STATUS_DISALLOWED 0x0C
 #define ADV_LEN 31
@@ -298,12 +299,10 @@ static int mgmt_read_controller_indices(int fd, uint16_t *out, int max_n) {
     return 0;
 }
 
-static void mgmt_clear_instances(int fd, uint16_t ctrl) {
-    for (int inst = 0; inst < MAX_ADV_INST; inst++) {
-        uint8_t rm[1] = {(uint8_t) inst};
-        mgmt_cmd(fd, MGMT_OP_REMOVE_ADVERTISING, ctrl, rm, 1);
-    }
-    usleep(10000);
+static void mgmt_remove_instance(int fd, uint16_t ctrl, uint8_t inst) {
+    uint8_t rm[1] = {inst};
+    mgmt_cmd(fd, MGMT_OP_REMOVE_ADVERTISING, ctrl, rm, 1);
+    usleep(50000);
 }
 
 static int mgmt_add_instance(int fd, uint16_t ctrl, uint8_t inst,
@@ -319,19 +318,27 @@ static int mgmt_add_instance(int fd, uint16_t ctrl, uint8_t inst,
     memcpy(params + i, padded, ADV_LEN);
     i += ADV_LEN;
 
-    int st = mgmt_cmd(fd, MGMT_OP_ADD_ADVERTISING, ctrl, params, i);
+    int st = MGMT_STATUS_BUSY;
+    for (int attempt = 0; attempt < 5; attempt++) {
+        if (attempt > 0) {
+            usleep(120000);
+        }
+        st = mgmt_cmd(fd, MGMT_OP_ADD_ADVERTISING, ctrl, params, i);
+        if (st == 0 || st != MGMT_STATUS_BUSY) {
+            break;
+        }
+    }
     if (st != 0) {
         return st;
     }
     usleep((useconds_t) duration_ms * 1000);
-    uint8_t rm[1] = {inst};
-    mgmt_cmd(fd, MGMT_OP_REMOVE_ADVERTISING, ctrl, rm, 1);
+    mgmt_remove_instance(fd, ctrl, inst);
     return 0;
 }
 
 static int mgmt_try_ctrl_inst(int fd, uint16_t ctrl, uint8_t inst,
                               int duration_ms, const uint8_t *padded, int *out_st) {
-    mgmt_clear_instances(fd, ctrl);
+    mgmt_remove_instance(fd, ctrl, inst);
     int st = mgmt_add_instance(fd, ctrl, inst, duration_ms, padded);
     if (out_st) {
         *out_st = st;
@@ -377,22 +384,20 @@ static int try_mgmt(int dev, int duration_ms, const uint8_t *padded) {
 
     for (int ci = 0; ci < nctrl; ci++) {
         uint16_t ctrl = ctrls[ci];
-        /* ha-ble-adv uses instance 1; try 1..N then 0. */
-        for (int pass = 0; pass < 2; pass++) {
-            int inst_start = (pass == 0) ? 1 : 0;
-            int inst_end = (pass == 0) ? MAX_ADV_INST : 1;
-            for (int inst = inst_start; inst < inst_end; inst++) {
-                last_st = 0;
-                if (mgmt_try_ctrl_inst(fd, ctrl, (uint8_t) inst, duration_ms, padded, &last_st) == 0) {
-                    g_cached_ctrl = (int) ctrl;
-                    g_cached_inst = inst;
-                    RESULT_PRINTF("OK mgmt ctrl=%d inst=%d\n", g_cached_ctrl, g_cached_inst);
-                    close(fd);
-                    return 0;
-                }
-                if (g_verbose) {
-                    fprintf(stderr, "TRY ctrl=%u inst=%d st=0x%02X\n", ctrl, inst, last_st & 0xFF);
-                }
+        /* ha-ble-adv uses instance 1; try it first, then 2..N, then 0. */
+        static const int inst_order[] = {1, 2, 3, 4, 5, 6, 7, 0};
+        for (size_t oi = 0; oi < sizeof(inst_order) / sizeof(inst_order[0]); oi++) {
+            int inst = inst_order[oi];
+            last_st = 0;
+            if (mgmt_try_ctrl_inst(fd, ctrl, (uint8_t) inst, duration_ms, padded, &last_st) == 0) {
+                g_cached_ctrl = (int) ctrl;
+                g_cached_inst = inst;
+                RESULT_PRINTF("OK mgmt ctrl=%d inst=%d\n", g_cached_ctrl, g_cached_inst);
+                close(fd);
+                return 0;
+            }
+            if (g_verbose) {
+                fprintf(stderr, "TRY ctrl=%u inst=%d st=0x%02X\n", ctrl, inst, last_st & 0xFF);
             }
         }
     }
