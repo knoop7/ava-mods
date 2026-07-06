@@ -40,6 +40,8 @@
       "min": 50,
       "max": 200,
       "step": 1,
+      "unit": "%",
+      "mode": "slider",
       "read": "getSize",
       "set": "setSize"
     },
