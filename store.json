@@ -60,12 +60,12 @@
     {
       "id": "ble-adv-proxy",
       "name": "BLE ADV Proxy",
-      "version": "0.4.6",
+      "version": "0.4.7",
       "author": "Ava",
       "description": "ha-ble-adv BLE proxy. Scan nearby devices and control fans or lamps.",
       "detail_description": "Enabling this disables Ava Bluetooth proxy. This mod owns BLE scan and TX for ha-ble-adv.",
       "path": "mods/features/ble-adv-proxy/",
-      "jar_hash": "76e1097fbdfc09f9bafa258a6561bdd0"
+      "jar_hash": "f22d4d50c5667dbf7b290d6f79eef44d"
     },
     {
       "id": "dlna-renderer",

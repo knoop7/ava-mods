@@ -83,7 +83,9 @@ public class BleAdvProxyManager {
         this.exclusiveSession = new BleAdvExclusiveSession(leScanner, new Runnable() {
             @Override
             public void run() {
-                rawHciAdvertiser.prepControllerForAdv();
+                if (rawHciEnabled) {
+                    rawHciAdvertiser.prepControllerForAdv();
+                }
             }
         });
         this.leScanner.setResultHandler(new BleAdvLeScanner.ResultHandler() {
@@ -598,8 +600,10 @@ public class BleAdvProxyManager {
         if (!isStandalone() || !featureEnabled || !haServicesReady) {
             return;
         }
-        permissionHelper.ensurePrivilegedAccess();
-        rawHciAdvertiser.warmup();
+        if (rawHciEnabled) {
+            permissionHelper.ensurePrivilegedAccess();
+            rawHciAdvertiser.warmup();
+        }
         leScanner.start();
     }
 
