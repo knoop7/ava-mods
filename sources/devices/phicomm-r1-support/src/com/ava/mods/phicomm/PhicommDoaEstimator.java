@@ -225,7 +225,15 @@ final class PhicommDoaEstimator {
         }
     }
 
-    /** Four mics on the ring at 0/90/180/270 degrees — energy vector sum. */
+    /**
+     * Four mics on the ring at 0/90/180/270 degrees — energy vector sum.
+     *
+     * The raw {@code atan2(y, x)} convention here runs counterclockwise; downstream the stock
+     * {@link PhicommLightIndexProcessor#getIndex} applies the OEM HAL mirror
+     * ({@code 360 - angle}), which is calibrated for the Unisound board's clockwise angles.
+     * {@link #toHalConvention} pre-mirrors the estimate so the net direction is correct
+     * instead of reversed.
+     */
     private static int estimateFromFourChannels(byte[] interleaved) {
         double[] energy = new double[4];
         int frames = interleaved.length / 8;
@@ -246,7 +254,7 @@ final class PhicommDoaEstimator {
         if (angle < 0) {
             angle += 360;
         }
-        return angle;
+        return toHalConvention(angle);
     }
 
     /** Stereo GCC-PHAT lite: lag sign maps to left/right hemisphere. */
@@ -277,7 +285,17 @@ final class PhicommDoaEstimator {
         if (bestLag == 0) {
             return 0;
         }
-        return bestLag > 0 ? 90 : 270;
+        // Positive lag = right channel delayed = source on the left. Emit in HAL convention
+        // (see toHalConvention) so the stock mirror lands on the correct side.
+        return bestLag > 0 ? toHalConvention(90) : toHalConvention(270);
+    }
+
+    /**
+     * Converts the estimator's counterclockwise angle to the OEM HAL's convention expected by
+     * {@link PhicommLightIndexProcessor} (which mirrors with {@code 360 - angle}).
+     */
+    private static int toHalConvention(int counterClockwiseAngle) {
+        return (360 - counterClockwiseAngle) % 360;
     }
 
     private static int sampleAt(byte[] data, int frameIndex, int channel) {

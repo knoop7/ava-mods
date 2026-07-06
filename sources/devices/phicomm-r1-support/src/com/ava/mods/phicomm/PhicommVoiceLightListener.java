@@ -34,6 +34,11 @@ public final class PhicommVoiceLightListener {
         if (accentRgb != 0) {
             sessionAccentRgb = accentRgb & 0xFFFFFF;
         }
+        if (doaAngle < 0 || doaAngle >= 360) {
+            // No DOA source — a fixed direction (stock maps invalid to index 19) is misleading.
+            Log.d(TAG, "onWakeupSuccess without DOA — skip directional LED");
+            return;
+        }
         int index = PhicommLightIndexProcessor.getIndex(doaAngle);
         Log.d(TAG, "onWakeupSuccess doa=" + doaAngle + " index=" + index
             + " accent=#" + Integer.toHexString(sessionAccentRgb));

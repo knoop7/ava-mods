@@ -125,9 +125,25 @@ public class PhicommR1SupportManager implements PhicommKeyEventListener.Handler 
             case "enable_music_rgb_light":
                 setMusicRgbLightEnabled(parseBoolean(value, true));
                 break;
+            case "reverse_doa":
+                setReverseDoa(parseBoolean(value, false));
+                break;
+            case "music_light_mode":
+                setMusicLightMode(parseInt(value, 0));
+                break;
             default:
                 break;
         }
+    }
+
+    public void setReverseDoa(boolean reverse) {
+        PhicommDoaResolver.setReverseAngle(reverse);
+        Log.i(TAG, "reverse DOA=" + reverse);
+    }
+
+    public void setMusicLightMode(int mode) {
+        musicLightController.setVisualizerMode(mode);
+        Log.i(TAG, "music light mode=" + mode);
     }
 
     public void setFourMicEnabled(boolean enabled) {
@@ -300,14 +316,11 @@ public class PhicommR1SupportManager implements PhicommKeyEventListener.Handler 
                 break;
 
             case "listening_started":
+                // Only refresh the session accent — stock fires the wake sweep animation once
+                // per wake; re-sending 4096/index here restarted the 200 ms sweep visibly.
                 int accent = wakeAccentTracker.onListeningStarted(extras);
-                if (voiceSessionActive) {
-                    if (accent != 0) {
-                        voiceLightListener.setSessionAccentColor(accent);
-                    }
-                    voiceLightListener.onWakeupSuccess(
-                        wakeAccentTracker.getPendingDoa(),
-                        wakeAccentTracker.getSessionAccentRgb());
+                if (voiceSessionActive && accent != 0) {
+                    voiceLightListener.setSessionAccentColor(accent);
                 }
                 break;
 
@@ -422,8 +435,31 @@ public class PhicommR1SupportManager implements PhicommKeyEventListener.Handler 
             enableVolumeLed = readConfigBoolean(json, "enable_volume_led", false);
             enableTopKeySensor = readConfigBoolean(json, "enable_top_key_sensor", true);
             enableMusicRgbLight = readConfigBoolean(json, "enable_music_rgb_light", true);
+            PhicommDoaResolver.setReverseAngle(readConfigBoolean(json, "reverse_doa", false));
+            musicLightController.setVisualizerMode(readConfigInt(json, "music_light_mode", 0));
         } catch (Throwable t) {
             Log.w(TAG, "bootstrapFromAvaConfig failed", t);
+        }
+    }
+
+    private static int readConfigInt(String json, String key, int defaultValue) {
+        try {
+            java.util.regex.Matcher matcher = java.util.regex.Pattern
+                .compile("\"" + java.util.regex.Pattern.quote(key) + "\"\\s*:\\s*\"?(-?\\d+)\"?")
+                .matcher(json);
+            if (matcher.find()) {
+                return Integer.parseInt(matcher.group(1));
+            }
+        } catch (Throwable ignored) {
+        }
+        return defaultValue;
+    }
+
+    private static int parseInt(String value, int defaultValue) {
+        try {
+            return Integer.parseInt(value.trim());
+        } catch (Throwable t) {
+            return defaultValue;
         }
     }
 

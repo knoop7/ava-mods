@@ -70,6 +70,7 @@ final class PhicommOemDoaReader {
         }
         try {
             int angle = hal.get4MicDoaResult();
+            resetWakeStatusQuietly();
             if (isValidAngle(angle)) {
                 return angle;
             }
@@ -77,6 +78,15 @@ final class PhicommOemDoaReader {
             Log.w(TAG, "get4MicDoaResult failed", t);
         }
         return -1;
+    }
+
+    /** Stock toggles wakeup status per session (option 10104); re-arm for the next wake. */
+    private static void resetWakeStatusQuietly() {
+        try {
+            hal.set4MicWakeUpStatus(0);
+        } catch (Throwable t) {
+            Log.d(TAG, "set4MicWakeUpStatus(0) failed: " + t.getMessage());
+        }
     }
 
     static void ensureStarted() {

@@ -23,18 +23,25 @@ final class PhicommLightsEffectsCatalog {
     private static final String TAG = "PhicommLightsCatalog";
     static final String SYSTEM_PATH = "/system/etc/lights_effects.conf";
 
+    /**
+     * Minimal mirror of the real R1 conf (extracted from 官改 v1.2 {@code system.img}):
+     * channel_num=3; wakeup ids 1–24 are white-LED sweeps on channel 1 (auto-close 200 s);
+     * 100 = dormant GPIO LEDs on channel 2; 203 = blue breathing loading; 254 = red
+     * net-disconnect (auto-close 60 s); 300–315 / 400–415 = ring brightness steps
+     * (auto-close 3 s); 519 = blank/claim ring for the music visualizer.
+     */
     private static final String BUILTIN_CONF =
-        "channel_num=8\n"
-        + "1,0,50,0,wakeup_dir_1\n"
-        + "24,0,50,0,wakeup_dir_24\n"
-        + "100,1,40,0,dormant\n"
-        + "203,2,60,0,loading\n"
-        + "254,3,30,0,net_disconnect\n"
-        + "300,4,20,0,vol_up_0\n"
-        + "315,4,20,0,vol_up_15\n"
-        + "400,5,20,0,vol_down_0\n"
-        + "415,5,20,0,vol_down_15\n"
-        + "519,6,35,0,playing_music\n";
+        "channel_num=3\n"
+        + "1,1,1,200,wakeup_dir_1\n"
+        + "24,1,1,200,wakeup_dir_24\n"
+        + "100,2,1,0,dormant_gpio\n"
+        + "203,0,1,0,loading_blue_breathe\n"
+        + "254,0,1,60,net_disconnect_red\n"
+        + "300,0,1,3,vol_up_0\n"
+        + "315,0,1,3,vol_up_15\n"
+        + "400,0,1,3,vol_down_0\n"
+        + "415,0,1,3,vol_down_15\n"
+        + "519,0,1,0,playing_music_blank\n";
 
     static final class Entry {
         final int id;

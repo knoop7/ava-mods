@@ -36,7 +36,8 @@ javac -source 1.8 -target 1.8 \
     -cp "$ANDROID_JAR" \
     -d "$BUILD_DIR" \
     src/com/ava/mods/phicomm/*.java \
-    src/com/unisound/jni/*.java
+    src/com/unisound/jni/*.java \
+    src/com/phicomm/speaker/player/light/*.java
 
 if [ $? -ne 0 ]; then
     echo "Compilation failed!"

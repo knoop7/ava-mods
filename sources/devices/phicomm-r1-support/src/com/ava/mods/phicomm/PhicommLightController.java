@@ -43,6 +43,7 @@ public final class PhicommLightController {
     }
 
     public void turnOffLoadingLight() {
+        PhicommRingBreather.stop();
         if (PhicommLedLightJni.isAvailable()) {
             PhicommLedLightJni.clearVoiceLoadingRing();
         }
@@ -58,17 +59,17 @@ public final class PhicommLightController {
     }
 
     public void turnOnLoadingLight(int accentRgb) {
-        bridge.sendMessage(LIGHT_WHAT, LIGHT_ID_LOADING, LIGHT_ACTION_CLOSE, null);
         if (PhicommLedLightJni.isAvailable()) {
+            // Breathing animation like stock 203 (1500 ms ramp), tinted with the wake accent.
+            bridge.sendMessage(LIGHT_WHAT, LIGHT_ID_LOADING, LIGHT_ACTION_CLOSE, null);
             int rgb = accentRgb != 0
                 ? accentRgb & 0xFFFFFF
                 : PhicommWakeAccentTracker.DEFAULT_WAKE_WORD_1_RGB;
-            PhicommLedLightJni.setRingColor(rgb);
+            PhicommRingBreather.start(rgb);
             return;
         }
-        if (accentRgb == 0 || PhicommWakeAccentTracker.isWakeWord2Accent(accentRgb)) {
-            bridge.sendMessage(LIGHT_WHAT, LIGHT_ID_LOADING, LIGHT_ACTION_OPEN, null);
-        }
+        // Stock parity: 203 is the blue breathing loading effect and must always show.
+        bridge.sendMessage(LIGHT_WHAT, LIGHT_ID_LOADING, LIGHT_ACTION_OPEN, null);
     }
 
     public void turnOnNetDisconnectedLight() {

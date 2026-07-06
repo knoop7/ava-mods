@@ -17,8 +17,14 @@ public final class PhicommDoaResolver {
     static final String EXTRA_WAKE_DOA_ANGLE = "wake_doa_angle";
 
     private static volatile boolean started;
+    private static volatile boolean reverseAngle;
 
     private PhicommDoaResolver() {
+    }
+
+    /** User calibration knob: mirror the resolved angle when the board reports reversed DOA. */
+    public static void setReverseAngle(boolean reverse) {
+        reverseAngle = reverse;
     }
 
     public static void start(Context context, PhicommPrivilegedShell shell) {
@@ -61,8 +67,7 @@ public final class PhicommDoaResolver {
         if (extras != null && extras.containsKey(EXTRA_WAKE_DOA_ANGLE)) {
             int angle = extras.getInt(EXTRA_WAKE_DOA_ANGLE, -1);
             if (isValidAngle(angle)) {
-                logResolved("pipeline", angle);
-                return angle;
+                return finish("pipeline", angle);
             }
         }
 
@@ -74,19 +79,25 @@ public final class PhicommDoaResolver {
             PhicommOemDoaReader.onWakeDetected();
             int oemAngle = PhicommOemDoaReader.readAngle();
             if (isValidAngle(oemAngle)) {
-                logResolved("oem", oemAngle);
-                return oemAngle;
+                return finish("oem", oemAngle);
             }
         }
 
         int estimated = PhicommDoaEstimator.readAngle();
         if (isValidAngle(estimated)) {
-            logResolved("fallback", estimated);
-            return estimated;
+            return finish("fallback", estimated);
         }
 
         Log.d(TAG, "DOA unavailable");
         return -1;
+    }
+
+    private static int finish(String source, int angle) {
+        if (reverseAngle) {
+            angle = (360 - angle) % 360;
+        }
+        logResolved(source, angle);
+        return angle;
     }
 
     private static void logResolved(String source, int angle) {

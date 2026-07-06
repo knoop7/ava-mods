@@ -13,7 +13,6 @@ final class PhicommMusicLightController implements AvaPlaybackMonitor.Listener {
     private final PhicommLightController lights;
     private final PhicommStatusBridge statusBridge;
     private final AvaPlaybackMonitor playbackMonitor;
-    private final PhicommMusicLightFallback fallback;
     private final PhicommMusicRgbEngine rgbEngine;
 
     private volatile boolean enabled = true;
@@ -27,10 +26,14 @@ final class PhicommMusicLightController implements AvaPlaybackMonitor.Listener {
         appContext = context.getApplicationContext();
         lights = new PhicommLightController(appContext);
         statusBridge = new PhicommStatusBridge(appContext);
-        fallback = new PhicommMusicLightFallback(lights);
-        rgbEngine = new PhicommMusicRgbEngine(appContext, fallback);
+        rgbEngine = new PhicommMusicRgbEngine(appContext, lights);
         playbackMonitor = new AvaPlaybackMonitor(appContext);
         playbackMonitor.setListener(this);
+    }
+
+    /** Stock PlayerVisualizer mode 0–3 (0 ring breathing, 1–3 spectrum segments). */
+    void setVisualizerMode(int mode) {
+        rgbEngine.setMode(mode);
     }
 
     void setEnabled(boolean enabled) {
