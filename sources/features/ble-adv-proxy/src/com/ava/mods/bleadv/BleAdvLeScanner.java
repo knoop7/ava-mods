@@ -23,6 +23,7 @@ final class BleAdvLeScanner {
     private static final String TAG = "BleAdvLeScanner";
     private static final long RESTART_DELAY_MS = 1500L;
     private static final long STOP_SETTLE_MS = 150L;
+    private static final long LIGHT_STOP_SETTLE_MS = 40L;
 
     /** Stable callback object — must not be recreated or stopScan cannot match scannerId N-1. */
     private static final ScanCallback STABLE_CALLBACK = new ScanCallback() {
@@ -88,7 +89,6 @@ final class BleAdvLeScanner {
         }
         if (!permissionHelper.hasBluetoothScanPermission()) {
             Log.w(TAG, "BLUETOOTH_SCAN/location not granted — cannot start mod scan");
-            permissionHelper.ensurePrivilegedAccess();
             return;
         }
         BluetoothLeScanner leScanner = resolveScanner();
@@ -126,10 +126,15 @@ final class BleAdvLeScanner {
 
     @SuppressLint("MissingPermission")
     void pauseForExclusive() {
+        pauseForExclusive(false);
+    }
+
+    @SuppressLint("MissingPermission")
+    void pauseForExclusive(boolean lightWindow) {
         pausedForExclusive.set(true);
         BluetoothLeScanner leScanner = resolveScanner();
         if (leScanner != null) {
-            forceStopScan(leScanner);
+            forceStopScan(leScanner, lightWindow);
         } else {
             hardwareRunning.set(false);
         }
@@ -150,13 +155,18 @@ final class BleAdvLeScanner {
 
     @SuppressLint("MissingPermission")
     private void forceStopScan(BluetoothLeScanner leScanner) {
+        forceStopScan(leScanner, false);
+    }
+
+    @SuppressLint("MissingPermission")
+    private void forceStopScan(BluetoothLeScanner leScanner, boolean lightWindow) {
         try {
             leScanner.stopScan(STABLE_CALLBACK);
         } catch (Exception e) {
             Log.w(TAG, "stopScan failed: " + e.getMessage());
         }
         hardwareRunning.set(false);
-        settle(STOP_SETTLE_MS);
+        settle(lightWindow ? LIGHT_STOP_SETTLE_MS : STOP_SETTLE_MS);
     }
 
     private BluetoothLeScanner resolveScanner() {

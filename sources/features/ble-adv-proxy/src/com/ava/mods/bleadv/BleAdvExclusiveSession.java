@@ -10,6 +10,8 @@ final class BleAdvExclusiveSession {
     private static final String TAG = "BleAdvExclusive";
     private static final int ENTER_SETTLE_MS = 400;
     private static final int EXIT_SETTLE_MS = 150;
+    private static final int LIGHT_ENTER_SETTLE_MS = 80;
+    private static final int LIGHT_EXIT_SETTLE_MS = 40;
 
     private final Object lock = new Object();
     private final BleAdvLeScanner scanner;
@@ -26,14 +28,21 @@ final class BleAdvExclusiveSession {
     }
 
     void runExclusive(Runnable task) {
+        runExclusive(task, false);
+    }
+
+    /** {@code lightWindow=true} for broadcast-only TX — shorter scan pause, no raw prep. */
+    void runExclusive(Runnable task, boolean lightWindow) {
         if (task == null) {
             return;
         }
+        int enterMs = lightWindow ? LIGHT_ENTER_SETTLE_MS : ENTER_SETTLE_MS;
+        int exitMs = lightWindow ? LIGHT_EXIT_SETTLE_MS : EXIT_SETTLE_MS;
         synchronized (lock) {
             active = true;
-            scanner.pauseForExclusive();
-            settle(ENTER_SETTLE_MS);
-            if (prepController != null) {
+            scanner.pauseForExclusive(lightWindow);
+            settle(enterMs);
+            if (!lightWindow && prepController != null) {
                 try {
                     prepController.run();
                 } catch (Exception e) {
@@ -43,7 +52,7 @@ final class BleAdvExclusiveSession {
             try {
                 task.run();
             } finally {
-                settle(EXIT_SETTLE_MS);
+                settle(exitMs);
                 scanner.resumeAfterExclusive();
                 active = false;
             }

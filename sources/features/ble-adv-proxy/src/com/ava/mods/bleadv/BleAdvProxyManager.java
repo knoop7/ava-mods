@@ -188,7 +188,9 @@ public class BleAdvProxyManager {
         this.hostApi = hostApi;
         BleAdvManifestReader.invalidateCache();
         if (isStandalone()) {
-            permissionHelper.ensurePrivilegedAccess();
+            if (rawHciEnabled) {
+                permissionHelper.ensurePrivilegedAccess();
+            }
             if (!permissionHelper.hasRequiredBlePermissions()) {
                 Log.w(TAG, "standalone: missing BLE runtime permissions — enable mod in store to grant");
             }
@@ -553,7 +555,7 @@ public class BleAdvProxyManager {
 
     private void runExclusive(Runnable task) {
         if (isStandalone()) {
-            exclusiveSession.runExclusive(task);
+            exclusiveSession.runExclusive(task, !rawHciEnabled);
             return;
         }
         Object api = hostApi;
