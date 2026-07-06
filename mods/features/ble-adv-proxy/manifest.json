@@ -1,10 +1,10 @@
 {
   "id": "ble-adv-proxy",
   "name": "BLE ADV Proxy",
-  "version": "0.4.4",
+  "version": "0.4.6",
   "author": "Ava",
-  "description": "Bidirectional raw BLE advertising proxy for ha-ble-adv. Standalone mode owns BLE scan/TX on the device.",
-  "detail_description": "esphome-ble_adv_proxy port for ha-ble-adv. Standalone mode (default) runs its own LE scan and MGMT/HCI transmit without Ava Bluetooth detect. Set ble_adv_standalone:false in manifest only for legacy unified host scan. Requires Shizuku or root for 1:1 raw PDU (Flags included).",
+  "description": "ha-ble-adv BLE proxy. Scan nearby devices and control fans or lamps.",
+  "detail_description": "Enabling this disables Ava Bluetooth proxy. This mod owns BLE scan and TX for ha-ble-adv.",
   "icon": "mdi:ceiling-fan",
   "libs": [
     "libs/ble-adv-proxy-manager.jar"
@@ -34,9 +34,9 @@
     },
     {
       "type": "switch",
-      "key": "enable_raw_hci",
-      "label": "Raw HCI (Shizuku/root, 1:1)",
-      "description": "Inject the full raw PDU (Flags included) via privileged HCI/MGMT for true 1:1 with ha-ble-adv. Uses Shizuku shell on Portal devices, or su on rooted devices. Auto-falls back to AdvertiseData when unavailable.",
+      "key": "force_broadcast",
+      "label": "Force BLE Broadcast",
+      "description": "On (default) forces standard BLE broadcast, works on all phones. Turn off only on rooted devices with kernel HCI for true 1:1 with Flags.",
       "defaultValue": "true"
     },
     {
@@ -57,5 +57,5 @@
       "read": "getAdapterName"
     }
   ],
-  "jar_hash": "bf5a38c1b2384bba3940af5e67b05442"
+  "jar_hash": "76e1097fbdfc09f9bafa258a6561bdd0"
 }

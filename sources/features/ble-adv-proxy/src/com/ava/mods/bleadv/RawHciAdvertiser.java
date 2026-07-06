@@ -25,6 +25,13 @@ final class RawHciAdvertiser {
     private static volatile boolean jniAttempted;
     private static volatile boolean jniLoaded;
     private static volatile int jniConsecutiveFailures;
+    /**
+     * Set once the privileged path proves structurally impossible on this device (kernel MGMT
+     * reports no usable controller — {@code invalid_index}). Android phones whose controller is
+     * owned by the userspace HAL can never advertise via kernel HCI/MGMT, so we stop retrying and
+     * go straight to the AdvertiseData fallback instead of stalling seconds on every packet.
+     */
+    private static volatile boolean rawPathUnsupported;
 
     private final Context context;
     private final BleAdvPermissionHelper permissionHelper;
@@ -57,7 +64,9 @@ final class RawHciAdvertiser {
      * {@code AdvertiseData} fallback instead of burning a settle + retries on every burst.
      */
     boolean isAvailable() {
-        return hasHelperBinary() && permissionHelper.isPrivilegedAvailable();
+        return !rawPathUnsupported
+                && hasHelperBinary()
+                && permissionHelper.isPrivilegedAvailable();
     }
 
     String getLastTransport() {
@@ -74,6 +83,9 @@ final class RawHciAdvertiser {
     }
 
     void prepControllerForAdv() {
+        if (rawPathUnsupported) {
+            return;
+        }
         if (preferShellFirst()) {
             runPrepViaShell();
             return;
@@ -158,6 +170,12 @@ final class RawHciAdvertiser {
                         ? ("exit_" + result.exitCode)
                         : result.output.trim();
                 Log.w(TAG, "raw TX attempt " + (attempt + 1) + " failed: " + lastReason);
+                if (isPermanentTransportFailure(result.output)) {
+                    rawPathUnsupported = true;
+                    Log.w(TAG, "kernel MGMT has no usable controller (invalid_index) — "
+                            + "disabling raw path, using AdvertiseData for this session");
+                    return lastReason;
+                }
             }
             return lastReason.isEmpty() ? "privileged_exec_failed" : lastReason;
         }
@@ -300,6 +318,14 @@ final class RawHciAdvertiser {
 
     private static boolean containsOk(String out) {
         return out != null && (out.contains("OK mgmt") || out.contains("OK hci") || out.contains("OK "));
+    }
+
+    /**
+     * {@code invalid_index} means kernel MGMT does not manage any controller we can advertise on
+     * (Android HAL owns the controller) — a permanent condition, not a transient busy state.
+     */
+    private static boolean isPermanentTransportFailure(String out) {
+        return out != null && (out.contains("invalid_index") || out.contains("status=0x11"));
     }
 
     private void logTransport(String out) {

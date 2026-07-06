@@ -161,8 +161,10 @@ public class BleAdvProxyManager {
             case "use_max_tx_power":
                 useMaxTxPower = parseBoolean(value, true);
                 break;
-            case "enable_raw_hci":
-                boolean nextRawHci = parseBoolean(value, true);
+            case "force_broadcast":
+                // Inverted switch: ON (default) forces standard BLE broadcast and disables the
+                // advanced raw HCI/MGMT path. OFF re-enables the root-only 1:1 raw path.
+                boolean nextRawHci = !parseBoolean(value, true);
                 boolean userToggled = rawHciConfigInitialized && nextRawHci != rawHciEnabled;
                 rawHciEnabled = nextRawHci;
                 rawHciConfigInitialized = true;
@@ -470,30 +472,46 @@ public class BleAdvProxyManager {
     }
 
     /**
-     * Sends one advertising burst. Tries the true-1:1 raw HCI/MGMT path first when privileged
-     * access is actually available, then always falls back to {@link BluetoothLeAdvertiser}
-     * {@code AdvertiseData}. The AdvertiseData path reproduces every data structure byte-for-byte
-     * except the 3-byte codec Flags prefix, which Android controls — and which ble_adv fan/lamp
-     * devices ignore. Guaranteeing this fallback is what makes control actually work on phones
-     * without root/Shizuku or a kernel HCI transport.
+     * Sends one advertising burst.
+     *
+     * <p>Primary path is the standard {@link BluetoothLeAdvertiser} broadcast, which works on
+     * every phone with no root/Shizuku and no delay. It reproduces every AD data structure
+     * byte-for-byte; only the 3-byte codec Flags prefix is controlled by Android, and ble_adv
+     * fan/lamp devices match on the self-delimiting data structure, not Flags.
+     *
+     * <p>Raw HCI/MGMT (true 1:1 including Flags) is an opt-in advanced path for rooted devices
+     * with a real kernel HCI transport. It is off by default and only attempted when explicitly
+     * enabled and actually available; otherwise we broadcast directly.
      */
     private String transmitOneBurst(BleAdvTransmitter transmitter, byte[] raw, int burstMs) {
-        boolean tryRaw = rawHciEnabled && rawHciAdvertiser.isAvailable();
-        if (tryRaw) {
+        if (rawHciEnabled && rawHciAdvertiser.isAvailable()) {
             pauseForRawAdvertise();
             String rawErr = rawHciAdvertiser.transmit(-1, "auto", burstMs, raw);
             if (rawErr == null) {
                 Log.i(TAG, "TX ok raw HCI/MGMT (1:1) len=" + raw.length + " burst=" + burstMs + "ms");
                 return "";
             }
-            Log.w(TAG, "raw HCI failed (" + rawErr + "), falling back to AdvertiseData hex="
-                    + RawAdvParser.toHex(raw));
+            Log.w(TAG, "raw HCI unavailable (" + rawErr + "), broadcasting via AdvertiseData");
         }
         String err = transmitter.transmitBlocking(raw, burstMs);
-        if (err == null || err.isEmpty()) {
-            Log.i(TAG, "TX ok AdvertiseData burst=" + burstMs + "ms (Flags dropped)");
+        if ((err == null || err.isEmpty())) {
+            Log.i(TAG, "TX ok BLE broadcast burst=" + burstMs + "ms");
+            return "";
         }
-        return err;
+        Log.w(TAG, "BLE broadcast failed (" + err + "), retrying once");
+        try {
+            Thread.sleep(120L);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return err;
+        }
+        String retryErr = transmitter.transmitBlocking(raw, burstMs);
+        if (retryErr == null || retryErr.isEmpty()) {
+            Log.i(TAG, "TX ok BLE broadcast (retry) burst=" + burstMs + "ms");
+            return "";
+        }
+        Log.w(TAG, "BLE broadcast failed after retry: " + retryErr);
+        return retryErr;
     }
 
     private void scheduleCapabilityProbe() {

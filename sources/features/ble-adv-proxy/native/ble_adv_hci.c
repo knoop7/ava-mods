@@ -67,6 +67,7 @@ static void out_line(const char *fmt, ...) {
 #define OCF_SET_SCAN_ENABLE 0x000C
 
 #define MGMT_OP_READ_INDEX_LIST 0x0003
+#define MGMT_OP_READ_EXT_INDEX_LIST 0x0015
 #define MGMT_OP_STOP_DISCOVERY 0x0024
 #define MGMT_OP_ADD_ADVERTISING 0x003E
 #define MGMT_OP_REMOVE_ADVERTISING 0x003F
@@ -319,6 +320,79 @@ static int mgmt_read_controller_indices(int fd, uint16_t *out, int max_n) {
     return 0;
 }
 
+/*
+ * Read Extended Controller Index List (0x0015). Newer kernels only expose the
+ * controller here (not in the classic 0x0003 list). Response payload:
+ *   [0..1] num_controllers, then per entry: index(2) type(1) bus(1).
+ * We keep only primary BR/EDR/LE controllers (type 0x00).
+ */
+static int mgmt_read_ext_controller_indices(int fd, uint16_t *out, int max_n) {
+    uint8_t pkt[6] = {
+        MGMT_OP_READ_EXT_INDEX_LIST & 0xFF, (MGMT_OP_READ_EXT_INDEX_LIST >> 8) & 0xFF,
+        0xFF, 0xFF, 0x00, 0x00
+    };
+    if (write(fd, pkt, sizeof(pkt)) < 0) {
+        return 0;
+    }
+
+    long deadline = now_ms() + 1500;
+    uint8_t buf[512];
+    while (now_ms() < deadline) {
+        struct pollfd pfd = {fd, POLLIN, 0};
+        int pr = poll(&pfd, 1, (int) (deadline - now_ms()));
+        if (pr <= 0) break;
+        int r = read(fd, buf, sizeof(buf));
+        if (r < 11) continue;
+        uint16_t ev = buf[0] | (buf[1] << 8);
+        uint16_t cop = buf[6] | (buf[7] << 8);
+        if (ev == MGMT_EV_CMD_STATUS && cop == MGMT_OP_READ_EXT_INDEX_LIST) {
+            return 0;
+        }
+        if (ev != MGMT_EV_CMD_COMPLETE || cop != MGMT_OP_READ_EXT_INDEX_LIST) {
+            continue;
+        }
+        if (buf[8] != 0) {
+            return 0;
+        }
+        int n = buf[9] | (buf[10] << 8);
+        int copied = 0;
+        for (int i = 0; i < n && copied < max_n; i++) {
+            int off = 11 + i * 4;
+            if (off + 3 >= r) break;
+            uint8_t type = buf[off + 2];
+            if (type != 0x00) {
+                continue;
+            }
+            out[copied++] = (uint16_t) (buf[off] | (buf[off + 1] << 8));
+        }
+        return copied;
+    }
+    return 0;
+}
+
+/* Enumerate controllers, preferring the classic list and merging the extended one. */
+static int mgmt_read_all_controller_indices(int fd, uint16_t *out, int max_n) {
+    int n = mgmt_read_controller_indices(fd, out, max_n);
+    if (n >= max_n) {
+        return n;
+    }
+    uint16_t ext[MAX_MGMT_CTRL];
+    int en = mgmt_read_ext_controller_indices(fd, ext, MAX_MGMT_CTRL);
+    for (int i = 0; i < en && n < max_n; i++) {
+        int dup = 0;
+        for (int j = 0; j < n; j++) {
+            if (out[j] == ext[i]) {
+                dup = 1;
+                break;
+            }
+        }
+        if (!dup) {
+            out[n++] = ext[i];
+        }
+    }
+    return n;
+}
+
 /* Release LE scan before MGMT Add Advertising — Java stopScan() is not enough on Android. */
 static void hci_disable_le_scan(int dev) {
     int fd = open_hci_raw(dev);
@@ -399,7 +473,8 @@ static int try_mgmt(int dev, int duration_ms, const uint8_t *padded) {
     }
 
     uint16_t ctrls[MAX_MGMT_CTRL];
-    int nctrl = mgmt_read_controller_indices(fd, ctrls, MAX_MGMT_CTRL);
+    int nctrl = mgmt_read_all_controller_indices(fd, ctrls, MAX_MGMT_CTRL);
+    int enumerated = nctrl;
     if (nctrl <= 0) {
         ctrls[0] = (uint16_t) dev;
         nctrl = 1;
@@ -468,8 +543,9 @@ static int try_mgmt(int dev, int duration_ms, const uint8_t *padded) {
         }
     }
 
-    RESULT_PRINTF("FAIL mgmt status=0x%02X (%s) nctrl=%d\n",
-                  last_st & 0xFF, mgmt_status_name(last_st), nctrl);
+    RESULT_PRINTF("FAIL mgmt status=0x%02X (%s) nctrl=%d enum=%d idx0=%d\n",
+                  last_st & 0xFF, mgmt_status_name(last_st), nctrl, enumerated,
+                  enumerated > 0 ? (int) ctrls[0] : -1);
     if (g_verbose) fprintf(stderr, "mgmt exhausted, last=0x%02X\n", last_st);
     close(fd);
     return -2;
@@ -602,7 +678,7 @@ int ble_adv_prep_controller(int dev) {
         return -1;
     }
     uint16_t ctrls[MAX_MGMT_CTRL];
-    int nctrl = mgmt_read_controller_indices(fd, ctrls, MAX_MGMT_CTRL);
+    int nctrl = mgmt_read_all_controller_indices(fd, ctrls, MAX_MGMT_CTRL);
     if (nctrl <= 0) {
         ctrls[0] = (uint16_t) dev;
         nctrl = 1;
