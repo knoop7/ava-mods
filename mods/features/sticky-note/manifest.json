@@ -39,7 +39,7 @@
       "category": "diagnostic",
       "min": 50,
       "max": 200,
-      "step": 5,
+      "step": 1,
       "read": "getSize",
       "set": "setSize"
     },
@@ -52,5 +52,5 @@
       "press": "clearNote"
     }
   ],
-  "jar_hash": "a92d341e30c124b10341578841cbf852"
+  "jar_hash": "91ed2c7def2b31d34260baef9dfe1814"
 }

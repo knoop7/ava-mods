@@ -115,6 +115,10 @@ public class StickyNoteManager {
         return sizePercent;
     }
 
+    public void setSize(int size) {
+        setSize((float) size);
+    }
+
     public void setSize(float size) {
         int next = clampSize(Math.round(size));
         if (next == sizePercent) {

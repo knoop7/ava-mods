@@ -165,7 +165,7 @@
       "description": "Show a draggable on-screen note controlled from Home Assistant",
       "detail_description": "Show HA text on screen. Drag to move.",
       "path": "mods/features/sticky-note/",
-      "jar_hash": "a92d341e30c124b10341578841cbf852"
+      "jar_hash": "91ed2c7def2b31d34260baef9dfe1814"
     },
     {
       "id": "zigbee-gateway-mod",
