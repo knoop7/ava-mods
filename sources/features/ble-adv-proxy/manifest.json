@@ -1,7 +1,7 @@
 {
   "id": "ble-adv-proxy",
   "name": "BLE ADV Proxy",
-  "version": "0.4.7",
+  "version": "0.4.8",
   "author": "Ava",
   "description": "ha-ble-adv BLE proxy. Scan nearby devices and control fans or lamps.",
   "detail_description": "Enabling this disables Ava Bluetooth proxy. This mod owns BLE scan and TX for ha-ble-adv.",
@@ -57,5 +57,5 @@
       "read": "getAdapterName"
     }
   ],
-  "jar_hash": "f22d4d50c5667dbf7b290d6f79eef44d"
+  "jar_hash": "b2dbc4a01468339eaeeb6ce98a16a4ed"
 }

@@ -40,6 +40,25 @@ final class BleAdvTransmitter {
         return lastError != null ? lastError : "";
     }
 
+    /** Serialized AD length once the Flags structure (3 bytes) is stripped. */
+    private static int rawLenWithoutFlags(byte[] raw) {
+        int len = 0;
+        int i = 0;
+        int n = Math.min(raw.length, 31);
+        while (i < n) {
+            int fieldLen = raw[i] & 0xFF;
+            if (fieldLen == 0 || i + 1 >= n || i + 1 + fieldLen > n) {
+                break;
+            }
+            int type = raw[i + 1] & 0xFF;
+            if (type != 0x01) {
+                len += 1 + fieldLen;
+            }
+            i += 1 + fieldLen;
+        }
+        return len;
+    }
+
     @SuppressLint("MissingPermission")
     String transmitBlocking(byte[] raw, int durationMs) {
         lastError = "";
@@ -57,13 +76,21 @@ final class BleAdvTransmitter {
         }
 
         final AdvertiseData data;
+        final boolean restoreFlags;
         try {
             RawAdvParser.MappedAdv mapped = RawAdvParser.toMappedAdv(raw);
             data = mapped.data;
+            // The public API cannot emit a custom Flags AD, but the stack prepends its own
+            // Flags AD (02 01 1A) to connectable advertisements. Many ble_adv receivers parse
+            // the payload at a fixed offset after Flags, so restoring the 3-byte prefix (even
+            // with a different flags value) re-aligns the PDU. Only possible when the payload
+            // plus the 3-byte Flags still fits in the 31-byte legacy limit.
+            restoreFlags = mapped.flagsDropped && rawLenWithoutFlags(raw) + 3 <= 31;
             if (!mapped.fullyMapped) {
                 Log.w(TAG, "Raw adv not byte-exact (needs raw HCI for 1:1): " + mapped.note);
             } else if (mapped.flagsDropped) {
-                Log.d(TAG, "Raw adv mapped byte-exact except Flags AD (dropped by Android)");
+                Log.d(TAG, "Raw adv mapped byte-exact; Flags AD "
+                        + (restoreFlags ? "restored via connectable adv" : "dropped (no room)"));
             } else {
                 Log.d(TAG, "Raw adv mapped byte-exact");
             }
@@ -77,12 +104,15 @@ final class BleAdvTransmitter {
                 ? AdvertiseSettings.ADVERTISE_TX_POWER_HIGH
                 : AdvertiseSettings.ADVERTISE_TX_POWER_MEDIUM;
 
-        AdvertiseSettings settings = new AdvertiseSettings.Builder()
+        AdvertiseSettings.Builder settingsBuilder = new AdvertiseSettings.Builder()
                 .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
                 .setTxPowerLevel(txPower)
-                .setConnectable(false)
-                .setTimeout(0)
-                .build();
+                .setConnectable(restoreFlags)
+                .setTimeout(0);
+        if (restoreFlags && android.os.Build.VERSION.SDK_INT >= 34) {
+            settingsBuilder.setDiscoverable(true);
+        }
+        AdvertiseSettings settings = settingsBuilder.build();
 
         CountDownLatch started = new CountDownLatch(1);
         AtomicBoolean success = new AtomicBoolean(false);
