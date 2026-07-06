@@ -25,9 +25,14 @@ public class StickyNoteManager {
     private static final String KEY_COLOR = "color";
     private static final String KEY_POS_X = "pos_x_ratio";
     private static final String KEY_POS_Y = "pos_y_ratio";
+    private static final String KEY_SIZE = "size_percent";
     private static final String ENTITY_MESSAGE = "message";
     private static final String ENTITY_COLOR = "color";
+    private static final String ENTITY_SIZE = "size";
     private static final String DEFAULT_COLOR = "yellow";
+    private static final int DEFAULT_SIZE_PERCENT = 100;
+    private static final int MIN_SIZE_PERCENT = 50;
+    private static final int MAX_SIZE_PERCENT = 200;
 
     private static final List<String> COLOR_OPTIONS = Arrays.asList(
             "yellow", "pink", "blue", "green", "orange", "purple", "dark"
@@ -42,9 +47,11 @@ public class StickyNoteManager {
     private final StickyNoteOverlay overlay;
     private final CopyOnWriteArrayList<Object> messageListeners = new CopyOnWriteArrayList<>();
     private final CopyOnWriteArrayList<Object> colorListeners = new CopyOnWriteArrayList<>();
+    private final CopyOnWriteArrayList<Object> sizeListeners = new CopyOnWriteArrayList<>();
 
     private String message = "";
     private String color = DEFAULT_COLOR;
+    private int sizePercent = DEFAULT_SIZE_PERCENT;
 
     private StickyNoteManager(Context context) {
         this.context = context.getApplicationContext();
@@ -52,6 +59,7 @@ public class StickyNoteManager {
         this.prefs = this.context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         this.message = prefs.getString(KEY_MESSAGE, "");
         this.color = normalizeColor(prefs.getString(KEY_COLOR, DEFAULT_COLOR));
+        this.sizePercent = clampSize(prefs.getInt(KEY_SIZE, DEFAULT_SIZE_PERCENT));
         float posX = prefs.getFloat(KEY_POS_X, 0.5f);
         float posY = prefs.getFloat(KEY_POS_Y, 0.5f);
         this.overlay = new StickyNoteOverlay(this.context, (centerXRatio, centerYRatio) ->
@@ -61,6 +69,7 @@ public class StickyNoteManager {
                         .apply()
         );
         this.overlay.setPositionRatios(posX, posY);
+        this.overlay.setSizeScale(sizePercent / 100f);
         applyOnMainThread();
     }
 
@@ -102,6 +111,22 @@ public class StickyNoteManager {
         notifyColorListeners(normalized);
     }
 
+    public float getSize() {
+        return sizePercent;
+    }
+
+    public void setSize(float size) {
+        int next = clampSize(Math.round(size));
+        if (next == sizePercent) {
+            return;
+        }
+        sizePercent = next;
+        prefs.edit().putInt(KEY_SIZE, next).apply();
+        overlay.setSizeScale(sizePercent / 100f);
+        applyOnMainThread();
+        notifySizeListeners(next);
+    }
+
     public void clearNote() {
         setMessage("");
     }
@@ -139,6 +164,13 @@ public class StickyNoteManager {
                 colorListeners.add(callback);
             }
             notifySingleListener(callback, color);
+            return true;
+        }
+        if (ENTITY_SIZE.equals(entityId)) {
+            if (!sizeListeners.contains(callback)) {
+                sizeListeners.add(callback);
+            }
+            notifySingleListener(callback, (float) sizePercent);
             return true;
         }
         return false;
@@ -190,6 +222,10 @@ public class StickyNoteManager {
         return COLOR_OPTION_SET.contains(normalized) ? normalized : DEFAULT_COLOR;
     }
 
+    private int clampSize(int value) {
+        return Math.max(MIN_SIZE_PERCENT, Math.min(MAX_SIZE_PERCENT, value));
+    }
+
     private void notifyMessageListeners(String value) {
         for (Object listener : messageListeners) {
             notifySingleListener(listener, value);
@@ -199,6 +235,12 @@ public class StickyNoteManager {
     private void notifyColorListeners(String value) {
         for (Object listener : colorListeners) {
             notifySingleListener(listener, value);
+        }
+    }
+
+    private void notifySizeListeners(int value) {
+        for (Object listener : sizeListeners) {
+            notifySingleListener(listener, (float) value);
         }
     }
 

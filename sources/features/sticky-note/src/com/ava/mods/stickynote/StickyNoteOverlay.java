@@ -42,6 +42,7 @@ final class StickyNoteOverlay {
     private int screenWidth;
     private int screenHeight;
     private float density;
+    private float sizeScale = 1f;
     private boolean visible;
 
     private float dragTouchX;
@@ -72,6 +73,16 @@ final class StickyNoteOverlay {
         return posYRatio;
     }
 
+    void setSizeScale(float scale) {
+        sizeScale = Math.max(0.5f, Math.min(2f, scale));
+        if (rootView != null) {
+            applyTextMetrics();
+            if (visible) {
+                rootView.post(this::applyPositionFromRatios);
+            }
+        }
+    }
+
     boolean isVisible() {
         return visible;
     }
@@ -88,6 +99,7 @@ final class StickyNoteOverlay {
 
         readDisplayMetrics();
         ensureViewTree();
+        applyTextMetrics();
         applyTheme(backgroundColor, textColor);
         textView.setText(message.trim());
 
@@ -154,19 +166,10 @@ final class StickyNoteOverlay {
             return;
         }
 
-        float minDim = Math.min(screenWidth, screenHeight);
-        float textSp = (minDim / density) * 0.042f;
-        int paddingPx = Math.round(textSp * density * 0.65f);
-        int cornerPx = Math.round(12f * density);
-        int maxWidthPx = Math.round(screenWidth * 0.78f);
-
         rootView = new FrameLayout(context);
         textView = new TextView(context);
-        textView.setMaxWidth(maxWidthPx);
-        textView.setTextSize(TypedValue.COMPLEX_UNIT_SP, textSp);
         textView.setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD));
         textView.setLineSpacing(0f, 1.12f);
-        textView.setPadding(paddingPx, paddingPx, paddingPx, paddingPx);
         textView.setIncludeFontPadding(false);
 
         FrameLayout.LayoutParams textLp = new FrameLayout.LayoutParams(
@@ -176,7 +179,6 @@ final class StickyNoteOverlay {
         rootView.addView(textView, textLp);
 
         GradientDrawable background = new GradientDrawable();
-        background.setCornerRadius(cornerPx);
         rootView.setBackground(background);
 
         rootView.setOnTouchListener((v, event) -> {
@@ -208,6 +210,25 @@ final class StickyNoteOverlay {
                     return false;
             }
         });
+    }
+
+    private void applyTextMetrics() {
+        if (textView == null || rootView == null) {
+            return;
+        }
+        float minDim = Math.min(screenWidth, screenHeight);
+        float textSp = (minDim / density) * 0.042f * sizeScale;
+        int paddingPx = Math.round(textSp * density * 0.65f);
+        int cornerPx = Math.round(12f * density * sizeScale);
+        int maxWidthPx = Math.round(screenWidth * 0.78f);
+
+        textView.setMaxWidth(maxWidthPx);
+        textView.setTextSize(TypedValue.COMPLEX_UNIT_SP, textSp);
+        textView.setPadding(paddingPx, paddingPx, paddingPx, paddingPx);
+
+        if (rootView.getBackground() instanceof GradientDrawable) {
+            ((GradientDrawable) rootView.getBackground()).setCornerRadius(cornerPx);
+        }
     }
 
     private void applyTheme(int backgroundColor, int textColor) {

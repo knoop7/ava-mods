@@ -17,6 +17,7 @@
       "id": "message",
       "name": "Sticky Note",
       "icon": "mdi:note-text",
+      "category": "diagnostic",
       "read": "getMessage",
       "set": "setMessage"
     },
@@ -25,9 +26,22 @@
       "id": "color",
       "name": "Note Color",
       "icon": "mdi:palette",
+      "category": "diagnostic",
       "options": ["yellow", "pink", "blue", "green", "orange", "purple", "dark"],
       "read": "getColor",
       "set": "setColor"
+    },
+    {
+      "type": "number",
+      "id": "size",
+      "name": "Note Size",
+      "icon": "mdi:format-size",
+      "category": "diagnostic",
+      "min": 50,
+      "max": 200,
+      "step": 5,
+      "read": "getSize",
+      "set": "setSize"
     },
     {
       "type": "button",
@@ -38,5 +52,5 @@
       "press": "clearNote"
     }
   ],
-  "jar_hash": "3c476aee6fa666c7be3022f2fe499fcd"
+  "jar_hash": "a92d341e30c124b10341578841cbf852"
 }
