@@ -1,0 +1,42 @@
+{
+  "id": "sticky-note",
+  "name": "Sticky Note",
+  "version": "1.0.0",
+  "author": "Ava",
+  "description": "Show a draggable on-screen note controlled from Home Assistant",
+  "detail_description": "Show HA text on screen. Drag to move.",
+  "icon": "mdi:note-text-outline",
+  "overlay_z_order": true,
+  "libs": [
+    "libs/sticky-note-manager.jar"
+  ],
+  "manager": "com.ava.mods.stickynote.StickyNoteManager",
+  "entities": [
+    {
+      "type": "text",
+      "id": "message",
+      "name": "Sticky Note",
+      "icon": "mdi:note-text",
+      "read": "getMessage",
+      "set": "setMessage"
+    },
+    {
+      "type": "select",
+      "id": "color",
+      "name": "Note Color",
+      "icon": "mdi:palette",
+      "options": ["yellow", "pink", "blue", "green", "orange", "purple", "dark"],
+      "read": "getColor",
+      "set": "setColor"
+    },
+    {
+      "type": "button",
+      "id": "clear",
+      "name": "Clear Note",
+      "icon": "mdi:eraser",
+      "category": "diagnostic",
+      "press": "clearNote"
+    }
+  ],
+  "jar_hash": "3c476aee6fa666c7be3022f2fe499fcd"
+}
