@@ -50,8 +50,14 @@ final class RawHciAdvertiser {
         return resolveAbiResource(HELPER_NAME) != null || resolveAbiResource(JNI_LIB_NAME) != null;
     }
 
+    /**
+     * The raw HCI/MGMT path can only work when we can open {@code AF_BLUETOOTH} control/raw
+     * sockets, which requires privileged access (root or Shizuku). On an unprivileged phone the
+     * helper always fails, so report unavailable here and let the caller go straight to the
+     * {@code AdvertiseData} fallback instead of burning a settle + retries on every burst.
+     */
     boolean isAvailable() {
-        return hasHelperBinary();
+        return hasHelperBinary() && permissionHelper.isPrivilegedAvailable();
     }
 
     String getLastTransport() {

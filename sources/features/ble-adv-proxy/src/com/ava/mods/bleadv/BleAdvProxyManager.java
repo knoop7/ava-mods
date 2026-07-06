@@ -470,34 +470,30 @@ public class BleAdvProxyManager {
     }
 
     /**
-     * Raw HCI/MGMT when enabled; AdvertiseData only if PDU has no custom Flags AD.
+     * Sends one advertising burst. Tries the true-1:1 raw HCI/MGMT path first when privileged
+     * access is actually available, then always falls back to {@link BluetoothLeAdvertiser}
+     * {@code AdvertiseData}. The AdvertiseData path reproduces every data structure byte-for-byte
+     * except the 3-byte codec Flags prefix, which Android controls — and which ble_adv fan/lamp
+     * devices ignore. Guaranteeing this fallback is what makes control actually work on phones
+     * without root/Shizuku or a kernel HCI transport.
      */
     private String transmitOneBurst(BleAdvTransmitter transmitter, byte[] raw, int burstMs) {
-        boolean needsExactPdu = RawAdvParser.hasFlagsAd(raw);
         boolean tryRaw = rawHciEnabled && rawHciAdvertiser.isAvailable();
         if (tryRaw) {
             pauseForRawAdvertise();
             String rawErr = rawHciAdvertiser.transmit(-1, "auto", burstMs, raw);
             if (rawErr == null) {
-                Log.i(TAG, "TX ok raw HCI/MGMT len=" + raw.length + " burst=" + burstMs + "ms");
+                Log.i(TAG, "TX ok raw HCI/MGMT (1:1) len=" + raw.length + " burst=" + burstMs + "ms");
                 return "";
             }
-            Log.w(TAG, "raw HCI failed: " + rawErr + " hex=" + RawAdvParser.toHex(raw));
-            if (needsExactPdu) {
-                return "flags_need_raw_hci:" + rawErr;
-            }
-        } else if (needsExactPdu) {
-            return "flags_need_raw_hci:" + privilegedShellLabel();
+            Log.w(TAG, "raw HCI failed (" + rawErr + "), falling back to AdvertiseData hex="
+                    + RawAdvParser.toHex(raw));
         }
         String err = transmitter.transmitBlocking(raw, burstMs);
         if (err == null || err.isEmpty()) {
-            Log.d(TAG, "TX ok AdvertiseData burst=" + burstMs + "ms");
+            Log.i(TAG, "TX ok AdvertiseData burst=" + burstMs + "ms (Flags dropped)");
         }
         return err;
-    }
-
-    private String privilegedShellLabel() {
-        return permissionHelper.getPrivilegedShellLabel();
     }
 
     private void scheduleCapabilityProbe() {
