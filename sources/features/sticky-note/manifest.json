@@ -1,10 +1,10 @@
 {
   "id": "sticky-note",
   "name": "Sticky Note",
-  "version": "1.0.1",
+  "version": "1.0.0",
   "author": "Ava",
-  "description": "Draggable on-screen sticky note for Ava — push reminders, lists, and alerts from Home Assistant automations, scripts, or dashboards.",
-  "detail_description": "Display Home Assistant text as a floating sticky note overlay on your Ava screen. Ideal for door codes, shopping lists, chore reminders, delivery notes, or any short message you want visible without opening another app. Drag the note anywhere on screen and the position is remembered across restarts. Choose from seven color themes (yellow, pink, blue, green, orange, purple, dark) and resize from 50% to 200% with a Home Assistant slider entity. The Sticky Note text entity accepts content from automations, scripts, dashboards, or voice announcements. The overlay uses proper z-order so the note stays visible above the Ava UI during voice interactions. Clear content instantly with the Clear Note button entity. No root required — works on any Ava device with overlay permission.",
+  "description": "Show a draggable on-screen note controlled from Home Assistant",
+  "detail_description": "Show HA text on screen. Drag to move.",
   "icon": "mdi:note-text-outline",
   "overlay_z_order": true,
   "libs": [
