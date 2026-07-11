@@ -1,15 +1,15 @@
 {
   "id": "portal-support",
   "name": "Facebook Portal",
-  "version": "1.1.9",
+  "version": "1.2.0",
   "author": "Ava",
-  "description": "Facebook Portal ambient sensors, presence detection, sound level, screen timeout, and alert tones for Home Assistant",
+  "description": "Facebook Portal ambient sensors, presence detection, physical volume, sound level, screen timeout, and alert tones for Home Assistant",
   "icon": "mdi:tablet-dashboard",
   "libs": [
     "libs/portal-support.jar"
   ],
   "manager": "com.ava.mods.portal.PortalSupportManager",
-  "jar_hash": "3513c7d491a7baeccc53162cf8b8e54b",
+  "jar_hash": "fde36c17ae67d77912defeb0aadf6ef4",
   "permissions": [
     "android.permission.CAMERA",
     "android.permission.RECORD_AUDIO",
@@ -153,6 +153,17 @@
       "enabledWhen": "enable_sound_level"
     },
     {
+      "type": "sensor",
+      "id": "physical_volume",
+      "name": "Physical Volume",
+      "icon": "mdi:volume-high",
+      "unit": "",
+      "category": "diagnostic",
+      "accuracyDecimals": 2,
+      "read": "getPhysicalVolume",
+      "enabledWhen": "enable_physical_volume"
+    },
+    {
       "type": "button",
       "id": "doorbell",
       "name": "Doorbell",
@@ -240,6 +251,13 @@
       "key": "enable_sound_level",
       "label": "Sound Level",
       "description": "Expose ambient sound level sensor (mic released during Portal calls)",
+      "defaultValue": "false"
+    },
+    {
+      "type": "switch",
+      "key": "enable_physical_volume",
+      "label": "Physical Volume",
+      "description": "Read-only STREAM_MUSIC level (0–1) for HA automations; no root; does not write volume",
       "defaultValue": "false"
     },
     {

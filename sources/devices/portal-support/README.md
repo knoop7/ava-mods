@@ -22,6 +22,7 @@ All features are disabled by default. Enable each one in the mod settings before
 | Tap Tilt Sensitivity | number | Tap detection threshold |
 | Accel X / Y / Z | sensor | Raw accelerometer |
 | Sound Level | sensor | 0–100 ambient loudness; mic released during Portal calls |
+| Physical Volume | sensor (diagnostic) | Read-only media volume 0–1; event-driven; no root; for HA→MA sync automations |
 | Doorbell / Alert | button | Synthesized tones on the media stream |
 | Screen Timeout | switch | Idle screen-off timer |
 | Screen Timeout Minutes | number | 1–240 minutes; presence keeps the screen awake |
@@ -79,3 +80,4 @@ Release artifacts are copied to `mods/devices/portal-support/`.
 2. Run `provision.sh` with your Ava package name.
 3. Open mod settings and enable the features you need.
 4. For presence or screen timeout, also turn on the corresponding switch in Home Assistant.
+5. Optional: enable **Physical Volume** to expose a diagnostic sensor (`sensor.*_portal_support_physical_volume`, 0–1). Use a Home Assistant automation to push that value into Music Assistant if you want MA to follow the hardware keys — Ava itself does not write MA from this sensor.

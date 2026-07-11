@@ -13,12 +13,14 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 public class PortalSupportManager implements PortalSensorBridge.Listener, PortalPresenceMonitor.Listener,
-        PortalSoundMonitor.Listener, PortalScreenTimeoutController.PresenceState {
+        PortalSoundMonitor.Listener, PortalScreenTimeoutController.PresenceState,
+        PortalMediaVolumeMonitor.Listener {
 
     private static final String TAG = "PortalSupport";
     private static final String PREFS = "portal_support";
     private static final String KEY_PRESENCE_DETECTION = "presence_detection_enabled";
     private static final String KEY_SCREEN_TIMEOUT = "screen_timeout_enabled";
+    private static final String ENTITY_PHYSICAL_VOLUME = "physical_volume";
     private static final long SOUND_PRESENCE_HOLD_MS = 60_000L;
     private static volatile PortalSupportManager instance;
 
@@ -32,6 +34,7 @@ public class PortalSupportManager implements PortalSensorBridge.Listener, Portal
     private volatile boolean enableTapTilt;
     private volatile boolean enableAccelerometer;
     private volatile boolean enableSoundLevel;
+    private volatile boolean enablePhysicalVolume;
     private volatile boolean enableDoorbellAlert;
     private volatile boolean enableScreenTimeout;
     private volatile boolean presenceDetectionEnabled;
@@ -45,11 +48,13 @@ public class PortalSupportManager implements PortalSensorBridge.Listener, Portal
     private PortalPresenceMonitor presenceMonitor;
     private PortalSensorBridge sensorBridge;
     private PortalSoundMonitor soundMonitor;
+    private PortalMediaVolumeMonitor mediaVolumeMonitor;
     private PortalScreenTimeoutController screenTimeoutController;
     private PortalPermissionHelper permissionHelper;
     private volatile boolean portalPresent;
     private volatile boolean facePresent;
     private volatile long lastSoundActivityMs;
+    private volatile float lastPhysicalVolume;
 
     private PortalSupportManager(Context context) {
         this.context = context.getApplicationContext();
@@ -111,6 +116,10 @@ public class PortalSupportManager implements PortalSensorBridge.Listener, Portal
             case "enable_sound_level":
                 enableSoundLevel = parseBoolean(value);
                 updateSoundSubsystem();
+                break;
+            case "enable_physical_volume":
+                enablePhysicalVolume = parseBoolean(value);
+                updateMediaVolumeSubsystem();
                 break;
             case "enhanced_presence":
                 enhancedPresenceEnabled = parseBoolean(value);
@@ -258,6 +267,22 @@ public class PortalSupportManager implements PortalSensorBridge.Listener, Portal
 
     public int getSoundLevel() {
         return soundMonitor == null ? 0 : soundMonitor.getLastLevel();
+    }
+
+    /** Normalized STREAM_MUSIC level in [0, 1]. No root required. */
+    public float getPhysicalVolume() {
+        if (mediaVolumeMonitor != null) {
+            return mediaVolumeMonitor.readLevel();
+        }
+        return lastPhysicalVolume;
+    }
+
+    @Override
+    public void onPhysicalVolume(float level01) {
+        lastPhysicalVolume = level01;
+        if (enablePhysicalVolume) {
+            notifyStateListeners(ENTITY_PHYSICAL_VOLUME, Float.valueOf(level01));
+        }
     }
 
     public void playDoorbell() {
@@ -449,6 +474,22 @@ public class PortalSupportManager implements PortalSensorBridge.Listener, Portal
         }
     }
 
+    private void updateMediaVolumeSubsystem() {
+        if (enablePhysicalVolume) {
+            if (mediaVolumeMonitor == null) {
+                mediaVolumeMonitor = new PortalMediaVolumeMonitor(context, this);
+            }
+            mediaVolumeMonitor.start();
+            lastPhysicalVolume = mediaVolumeMonitor.readLevel();
+            notifyStateListeners(ENTITY_PHYSICAL_VOLUME, Float.valueOf(lastPhysicalVolume));
+            return;
+        }
+        if (mediaVolumeMonitor != null) {
+            mediaVolumeMonitor.stop();
+            mediaVolumeMonitor = null;
+        }
+    }
+
     private void updateScreenTimeoutSubsystem() {
         if (enableScreenTimeout && screenTimeoutEnabled) {
             PortalScreenControl.enableAccessibility(context);
@@ -513,6 +554,8 @@ public class PortalSupportManager implements PortalSensorBridge.Listener, Portal
             notifySingleListener(callback, Float.valueOf(getAccelZ()));
         } else if ("sound_level".equals(entityId)) {
             notifySingleListener(callback, Integer.valueOf(getSoundLevel()));
+        } else if (ENTITY_PHYSICAL_VOLUME.equals(entityId)) {
+            notifySingleListener(callback, Float.valueOf(getPhysicalVolume()));
         }
     }
 
