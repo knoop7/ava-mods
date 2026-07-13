@@ -14,11 +14,11 @@
     {
       "id": "echo-show-support",
       "name": "Echo Show Support",
-      "version": "1.1.0",
+      "version": "1.1.1",
       "author": "Ava",
       "description": "Device compatibility hooks for Amazon Echo Show models (brightness, BLE, overlay, screensaver dark-off)",
       "path": "mods/devices/echo-show-support/",
-      "jar_hash": "ea9b1e28fc32c7ce9f454b5f6b7edab1"
+      "jar_hash": "1cefaade51197747345161674aedc466"
     },
     {
       "id": "connectivity-keepalive",

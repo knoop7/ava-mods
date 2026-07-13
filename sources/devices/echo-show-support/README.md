@@ -1,4 +1,4 @@
-# Echo Show Support v1.1.0
+# Echo Show Support v1.1.1
 
 Device compatibility mod for Amazon Echo Show models (crown, checkers, cronos).
 
@@ -36,9 +36,11 @@ adb shell am broadcast -a com.example.ava.ACTION_SET_MOD_ENABLED \
 
 ## Build
 
+Requires Android SDK platform 34 and `d8` (build-tools). Output jar must contain `classes.dex` for `DexClassLoader`.
+
 ```bash
 cd sources/devices/echo-show-support
 ./build.sh
-cp manifest.json ../../../mods/devices/echo-show-support/
-cp libs/echo-show-support.jar ../../../mods/devices/echo-show-support/libs/
 ```
+
+`build.sh` writes DEX jar to `libs/`, copies into `mods/devices/echo-show-support/`, and updates `jar_hash` in manifests / `store.json`.
