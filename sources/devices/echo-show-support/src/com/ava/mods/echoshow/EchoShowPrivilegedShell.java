@@ -87,8 +87,26 @@ final class EchoShowPrivilegedShell {
             }
         } catch (Exception ignored) {
         }
-        return execShell("echo " + brightness + " > /sys/class/backlight/lcd-backlight/brightness") == 0;
+        // LineageOS Echo Show (MTK) may expose either class/backlight or platform leds-mt65xx.
+        for (String path : BACKLIGHT_BRIGHTNESS_PATHS) {
+            if (execShell("echo " + brightness + " > " + path) == 0) {
+                Log.i(TAG, "writeBacklightBrightness via " + path);
+                return true;
+            }
+        }
+        return false;
     }
+
+    /**
+     * Known Echo Show lcd-backlight sysfs nodes.
+     * Crown / Lineage 18.1 devices often use the leds-mt65xx platform path instead of
+     * /sys/class/backlight/lcd-backlight (see device reports + amazon-oss local_manifests).
+     */
+    private static final String[] BACKLIGHT_BRIGHTNESS_PATHS = new String[]{
+            "/sys/class/backlight/lcd-backlight/brightness",
+            "/sys/devices/platform/leds-mt65xx/leds/lcd-backlight/brightness",
+            "/sys/class/leds/lcd-backlight/brightness",
+    };
 
     private static int tryShizukuExec(String command) {
         if (!isShizukuGranted()) {

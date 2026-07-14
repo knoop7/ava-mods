@@ -1,4 +1,4 @@
-# Echo Show Support v1.1.1
+# Echo Show Support v1.1.2
 
 Device compatibility mod for Amazon Echo Show models (crown, checkers, cronos).
 
@@ -26,6 +26,16 @@ When the user enables **Turn off in dark** in Screensaver settings **and** this 
 5. If mod returns `false`, Ava falls back to built-in `ScreenControlUtils.setScreenOn(false)`
 
 **Requires** root and/or Shizuku on LineageOS Echo Show builds (typical for crown).
+
+### Backlight sysfs paths
+
+`EchoShowPrivilegedShell.writeBacklightBrightness` tries these nodes in order:
+
+1. `/sys/class/backlight/lcd-backlight/brightness`
+2. `/sys/devices/platform/leds-mt65xx/leds/lcd-backlight/brightness`
+3. `/sys/class/leds/lcd-backlight/brightness`
+
+Thanks to **Peter Meiser** (`peter.meiser`) for reporting the detailed `leds-mt65xx` platform path on LineageOS 18.1 Echo Show devices.
 
 Headless enable:
 
