@@ -14,9 +14,12 @@ import android.util.Log;
  * Echo Show screensaver dark-off sleep/wake. Only invoked via ModDeviceSupport hooks
  * when echo-show-support mod is enabled and isSupported() is true.
  *
- * After a successful dark sleep, this class keeps its own PARTIAL_WAKE_LOCK + light-sensor
- * watcher so ambient light can restore the panel even if the host app's sensor path stalls
- * overnight (e.g. host wake-lock timeout).
+ * After dark sleep, keeps a renewing PARTIAL_WAKE_LOCK and watches ambient light via:
+ * 1) Privileged JSA1214 sysfs lux polling (works while panel is blanked)
+ * 2) SensorManager TYPE_LIGHT as a secondary path when still delivering events
+ *
+ * Kernel reference: amazon-oss/android_kernel_amazon_mt8163 alsps/jsa1214 — TYPE_LIGHT
+ * often stalls after display power-off; sysfs lux + enable is the reliable restore path.
  */
 final class EchoShowScreenControl {
     private static final String TAG = "EchoShowSupport";
@@ -24,6 +27,8 @@ final class EchoShowScreenControl {
     /** Match Ava ScreensaverController LIGHT_RESTORE_THRESHOLD_LUX. */
     private static final float LIGHT_RESTORE_LUX = 4.0f;
     private static final long LIGHT_DEBOUNCE_MS = 1500L;
+    private static final long ALS_POLL_INTERVAL_MS = 10_000L;
+    private static final int ALS_BRIGHT_POLLS_NEEDED = 2;
     private static final long WAKELOCK_CHUNK_MS = 25L * 60L * 1000L;
     private static final long WAKELOCK_RENEW_MS = 20L * 60L * 1000L;
 
@@ -39,6 +44,7 @@ final class EchoShowScreenControl {
     private static SensorEventListener lightListener;
     private static PowerManager.WakeLock watchWakeLock;
     private static Long lightCandidateSinceMs;
+    private static int consecutiveBrightPolls;
     private static final Runnable renewWakeLockRunnable = new Runnable() {
         @Override
         public void run() {
@@ -48,6 +54,32 @@ final class EchoShowScreenControl {
                 }
                 acquireWatchWakeLockLocked();
                 watchHandler.postDelayed(this, WAKELOCK_RENEW_MS);
+            }
+        }
+    };
+    private static final Runnable alsPollRunnable = new Runnable() {
+        @Override
+        public void run() {
+            Context ctx;
+            synchronized (watchLock) {
+                if (!watching || watchHandler == null) {
+                    return;
+                }
+                ctx = watchContext;
+            }
+            Float lux = EchoShowPrivilegedShell.readAlsLux();
+            if (lux != null) {
+                Log.d(TAG, "ALS sysfs poll lux=" + lux);
+                onPrivilegedLux(lux, ctx);
+            } else {
+                synchronized (watchLock) {
+                    consecutiveBrightPolls = 0;
+                }
+            }
+            synchronized (watchLock) {
+                if (watching && watchHandler != null) {
+                    watchHandler.postDelayed(this, ALS_POLL_INTERVAL_MS);
+                }
             }
         }
     };
@@ -97,15 +129,12 @@ final class EchoShowScreenControl {
 
         boolean woke = false;
 
-        // Preferred: restore display power after sleepForDark used setDisplayPower(0).
         if (EchoShowPrivilegedShell.setDisplayPower(2)) {
             Log.i(TAG, "wakeFromDark: display power on (Shizuku)");
             woke = true;
         }
 
-        // KEYCODE_WAKEUP (224) wakes without toggling off if already interactive.
-        // Do NOT lead with power key 26 — after display-power blanking, isInteractive can
-        // still be true and 26 would turn the panel fully off instead of restoring it.
+        // KEYCODE_WAKEUP (224) — do not lead with power key 26 (toggles / can leave panel off).
         if (EchoShowPrivilegedShell.execShell("input keyevent 224") == 0) {
             Log.i(TAG, "wakeFromDark: wakeup keyevent 224");
             woke = true;
@@ -140,6 +169,7 @@ final class EchoShowScreenControl {
             stopLightRestoreWatchLocked();
             watchContext = appContext;
             watching = true;
+            consecutiveBrightPolls = 0;
 
             watchThread = new HandlerThread("EchoShowDarkLightWatch");
             watchThread.start();
@@ -148,12 +178,16 @@ final class EchoShowScreenControl {
             acquireWatchWakeLockLocked();
             watchHandler.postDelayed(renewWakeLockRunnable, WAKELOCK_RENEW_MS);
 
+            // Primary path: privileged JSA1214 lux (works after setDisplayPower(0)).
+            watchHandler.post(alsPollRunnable);
+
+            // Secondary: SensorManager, if the HAL still delivers events.
             sensorManager = (SensorManager) appContext.getSystemService(Context.SENSOR_SERVICE);
             lightSensor = sensorManager != null
                     ? sensorManager.getDefaultSensor(Sensor.TYPE_LIGHT)
                     : null;
             if (lightSensor == null) {
-                Log.w(TAG, "light restore watch: no TYPE_LIGHT sensor");
+                Log.w(TAG, "light restore watch: no TYPE_LIGHT (sysfs poll still active)");
                 return;
             }
 
@@ -178,11 +212,42 @@ final class EchoShowScreenControl {
                     watchHandler
             );
             if (registered) {
-                Log.i(TAG, "light restore watch started: " + lightSensor.getName());
+                Log.i(TAG, "light restore watch: TYPE_LIGHT + ALS sysfs poll");
             } else {
-                Log.w(TAG, "light restore watch: registerListener failed");
+                Log.w(TAG, "light restore watch: TYPE_LIGHT register failed; ALS sysfs poll only");
             }
         }
+    }
+
+    private static void onPrivilegedLux(float lux, Context ctx) {
+        synchronized (watchLock) {
+            if (!watching) {
+                return;
+            }
+            if (lux < LIGHT_RESTORE_LUX) {
+                consecutiveBrightPolls = 0;
+                lightCandidateSinceMs = null;
+                return;
+            }
+            consecutiveBrightPolls++;
+            if (consecutiveBrightPolls >= ALS_BRIGHT_POLLS_NEEDED) {
+                Log.i(TAG, "ALS sysfs: ambient light restored (lux=" + lux + "), waking");
+            } else {
+                // Keep SensorManager debounce warm when polls are bright but not yet enough.
+                if (lightCandidateSinceMs == null && watchHandler != null) {
+                    lightCandidateSinceMs = System.currentTimeMillis();
+                    final Context wakeCtx = watchContext;
+                    watchHandler.postDelayed(new Runnable() {
+                        @Override
+                        public void run() {
+                            maybeWakeFromWatch(wakeCtx);
+                        }
+                    }, LIGHT_DEBOUNCE_MS);
+                }
+                return;
+            }
+        }
+        wakeFromDark(ctx);
     }
 
     private static void onWatchLux(float lux) {
@@ -233,6 +298,7 @@ final class EchoShowScreenControl {
     private static void stopLightRestoreWatchLocked() {
         watching = false;
         lightCandidateSinceMs = null;
+        consecutiveBrightPolls = 0;
         if (watchHandler != null) {
             watchHandler.removeCallbacksAndMessages(null);
         }

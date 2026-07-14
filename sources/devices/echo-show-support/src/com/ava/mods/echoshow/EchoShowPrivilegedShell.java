@@ -3,9 +3,7 @@ package com.ava.mods.echoshow;
 import android.util.Log;
 
 import java.io.BufferedReader;
-import java.io.DataOutputStream;
 import java.io.InputStreamReader;
-import java.lang.reflect.Method;
 
 /**
  * Best-effort Shizuku / root shell for Echo Show device hooks only.
@@ -13,6 +11,32 @@ import java.lang.reflect.Method;
  */
 final class EchoShowPrivilegedShell {
     private static final String TAG = "EchoShowSupport";
+
+    /**
+     * Known Echo Show lcd-backlight sysfs nodes.
+     * Crown / Lineage 18.1 devices often use the leds-mt65xx platform path instead of
+     * /sys/class/backlight/lcd-backlight (see device reports + amazon-oss local_manifests).
+     */
+    private static final String[] BACKLIGHT_BRIGHTNESS_PATHS = new String[]{
+            "/sys/class/backlight/lcd-backlight/brightness",
+            "/sys/devices/platform/leds-mt65xx/leds/lcd-backlight/brightness",
+            "/sys/class/leds/lcd-backlight/brightness",
+    };
+
+    /**
+     * JSA1214 ALS lux nodes exposed by amazon-oss mt8163 alsps driver (DRIVER_ATTR lux).
+     * TYPE_LIGHT often stops while the panel is blanked; these nodes still work with privilege.
+     */
+    private static final String[] ALS_LUX_CANDIDATES = new String[]{
+            "/sys/bus/platform/drivers/als_ps/lux",
+            "/sys/devices/platform/als_ps/lux",
+            "/sys/bus/platform/drivers/alsps/lux",
+            "/sys/class/misc/als_ps/lux",
+    };
+
+    private static final String SHELL_OUT = "/data/local/tmp/ava_echo_show_shell.out";
+
+    private static volatile String cachedAlsLuxPath;
 
     private EchoShowPrivilegedShell() {
     }
@@ -54,6 +78,29 @@ final class EchoShowPrivilegedShell {
         return tryRootExec(command);
     }
 
+    /**
+     * Run a shell command and return trimmed stdout, or null on failure.
+     * Prefers root (captures stdout). Shizuku falls back to redirecting into a temp file.
+     */
+    static String execShellOutput(String command) {
+        String fromRoot = tryRootExecOutput(command);
+        if (fromRoot != null) {
+            return fromRoot;
+        }
+        if (!isShizukuGranted()) {
+            return null;
+        }
+        String wrapped = "(" + command + ") > " + SHELL_OUT + " 2>/dev/null";
+        if (tryShizukuExec(wrapped) != 0) {
+            return null;
+        }
+        String fromFile = tryRootExecOutput("cat " + SHELL_OUT);
+        if (fromFile != null) {
+            return fromFile;
+        }
+        return readFileUnprivileged(SHELL_OUT);
+    }
+
     static boolean setDisplayPower(int mode) {
         if (isShizukuGranted()) {
             try {
@@ -87,7 +134,6 @@ final class EchoShowPrivilegedShell {
             }
         } catch (Exception ignored) {
         }
-        // LineageOS Echo Show (MTK) may expose either class/backlight or platform leds-mt65xx.
         for (String path : BACKLIGHT_BRIGHTNESS_PATHS) {
             if (execShell("echo " + brightness + " > " + path) == 0) {
                 Log.i(TAG, "writeBacklightBrightness via " + path);
@@ -98,15 +144,62 @@ final class EchoShowPrivilegedShell {
     }
 
     /**
-     * Known Echo Show lcd-backlight sysfs nodes.
-     * Crown / Lineage 18.1 devices often use the leds-mt65xx platform path instead of
-     * /sys/class/backlight/lcd-backlight (see device reports + amazon-oss local_manifests).
+     * Best-effort lux from JSA1214 alsps sysfs. Returns null if unavailable.
+     * Re-enables ALS before read — SensorService / blanked display may have disabled it.
      */
-    private static final String[] BACKLIGHT_BRIGHTNESS_PATHS = new String[]{
-            "/sys/class/backlight/lcd-backlight/brightness",
-            "/sys/devices/platform/leds-mt65xx/leds/lcd-backlight/brightness",
-            "/sys/class/leds/lcd-backlight/brightness",
-    };
+    static Float readAlsLux() {
+        String path = resolveAlsLuxPath();
+        if (path == null) {
+            return null;
+        }
+        String enablePath = path.endsWith("/lux")
+                ? path.substring(0, path.length() - 4) + "/enable"
+                : null;
+        if (enablePath != null) {
+            execShell("echo 1 > " + enablePath);
+        }
+        String raw = execShellOutput("cat " + path);
+        if (raw == null || raw.isEmpty()) {
+            return null;
+        }
+        // Driver may print "als lux = 12" or a bare number.
+        String number = raw.replaceAll("(?s).*?(-?\\d+(?:\\.\\d+)?).*", "$1");
+        try {
+            return Float.parseFloat(number.trim());
+        } catch (NumberFormatException e) {
+            Log.w(TAG, "readAlsLux: unparsable '" + raw + "' from " + path);
+            return null;
+        }
+    }
+
+    private static String resolveAlsLuxPath() {
+        String cached = cachedAlsLuxPath;
+        if (cached != null) {
+            if ("none".equals(cached)) {
+                return null;
+            }
+            return cached;
+        }
+        for (String candidate : ALS_LUX_CANDIDATES) {
+            String probe = execShellOutput("if [ -r " + candidate + " ]; then echo " + candidate + "; fi");
+            if (probe != null && probe.contains("/")) {
+                cachedAlsLuxPath = probe.trim().split("\\s+")[0];
+                Log.i(TAG, "ALS lux path: " + cachedAlsLuxPath);
+                return cachedAlsLuxPath;
+            }
+        }
+        String found = execShellOutput(
+                "find /sys/bus/platform /sys/devices/platform /sys/class -name lux 2>/dev/null | head -n 1"
+        );
+        if (found != null && found.contains("/")) {
+            cachedAlsLuxPath = found.trim().split("\\s+")[0];
+            Log.i(TAG, "ALS lux path (find): " + cachedAlsLuxPath);
+            return cachedAlsLuxPath;
+        }
+        cachedAlsLuxPath = "none";
+        Log.w(TAG, "ALS lux sysfs node not found");
+        return null;
+    }
 
     private static int tryShizukuExec(String command) {
         if (!isShizukuGranted()) {
@@ -140,6 +233,59 @@ final class EchoShowPrivilegedShell {
         } catch (Exception e) {
             Log.w(TAG, "root exec failed: " + e.getMessage());
             return -1;
+        }
+    }
+
+    private static String tryRootExecOutput(String command) {
+        if (!isRootAvailable()) {
+            return null;
+        }
+        Process process = null;
+        try {
+            process = Runtime.getRuntime().exec(new String[]{"su", "-c", command});
+            BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+            StringBuilder sb = new StringBuilder();
+            String line;
+            while ((line = reader.readLine()) != null) {
+                if (sb.length() > 0) {
+                    sb.append('\n');
+                }
+                sb.append(line);
+            }
+            reader.close();
+            int code = process.waitFor();
+            if (code != 0) {
+                return null;
+            }
+            String out = sb.toString().trim();
+            return out.isEmpty() ? null : out;
+        } catch (Exception e) {
+            return null;
+        } finally {
+            if (process != null) {
+                process.destroy();
+            }
+        }
+    }
+
+    private static String readFileUnprivileged(String path) {
+        Process process = null;
+        try {
+            process = Runtime.getRuntime().exec(new String[]{"sh", "-c", "cat " + path});
+            BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+            String line = reader.readLine();
+            reader.close();
+            int code = process.waitFor();
+            if (code != 0 || line == null) {
+                return null;
+            }
+            return line.trim();
+        } catch (Exception e) {
+            return null;
+        } finally {
+            if (process != null) {
+                process.destroy();
+            }
         }
     }
 

@@ -1,4 +1,4 @@
-# Echo Show Support v1.1.3
+# Echo Show Support v1.1.4
 
 Device compatibility mod for Amazon Echo Show models (crown, checkers, cronos).
 
@@ -23,11 +23,13 @@ When the user enables **Turn off in dark** in Screensaver settings **and** this 
 2. Core calls `ModDeviceSupport.trySleepScreenForDark()` — **no Echo-specific code in main APK**
 3. This mod runs only if `isSupported()` (Echo Show hardware)
 4. Sleep order: Shizuku `setDisplayPower(0)` → root `keyevent 223` → `keyevent 26` → min brightness 10
-5. After sleep, the mod starts its **own** light-sensor watcher + renewing `PARTIAL_WAKE_LOCK`, so the panel can wake when lux rises even if the host path stalls overnight
+5. After sleep, the mod keeps a renewing `PARTIAL_WAKE_LOCK` and restores on light via:
+   - **Primary:** privileged poll of JSA1214 ALS sysfs `lux` (amazon-oss mt8163 `alsps/jsa1214`) — still works after display power-off when `TYPE_LIGHT` stalls
+   - **Secondary:** `SensorManager` `TYPE_LIGHT` when the HAL still delivers events
 6. Wake order: Shizuku `setDisplayPower(2)` → `keyevent 224` (KEYCODE_WAKEUP) → brightness restore (avoid power key 26 — it toggles and can leave the panel off)
 7. If mod returns `false`, Ava falls back to built-in `ScreenControlUtils.setScreenOn(false/true)`
 
-**Requires** root and/or Shizuku on LineageOS Echo Show builds (typical for crown).
+**Requires** root and/or Shizuku on LineageOS Echo Show builds (typical for crown / checkers / cronos).
 
 ### Backlight sysfs paths
 
@@ -36,6 +38,10 @@ When the user enables **Turn off in dark** in Screensaver settings **and** this 
 1. `/sys/class/backlight/lcd-backlight/brightness`
 2. `/sys/devices/platform/leds-mt65xx/leds/lcd-backlight/brightness`
 3. `/sys/class/leds/lcd-backlight/brightness`
+
+### ALS lux sysfs (dark restore)
+
+Polls candidate nodes such as `/sys/bus/platform/drivers/als_ps/lux`, and falls back to `find … -name lux`.
 
 Headless enable:
 
