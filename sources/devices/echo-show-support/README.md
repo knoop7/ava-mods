@@ -1,4 +1,4 @@
-# Echo Show Support v1.1.2
+# Echo Show Support v1.1.3
 
 Device compatibility mod for Amazon Echo Show models (crown, checkers, cronos).
 
@@ -23,7 +23,9 @@ When the user enables **Turn off in dark** in Screensaver settings **and** this 
 2. Core calls `ModDeviceSupport.trySleepScreenForDark()` — **no Echo-specific code in main APK**
 3. This mod runs only if `isSupported()` (Echo Show hardware)
 4. Sleep order: Shizuku `setDisplayPower(0)` → root `keyevent 223` → `keyevent 26` → min brightness 10
-5. If mod returns `false`, Ava falls back to built-in `ScreenControlUtils.setScreenOn(false)`
+5. After sleep, the mod starts its **own** light-sensor watcher + renewing `PARTIAL_WAKE_LOCK`, so the panel can wake when lux rises even if the host path stalls overnight
+6. Wake order: Shizuku `setDisplayPower(2)` → `keyevent 224` (KEYCODE_WAKEUP) → brightness restore (avoid power key 26 — it toggles and can leave the panel off)
+7. If mod returns `false`, Ava falls back to built-in `ScreenControlUtils.setScreenOn(false/true)`
 
 **Requires** root and/or Shizuku on LineageOS Echo Show builds (typical for crown).
 
@@ -34,8 +36,6 @@ When the user enables **Turn off in dark** in Screensaver settings **and** this 
 1. `/sys/class/backlight/lcd-backlight/brightness`
 2. `/sys/devices/platform/leds-mt65xx/leds/lcd-backlight/brightness`
 3. `/sys/class/leds/lcd-backlight/brightness`
-
-Thanks to **Peter Meiser** (`peter.meiser`) for reporting the detailed `leds-mt65xx` platform path on LineageOS 18.1 Echo Show devices.
 
 Headless enable:
 

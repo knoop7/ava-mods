@@ -1,12 +1,12 @@
 {
   "id": "echo-show-support",
   "name": "Echo Show Support",
-  "version": "1.1.2",
+  "version": "1.1.3",
   "author": "Ava",
   "description": "Device compatibility hooks for Amazon Echo Show models (brightness, BLE, overlay, screensaver dark-off)",
   "icon": "mdi:tablet-dashboard",
   "libs": ["libs/echo-show-support.jar"],
   "manager": "com.ava.mods.echoshow.EchoShowSupportManager",
-  "jar_hash": "8b25e3db04553e24801757c0de306372",
+  "jar_hash": "e2eb03b80cde4b8b744520a381167f2b",
   "entities": []
 }
