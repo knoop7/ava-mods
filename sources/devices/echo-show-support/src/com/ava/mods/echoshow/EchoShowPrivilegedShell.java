@@ -201,6 +201,37 @@ final class EchoShowPrivilegedShell {
         return null;
     }
 
+    /**
+     * Best-effort: true when the panel appears powered on (manual power wake after blanking).
+     */
+    static boolean isDisplayLikelyOn() {
+        String state = execShellOutput(
+                "dumpsys display 2>/dev/null | grep -E 'mScreenState=' | head -n 1"
+        );
+        if (state != null) {
+            String upper = state.toUpperCase();
+            if (upper.contains("SCREEN_STATE_OFF") || upper.contains("STATE_OFF")) {
+                return false;
+            }
+            if (upper.contains("SCREEN_STATE_ON") || upper.contains("STATE_ON")) {
+                return true;
+            }
+        }
+        String power = execShellOutput(
+                "dumpsys power 2>/dev/null | grep -E 'Display Power: state=|mScreenOn=' | head -n 2"
+        );
+        if (power != null) {
+            String upper = power.toUpperCase();
+            if (upper.contains("STATE=OFF") || upper.contains("MSCREENON=FALSE")) {
+                return false;
+            }
+            if (upper.contains("STATE=ON") || upper.contains("MSCREENON=TRUE")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private static int tryShizukuExec(String command) {
         if (!isShizukuGranted()) {
             return -1;
