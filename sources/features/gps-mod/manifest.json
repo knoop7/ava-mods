@@ -3,7 +3,8 @@
   "name": "GPS Location",
   "version": "1.1.0",
   "author": "Ava",
-  "description": "Expose device GPS location to Home Assistant with configurable sensors and update behavior",
+  "description": "Show where this device is. Live GPS in Home Assistant for maps, presence, and automations.",
+  "detail_description": "Publish latitude, longitude, altitude, speed, and accuracy as Home Assistant sensors. Tune update interval and movement threshold so presence and map cards stay fresh without draining the battery.",
   "icon": "mdi:crosshairs-gps",
   "libs": [
     "libs/gps-manager.jar"
@@ -75,7 +76,11 @@
       "description": "Choose which Android location provider the module should prefer",
       "dialogHint": "Use GPS for precision, network for lower power, or passive to reuse other updates.",
       "defaultValue": "gps",
-      "options": ["gps", "network", "passive"]
+      "options": [
+        "gps",
+        "network",
+        "passive"
+      ]
     },
     {
       "type": "number",

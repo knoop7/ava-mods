@@ -45,6 +45,32 @@ public class DlnaRendererManager {
     private static final String TAG = "DlnaRendererManager";
     private static volatile DlnaRendererManager instance;
 
+    public static String formatDlnaName(String deviceName) {
+        String name = sanitizeDeviceName(deviceName);
+        if (name.isEmpty()) {
+            String model = android.os.Build.MODEL;
+            name = (model == null || model.trim().isEmpty()) ? "Device" : model.trim();
+        }
+        return "Ava - " + name + " [DLNA]";
+    }
+
+    /**
+     * device_name is the middle segment only. Strip accidental full-name pastes
+     * and the bare default "Ava" so we never advertise {@code Ava - Ava [DLNA]}.
+     */
+    static String sanitizeDeviceName(String raw) {
+        if (raw == null) return "";
+        String name = raw.trim();
+        if (name.regionMatches(true, 0, "Ava - ", 0, 6)) {
+            name = name.substring(6).trim();
+        }
+        if (name.matches("(?i).*\\[\\s*dlna\\s*]\\s*$")) {
+            name = name.replaceAll("(?i)\\s*\\[\\s*dlna\\s*]\\s*$", "").trim();
+        }
+        if (name.equalsIgnoreCase("Ava")) return "";
+        return name;
+    }
+
     private static final String PREFS_NAME = "dlna_renderer_prefs";
     private static final String KEY_SHUFFLE = "shuffle_enabled";
     private static final String KEY_REPEAT_MODE = "repeat_mode";
@@ -74,7 +100,7 @@ public class DlnaRendererManager {
             new ConcurrentHashMap<>();
 
     // Config (applyConfig keys mirror manifest.json)
-    private volatile String deviceName = "Ava";
+    private volatile String deviceName = "";
     private volatile boolean autoStart = false;
     private volatile boolean allowVolumeControl = true;
     private volatile boolean voiceDucking = true;
@@ -289,11 +315,7 @@ public class DlnaRendererManager {
         }
         switch (key) {
             case "device_name": {
-                String name = value.trim();
-                if (name.isEmpty()) {
-                    name = "Ava";
-                }
-                deviceName = name;
+                deviceName = sanitizeDeviceName(value);
                 requestSyncServer();
                 break;
             }
@@ -340,12 +362,14 @@ public class DlnaRendererManager {
     // ------------------------------------------------------------------
 
     /**
-     * Opt-in overlay hook (manifest {@code overlay_below_voice}: true).
-     * Reasserts Cinema above the dashboard but below wake ripple / voice UI.
-     * Skipped while a voice session is active so the wake animation stays visible.
+     * Opt-in overlay hook (manifest {@code overlay_below_voice} + {@code overlay_z_order}).
+     * Reasserts Cinema above Ava chrome; skipped during voice sessions.
      */
     public void bringOverlayToFrontIfActive(Context ignored) {
-        if (!showCinemaOverlay || voiceSessionActive) {
+        if (!showCinemaOverlay || !cinemaOverlay.isVisible()) {
+            return;
+        }
+        if (voiceSessionActive) {
             return;
         }
         try {
@@ -439,6 +463,10 @@ public class DlnaRendererManager {
 
     public boolean isServerRunning() {
         return upnpEngine.isHealthy();
+    }
+
+    public String getAdvertisedName() {
+        return formatDlnaName(deviceName);
     }
 
     public String getNowPlaying() {
@@ -654,7 +682,8 @@ public class DlnaRendererManager {
             }
             syncRetryCount = 0;
 
-            String fingerprint = deviceName + "|" + allowVolumeControl;
+            String advertised = formatDlnaName(deviceName);
+            String fingerprint = advertised + "|" + allowVolumeControl;
             if (upnpEngine.isHealthy() && fingerprint.equals(runningFingerprint)) {
                 return;
             }
@@ -663,9 +692,10 @@ public class DlnaRendererManager {
                 stopServerLocked();
             }
 
-            upnpEngine.start(deviceName, allowVolumeControl);
+            upnpEngine.start(advertised, allowVolumeControl);
             runningFingerprint = fingerprint;
             notifyStateListeners("server_running", upnpEngine.isHealthy());
+            notifyStateListeners("advertised_name", advertised);
             pushInitialVolume();
             if (!upnpEngine.isHealthy()) {
                 scheduleSyncRetry("upnp start failed");

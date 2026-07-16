@@ -3,7 +3,8 @@
   "name": "Tuya S8E",
   "version": "1.0.10",
   "author": "Ava",
-  "description": "Device support for Tuya S8E with screen backlight, small display control, and climate readings",
+  "description": "Dim both S8E backlights and read the room. Temperature and humidity at a glance.",
+  "detail_description": "Control the main screen and small-display backlights independently, and expose onboard temperature and humidity sensors to Home Assistant for climate cards and automations.",
   "icon": "mdi:tablet-dashboard",
   "libs": [
     "libs/tuya-s8e-support.jar"

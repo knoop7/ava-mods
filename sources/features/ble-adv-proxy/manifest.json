@@ -3,8 +3,8 @@
   "name": "BLE ADV Proxy",
   "version": "0.4.9",
   "author": "Ava",
-  "description": "ha-ble-adv BLE proxy. Scan nearby devices and control fans or lamps.",
-  "detail_description": "Enabling this disables Ava Bluetooth proxy. This mod owns BLE scan and TX for ha-ble-adv.",
+  "description": "Reach nearby fans and lamps from Home Assistant. This device becomes your BLE remote.",
+  "detail_description": "Scan nearby BLE devices and send advertise packets for ha-ble-adv fans and lamps. While enabled this mod owns BLE scan/TX (built-in Bluetooth proxy steps aside).",
   "icon": "mdi:ceiling-fan",
   "libs": [
     "libs/ble-adv-proxy-manager.jar"

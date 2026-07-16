@@ -1,0 +1,173 @@
+{
+  "id": "airplay-receiver",
+  "name": "AirPlay Receiver",
+  "version": "1.0.31",
+  "author": "Ava",
+  "description": "Cast from iPhone or Mac. Turn this device into your AirPlay screen and speaker.",
+  "detail_description": "Mirror the display, stream albums with artwork, or play video fullscreen. Shows up as {device name} [Airplay] on the same Wi-Fi. Ties to the voice satellite; PIN and ducking when you want them.",
+  "icon": "mdi:cast-variant",
+  "libs": [
+    "libs/airplay-receiver-manager.jar",
+    "libs/jni/arm64-v8a/libcrypto.so",
+    "libs/jni/arm64-v8a/libc++_shared.so",
+    "libs/jni/arm64-v8a/libairplay_native.so",
+    "libs/jni/armeabi-v7a/libcrypto.so",
+    "libs/jni/armeabi-v7a/libc++_shared.so",
+    "libs/jni/armeabi-v7a/libairplay_native.so"
+  ],
+  "manager": "com.ava.mods.airplay.AirPlayReceiverManager",
+  "voice_pipeline": true,
+  "overlay_z_order": true,
+  "overlay_below_voice": true,
+  "playback_reference": true,
+  "permissions": [
+    "android.permission.INTERNET",
+    "android.permission.ACCESS_NETWORK_STATE",
+    "android.permission.ACCESS_WIFI_STATE",
+    "android.permission.CHANGE_WIFI_MULTICAST_STATE",
+    "android.permission.WAKE_LOCK",
+    "android.permission.SYSTEM_ALERT_WINDOW"
+  ],
+  "config": [
+    {
+      "type": "text",
+      "key": "device_name",
+      "label": "Device Name",
+      "description": "Shown as Ava - {name} [Airplay]. Leave blank to use the phone model.",
+      "dialogHint": "Middle segment only, e.g. MI 9 — not the full Ava - … name.",
+      "defaultValue": ""
+    },
+    {
+      "type": "switch",
+      "key": "auto_start",
+      "label": "Auto Start",
+      "description": "Start AirPlay only when Ava voice satellite (master switch) is running.",
+      "defaultValue": "true"
+    },
+    {
+      "type": "switch",
+      "key": "require_pin",
+      "label": "Require PIN",
+      "description": "Ask for a PIN when a new device connects.",
+      "defaultValue": "false"
+    },
+    {
+      "type": "switch",
+      "key": "h265_enabled",
+      "label": "H.265 (HEVC)",
+      "description": "Allow H.265 mirroring when the sender supports it.",
+      "defaultValue": "true"
+    },
+    {
+      "type": "switch",
+      "key": "advertise_video",
+      "label": "Advertise Video",
+      "description": "Appear as a video AirPlay target (mirroring / HLS).",
+      "defaultValue": "true"
+    },
+    {
+      "type": "switch",
+      "key": "advertise_audio",
+      "label": "Advertise Audio",
+      "description": "Appear as an AirPlay speaker for music.",
+      "defaultValue": "true"
+    },
+    {
+      "type": "switch",
+      "key": "show_overlay",
+      "label": "Show Overlay",
+      "description": "Show full-screen overlay for mirroring, video, and artwork.",
+      "defaultValue": "true"
+    },
+    {
+      "type": "switch",
+      "key": "voice_ducking",
+      "label": "Voice Ducking",
+      "description": "React to Ava voice pipeline events while AirPlay is active.",
+      "defaultValue": "true"
+    },
+    {
+      "type": "switch",
+      "key": "show_diagnostic_entities",
+      "label": "Show Diagnostic Entities",
+      "description": "Expose AirPlay status entities in Home Assistant.",
+      "defaultValue": "false"
+    }
+  ],
+  "entities": [
+    {
+      "type": "binary_sensor",
+      "id": "server_running",
+      "name": "AirPlay Receiver",
+      "icon": "mdi:cast-variant",
+      "class": "connectivity",
+      "category": "diagnostic",
+      "enabledByConfig": "show_diagnostic_entities",
+      "read": "isServerRunning"
+    },
+    {
+      "type": "text_sensor",
+      "id": "playback_state",
+      "name": "AirPlay Playback State",
+      "icon": "mdi:play-circle-outline",
+      "category": "diagnostic",
+      "enabledByConfig": "show_diagnostic_entities",
+      "read": "getPlaybackState"
+    },
+    {
+      "type": "text_sensor",
+      "id": "advertised_name",
+      "name": "AirPlay Name",
+      "icon": "mdi:tag-outline",
+      "category": "diagnostic",
+      "enabledByConfig": "show_diagnostic_entities",
+      "read": "getAdvertisedName"
+    },
+    {
+      "type": "text_sensor",
+      "id": "now_playing",
+      "name": "AirPlay Now Playing",
+      "icon": "mdi:music-note",
+      "category": "diagnostic",
+      "enabledByConfig": "show_diagnostic_entities",
+      "read": "getNowPlaying"
+    },
+    {
+      "type": "text_sensor",
+      "id": "pin_code",
+      "name": "AirPlay PIN",
+      "icon": "mdi:lock-outline",
+      "category": "diagnostic",
+      "enabledByConfig": "show_diagnostic_entities",
+      "read": "getPinCode"
+    },
+    {
+      "type": "text_sensor",
+      "id": "status",
+      "name": "AirPlay Status",
+      "icon": "mdi:information-outline",
+      "category": "diagnostic",
+      "enabledByConfig": "show_diagnostic_entities",
+      "read": "getStatus"
+    },
+    {
+      "type": "button",
+      "id": "restart_server",
+      "name": "Restart AirPlay",
+      "icon": "mdi:restart",
+      "category": "diagnostic",
+      "enabledByConfig": "show_diagnostic_entities",
+      "press": "restartServer"
+    },
+    {
+      "type": "button",
+      "id": "stop_playback",
+      "name": "Stop AirPlay Playback",
+      "icon": "mdi:stop-circle-outline",
+      "category": "diagnostic",
+      "enabledByConfig": "show_diagnostic_entities",
+      "press": "stopPlayback"
+    }
+  ],
+  "jar_hash": "cf042cf63dfc5d4b6828ee5f269988df"
+}

@@ -3,7 +3,8 @@
   "name": "WiFi & ADB Keep-Alive",
   "version": "1.1.1",
   "author": "Ava",
-  "description": "Keep WiFi radio and ADB debugging alive across crashes and reboots. Root preferred, Shizuku fallback. Never disables WiFi or ADB.",
+  "description": "Stay reachable. Wi-Fi stays on and ADB stays ready after crashes and reboots.",
+  "detail_description": "Keeps Wi-Fi radio and ADB debugging alive across crashes and reboots so remote installs and LAN access do not vanish overnight. Prefers root; falls back to Shizuku. Never turns them off.",
   "icon": "mdi:lan-connect",
   "libs": [
     "libs/connectivity-keepalive.jar"

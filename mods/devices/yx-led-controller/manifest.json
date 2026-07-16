@@ -3,12 +3,13 @@
   "name": "YX LED Controller",
   "version": "1.0.0",
   "author": "slovebj",
-  "description": "LED and motion sensor for YX M5612",
+  "description": "Light up the YX M5612 with LED and motion sensing in one small package.",
+  "detail_description": "Drive the YX M5612 LED output and read its motion sensor from Home Assistant — handy for status lights, night cues, or occupancy-triggered scenes.",
   "icon": "mdi:led-on",
-
-  "libs": ["libs/yxapi.jar"],
+  "libs": [
+    "libs/yxapi.jar"
+  ],
   "manager": "android.os.yx.YxDeviceManager",
-
   "entities": [
     {
       "type": "switch",

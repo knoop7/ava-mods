@@ -1,0 +1,321 @@
+/*
+ * node.c
+ *
+ *  Created on: Mar 7, 2011
+ *      Author: posixninja
+ *
+ * Copyright (c) 2011 Joshua Hill. All Rights Reserved.
+ *
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
+ *
+ * This library is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
+ */
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "node.h"
+#include "node_list.h"
+
+void node_destroy(node_t node)
+{
+	if(!node) return;
+
+	if (node->children && node->children->count > 0) {
+		node_t ch;
+		while ((ch = node->children->begin)) {
+			node_list_remove(node->children, ch);
+			node_destroy(ch);
+		}
+	}
+	node_list_destroy(node->children);
+	node->children = NULL;
+
+	free(node);
+}
+
+node_t node_create(node_t parent, void* data)
+{
+	int error = 0;
+
+	node_t node = (node_t)calloc(1, sizeof(struct node));
+	if (node == NULL) {
+		return NULL;
+	}
+
+	node->data = data;
+	node->next = NULL;
+	node->prev = NULL;
+	node->count = 0;
+	node->parent = NULL;
+	node->children = NULL;
+
+	// Pass NULL to create a root node
+	if (parent != NULL) {
+		// This is a child node so attach it to it's parent
+		error = node_attach(parent, node);
+		if (error < 0) {
+			// Unable to attach nodes
+			node_destroy(node);
+			return NULL;
+		}
+	}
+
+	return node;
+}
+
+static int node_depth_from_root(node_t n)
+{
+	int d = 0;
+	while (n && n->parent) {
+		d++;
+		n = n->parent;
+		if (d > NODE_MAX_DEPTH) return d; // early out
+	}
+	return d;
+}
+
+static int node_subtree_max_depth(node_t root)
+{
+	if (!root) return 0;
+
+	typedef struct { node_t n; int depth; } frame_t;
+	size_t cap = 64, sp = 0;
+	frame_t *st = (frame_t*)malloc(cap * sizeof(*st));
+	if (!st) return NODE_MAX_DEPTH + 1;
+
+	st[sp++] = (frame_t){ root, 0 };
+	int maxd = 0;
+
+	while (sp) {
+		frame_t f = st[--sp];
+		if (f.depth > maxd) maxd = f.depth;
+		if (maxd > NODE_MAX_DEPTH) break;
+
+		if (!f.n->children) continue;
+
+		for (node_t ch = node_first_child(f.n); ch; ch = node_next_sibling(ch)) {
+			if (sp == cap) {
+				cap *= 2;
+				frame_t *tmp = (frame_t*)realloc(st, cap * sizeof(*st));
+				if (!tmp) { maxd = NODE_MAX_DEPTH + 1; goto out; }
+				st = tmp;
+			}
+			st[sp++] = (frame_t){ ch, f.depth + 1 };
+		}
+	}
+
+out:
+	free(st);
+	return maxd;
+}
+
+static int would_create_cycle(node_t parent, node_t child)
+{
+	// if parent is anywhere in child's ancestor chain => cycle
+	for (node_t p = parent; p; p = p->parent) {
+		if (p == child) return 1;
+	}
+	return 0;
+}
+
+int node_attach(node_t parent, node_t child)
+{
+	if (!parent || !child) return NODE_ERR_INVALID_ARG;
+
+	// already parented?
+	if (child->parent) return NODE_ERR_PARENT;
+
+	// self/cycle guard
+	if (parent == child) return NODE_ERR_CIRCULAR_REF;
+	if (would_create_cycle(parent, child)) return NODE_ERR_CIRCULAR_REF;
+
+	// depth guard: depth(parent)+1+max_depth(child_subtree) <= NODE_MAX_DEPTH
+	int pd = node_depth_from_root(parent);
+	int cd = node_subtree_max_depth(child);
+	if (pd + 1 + cd > NODE_MAX_DEPTH) {
+		return NODE_ERR_MAX_DEPTH;
+	}
+
+	if (!parent->children) {
+		parent->children = node_list_create();
+		if (!parent->children) return NODE_ERR_NO_MEM;
+	}
+	int res = node_list_add(parent->children, child);
+	if (res == 0) {
+		child->parent = parent;
+		parent->count++;
+	}
+	return res;
+}
+
+int node_detach(node_t parent, node_t child)
+{
+	if (!parent || !child) return NODE_ERR_INVALID_ARG;
+	if (!parent->children) return NODE_ERR_NOT_FOUND;
+	if (child->parent && child->parent != parent) return NODE_ERR_PARENT;
+
+	int node_index = node_list_remove(parent->children, child);
+	if (node_index >= 0) {
+		if (parent->count > 0) parent->count--;
+		child->parent = NULL;
+		child->prev = NULL;
+		child->next = NULL;
+	}
+	return node_index;
+}
+
+int node_insert(node_t parent, unsigned int node_index, node_t child)
+{
+	if (!parent || !child) return NODE_ERR_INVALID_ARG;
+
+	// already parented?
+	if (child->parent) return NODE_ERR_PARENT;
+
+	// self/cycle guard
+	if (parent == child) return NODE_ERR_CIRCULAR_REF;
+	if (would_create_cycle(parent, child)) return NODE_ERR_CIRCULAR_REF;
+
+	// depth guard: depth(parent)+1+max_depth(child_subtree) <= NODE_MAX_DEPTH
+	int pd = node_depth_from_root(parent);
+	int cd = node_subtree_max_depth(child);
+	if (pd + 1 + cd > NODE_MAX_DEPTH) {
+		return NODE_ERR_MAX_DEPTH;
+	}
+
+	if (!parent->children) {
+		parent->children = node_list_create();
+		if (!parent->children) return NODE_ERR_NO_MEM;
+	}
+	int res = node_list_insert(parent->children, node_index, child);
+	if (res == 0) {
+		child->parent = parent;
+		parent->count++;
+	}
+	return res;
+}
+
+static void _node_debug(node_t node, unsigned int depth)
+{
+	unsigned int i = 0;
+	node_t current = NULL;
+	for(i = 0; i < depth; i++) {
+		printf("\t");
+	}
+	if(!node->parent) {
+		printf("ROOT\n");
+	}
+
+	if(!node->children && node->parent) {
+		printf("LEAF\n");
+	} else {
+		if(node->parent) {
+			printf("NODE\n");
+		}
+		for (current = node_first_child(node); current; current = node_next_sibling(current)) {
+			_node_debug(current, depth+1);
+		}
+	}
+
+}
+
+void node_debug(node_t node)
+{
+	_node_debug(node, 0);
+}
+
+unsigned int node_n_children(node_t node)
+{
+	if (!node) return 0;
+	return node->count;
+}
+
+node_t node_nth_child(node_t node, unsigned int n)
+{
+	if (!node || !node->children || !node->children->begin) return NULL;
+	unsigned int node_index = 0;
+	int found = 0;
+	node_t ch;
+	for (ch = node_first_child(node); ch; ch = node_next_sibling(ch)) {
+		if (node_index++ == n) {
+			found = 1;
+			break;
+		}
+	}
+	if (!found) {
+		return NULL;
+	}
+	return ch;
+}
+
+node_t node_first_child(node_t node)
+{
+	if (!node || !node->children) return NULL;
+	return node->children->begin;
+}
+
+node_t node_prev_sibling(node_t node)
+{
+	if (!node) return NULL;
+	return node->prev;
+}
+
+node_t node_next_sibling(node_t node)
+{
+	if (!node) return NULL;
+	return node->next;
+}
+
+int node_child_position(node_t parent, node_t child)
+{
+	if (!parent || !parent->children || !parent->children->begin || !child) return NODE_ERR_INVALID_ARG;
+	int node_index = 0;
+	int found = 0;
+	node_t ch;
+	for (ch = node_first_child(parent); ch; ch = node_next_sibling(ch)) {
+		if (ch == child) {
+			found = 1;
+			break;
+		}
+		node_index++;
+	}
+	if (!found) {
+		return NODE_ERR_NOT_FOUND;
+	}
+	return node_index;
+}
+
+node_t node_copy_deep(node_t node, copy_func_t copy_func)
+{
+	if (!node) return NULL;
+	void *data = NULL;
+	if (copy_func) {
+		data = copy_func(node->data);
+	}
+	node_t copy = node_create(NULL, data);
+	if (!copy) return NULL;
+	node_t ch;
+	for (ch = node_first_child(node); ch; ch = node_next_sibling(ch)) {
+		node_t cc = node_copy_deep(ch, copy_func);
+		if (!cc) {
+			node_destroy(copy);
+			return NULL;
+		}
+		if (node_attach(copy, cc) < 0) {
+                        node_destroy(cc);
+			node_destroy(copy);
+			return NULL;
+		}
+	}
+	return copy;
+}

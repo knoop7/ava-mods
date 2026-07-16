@@ -3,7 +3,8 @@
   "name": "Flashlight",
   "version": "1.0.0",
   "author": "Ava",
-  "description": "Control device flashlight from Home Assistant",
+  "description": "Flip the torch on or off from Home Assistant. Handy light in one tap.",
+  "detail_description": "Expose a simple torch switch in Home Assistant. Toggle the camera LED from automations, dashboards, or voice — useful as a night light or closet lamp.",
   "icon": "mdi:flashlight",
   "libs": [
     "libs/flashlight-manager.jar"

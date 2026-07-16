@@ -3,8 +3,8 @@
   "name": "HA STT Engine",
   "version": "1.2.1",
   "author": "Ava",
-  "description": "Local Wyoming STT for Home Assistant (multilingual offline).",
-  "detail_description": "First run downloads a ~230MB SenseVoice model (zh/en/ja/ko/Cantonese). Wyoming TCP on port 10300 for Home Assistant voice pipelines.",
+  "description": "Listen offline. Multilingual speech-to-text without leaving your LAN.",
+  "detail_description": "On-device SenseVoice STT for zh / en / ja / ko / Cantonese (~230MB first download). Exposes a Wyoming TCP server so Home Assistant voice pipelines can listen offline on your LAN.",
   "icon": "mdi:microphone-message",
   "libs": [
     "libs/ha-stt-engine-manager.jar",
@@ -32,29 +32,51 @@
       "listener_id": "download_progress",
       "status_read": "getModelStatusDisplay",
       "status_listener_id": "model_status",
-      "ready_keywords": ["ready"],
-      "downloading_keywords": ["downloading"],
-      "paused_keywords": ["paused"],
-      "error_keywords": ["error", "failed"],
-      "inline_config_keys": ["recognition_language"],
+      "ready_keywords": [
+        "ready"
+      ],
+      "downloading_keywords": [
+        "downloading"
+      ],
+      "paused_keywords": [
+        "paused"
+      ],
+      "error_keywords": [
+        "error",
+        "failed"
+      ],
+      "inline_config_keys": [
+        "recognition_language"
+      ],
       "actions": [
         {
           "label": "",
           "press": "downloadModel",
           "style": "primary",
-          "show_when": ["idle", "paused", "error"]
+          "show_when": [
+            "idle",
+            "paused",
+            "error"
+          ]
         },
         {
           "label": "",
           "press": "pauseDownload",
           "style": "secondary",
-          "show_when": ["downloading"]
+          "show_when": [
+            "downloading"
+          ]
         },
         {
           "label": "",
           "press": "deleteModel",
           "style": "destructive",
-          "show_when": ["ready", "idle", "paused", "error"]
+          "show_when": [
+            "ready",
+            "idle",
+            "paused",
+            "error"
+          ]
         }
       ]
     }
@@ -141,7 +163,13 @@
       "description": "Fixed decode language for SenseVoice. Switch language before downloading if needed.",
       "dialogHint": "Default English. Switch to Chinese (or ja/ko/yue), then download the model for that language.",
       "defaultValue": "en",
-      "options": ["en", "zh", "ja", "ko", "yue"]
+      "options": [
+        "en",
+        "zh",
+        "ja",
+        "ko",
+        "yue"
+      ]
     },
     {
       "type": "number",

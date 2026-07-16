@@ -3,8 +3,8 @@
   "name": "Phicomm R1",
   "version": "1.3.0",
   "author": "Ava",
-  "description": "Phicomm R1 native LED ring, voice-reactive, music RGB.",
-  "detail_description": "Stock msgcenter voice and dormant lights; optional 4-mic directional wake; RGB music ring.",
+  "description": "Wake the R1 light ring with voice-reactive glow and music RGB that feel native.",
+  "detail_description": "Native R1 LED ring: stock voice and dormant lights, optional 4-mic directional wake glow, and RGB music visualization while tracks play — ducked automatically during voice.",
   "icon": "mdi:led-strip-variant",
   "voice_pipeline": true,
   "libs": [
@@ -84,7 +84,12 @@
       "key": "music_light_mode",
       "label": "Music Light Style",
       "description": "0 = ring breathing (stock default), 1-3 = stock five-band spectrum effects.",
-      "options": ["0", "1", "2", "3"],
+      "options": [
+        "0",
+        "1",
+        "2",
+        "3"
+      ],
       "defaultValue": "0"
     },
     {

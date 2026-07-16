@@ -3,8 +3,8 @@
   "name": "HA Edge TTS",
   "version": "1.0.8",
   "author": "Ava",
-  "description": "Edge TTS for Home Assistant via Wyoming protocol.",
-  "detail_description": "Cloud-based TTS using Microsoft Edge TTS voices. Wyoming TCP server for Home Assistant voice pipelines. 400+ voices in 40+ languages.",
+  "description": "Speak with Microsoft Edge voices. Natural TTS for your Home Assistant pipeline.",
+  "detail_description": "Wyoming cloud TTS powered by Microsoft Edge voices — 400+ voices across 40+ languages. Point Home Assistant at the local Wyoming port and hear replies in the voice you pick.",
   "icon": "mdi:microsoft-edge",
   "libs": [
     "libs/ha-edge-tts-manager.jar"

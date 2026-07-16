@@ -3,47 +3,32 @@
   "baseUrl": "https://raw.githubusercontent.com/knoop7/ava-mods/main/",
   "mods": [
     {
-      "id": "a64-device-support",
-      "name": "Allwinner A64 Custom",
-      "version": "1.0.5",
+      "id": "airplay-receiver",
+      "name": "AirPlay Receiver",
+      "version": "1.0.31",
       "author": "Ava",
-      "description": "Device compatibility hooks for Allwinner A64 chip devices (Ococci tablets, smart screens)",
-      "path": "mods/devices/a64-device-support/",
-      "jar_hash": "5597854afed43b5d5c48145d82132556"
+      "description": "Cast from iPhone or Mac. Turn this device into your AirPlay screen and speaker.",
+      "detail_description": "Mirror the display, stream albums with artwork, or play video fullscreen. Shows up as {device name} [Airplay] on the same Wi-Fi. Ties to the voice satellite; PIN and ducking when you want them.",
+      "path": "mods/features/airplay-receiver/",
+      "jar_hash": "cf042cf63dfc5d4b6828ee5f269988df"
     },
     {
-      "id": "echo-show-support",
-      "name": "Echo Show Support",
-      "version": "1.1.5",
+      "id": "dlna-renderer",
+      "name": "DLNA Renderer",
+      "version": "1.5.8",
       "author": "Ava",
-      "description": "Device compatibility hooks for Amazon Echo Show models (brightness, BLE, overlay, screensaver dark-off)",
-      "path": "mods/devices/echo-show-support/",
-      "jar_hash": "5e2a1d6d0218098a8b545855a53f3b90"
-    },
-    {
-      "id": "connectivity-keepalive",
-      "name": "WiFi & ADB Keep-Alive",
-      "version": "1.1.1",
-      "author": "Ava",
-      "description": "Keep WiFi and ADB debugging alive across crashes and reboots. Root preferred, Shizuku fallback.",
-      "path": "mods/features/connectivity-keepalive/",
-      "jar_hash": "ae93c92f263812760a524d191b001530"
-    },
-    {
-      "id": "flashlight-mod",
-      "name": "Flashlight",
-      "version": "1.0.0",
-      "author": "Ava",
-      "description": "Control device flashlight from Home Assistant",
-      "path": "mods/features/flashlight-mod/"
+      "description": "Cast from your phone or tablet. Turn this device into your DLNA speaker and screen.",
+      "detail_description": "Stream music and video from BubbleUPnP and other UPnP controllers. Optional Cinema UI with artwork; duck playback volume while you talk to the voice assistant.",
+      "path": "mods/features/dlna-renderer/",
+      "jar_hash": "5f3f2e3ab5e443d099be6fce28b73f1b"
     },
     {
       "id": "ha-edge-tts",
       "name": "HA Edge TTS",
       "version": "1.0.8",
       "author": "Ava",
-      "description": "Edge TTS for Home Assistant via Wyoming protocol.",
-      "detail_description": "Cloud-based TTS using Microsoft Edge TTS voices. 400+ voices in 40+ languages. Wyoming TCP port 10301.",
+      "description": "Speak with Microsoft Edge voices. Natural TTS for your Home Assistant pipeline.",
+      "detail_description": "Wyoming cloud TTS powered by Microsoft Edge voices — 400+ voices across 40+ languages. Point Home Assistant at the local Wyoming port and hear replies in the voice you pick.",
       "path": "mods/features/ha-edge-tts/",
       "jar_hash": "97ea7e4b764d4a8403d4636a48d1b5c6"
     },
@@ -52,45 +37,76 @@
       "name": "HA STT Engine",
       "version": "1.2.1",
       "author": "Ava",
-      "description": "Wyoming offline STT for Home Assistant (multilingual).",
-      "detail_description": "SenseVoice model: zh/en/ja/ko/Cantonese. ~230MB download. Wyoming TCP port 10300.",
+      "description": "Listen offline. Multilingual speech-to-text without leaving your LAN.",
+      "detail_description": "On-device SenseVoice STT for zh / en / ja / ko / Cantonese (~230MB first download). Exposes a Wyoming TCP server so Home Assistant voice pipelines can listen offline on your LAN.",
       "path": "mods/features/ha-stt-engine/",
       "jar_hash": "991ab7b9f70a1421d7b020a274da20d2"
+    },
+    {
+      "id": "a64-device-support",
+      "name": "Allwinner A64 Custom",
+      "version": "1.0.5",
+      "author": "Ava",
+      "description": "Feel at home on Allwinner A64 tablets and smart screens.",
+      "detail_description": "Compatibility hooks for Ococci and similar Allwinner A64 tablets and smart screens — brightness, overlays, and everyday controls behave like a first-class panel.",
+      "path": "mods/devices/a64-device-support/",
+      "jar_hash": "5597854afed43b5d5c48145d82132556"
+    },
+    {
+      "id": "echo-show-support",
+      "name": "Echo Show Support",
+      "version": "1.1.5",
+      "author": "Ava",
+      "description": "Bring the assistant to life on Amazon Echo Show with brightness, BLE, overlays, and a calm dark screensaver.",
+      "detail_description": "Echo Show hardware hooks: screen brightness, Bluetooth, overlay stacking, and screensaver dark-off so the assistant UI feels native on Amazon panels.",
+      "path": "mods/devices/echo-show-support/",
+      "jar_hash": "5e2a1d6d0218098a8b545855a53f3b90"
+    },
+    {
+      "id": "connectivity-keepalive",
+      "name": "WiFi & ADB Keep-Alive",
+      "version": "1.1.1",
+      "author": "Ava",
+      "description": "Stay reachable. Wi-Fi stays on and ADB stays ready after crashes and reboots.",
+      "detail_description": "Keeps Wi-Fi radio and ADB debugging alive across crashes and reboots so remote installs and LAN access do not vanish overnight. Prefers root; falls back to Shizuku. Never turns them off.",
+      "path": "mods/features/connectivity-keepalive/",
+      "jar_hash": "ae93c92f263812760a524d191b001530"
+    },
+    {
+      "id": "flashlight-mod",
+      "name": "Flashlight",
+      "version": "1.0.0",
+      "author": "Ava",
+      "description": "Flip the torch on or off from Home Assistant. Handy light in one tap.",
+      "path": "mods/features/flashlight-mod/",
+      "detail_description": "Expose a simple torch switch in Home Assistant. Toggle the camera LED from automations, dashboards, or voice — useful as a night light or closet lamp."
     },
     {
       "id": "ble-adv-proxy",
       "name": "BLE ADV Proxy",
       "version": "0.4.9",
       "author": "Ava",
-      "description": "ha-ble-adv BLE proxy. Scan nearby devices and control fans or lamps.",
-      "detail_description": "Enabling this disables Ava Bluetooth proxy. This mod owns BLE scan and TX for ha-ble-adv.",
+      "description": "Reach nearby fans and lamps from Home Assistant. This device becomes your BLE remote.",
+      "detail_description": "Scan nearby BLE devices and send advertise packets for ha-ble-adv fans and lamps. While enabled this mod owns BLE scan/TX (built-in Bluetooth proxy steps aside).",
       "path": "mods/features/ble-adv-proxy/",
       "jar_hash": "c5a77f09861a57a69ddddfc085c52ed9"
-    },
-    {
-      "id": "dlna-renderer",
-      "name": "DLNA Renderer",
-      "version": "1.5.7",
-      "author": "Ava",
-      "description": "Turn Ava into a LAN DLNA speaker for UPnP music.",
-      "detail_description": "BubbleUPnP supported; optional Cinema UI and voice ducking.",
-      "path": "mods/features/dlna-renderer/",
-      "jar_hash": "ac085ec3c2e9522215ab054e2fc201ec"
     },
     {
       "id": "gps-mod",
       "name": "GPS Location",
       "version": "1.3.0",
       "author": "Ava",
-      "description": "Expose device GPS location to Home Assistant",
-      "path": "mods/features/gps-mod/"
+      "description": "Show where this device is. Live GPS in Home Assistant for maps, presence, and automations.",
+      "path": "mods/features/gps-mod/",
+      "detail_description": "Publish latitude, longitude, altitude, speed, and accuracy as Home Assistant sensors. Tune update interval and movement threshold so presence and map cards stay fresh without draining the battery."
     },
     {
       "id": "mimiclaw-ai-assistant",
       "name": "OpenClaw(Mini)",
       "version": "1.5.0",
       "author": "Ava",
-      "description": "Java-built Android AI assistant for control, automation, screenshots, diagnostics, and expandable skills.",
+      "description": "An on-device AI sidekick for screenshots, taps, automation, and room to grow skills.",
+      "detail_description": "On-device AI for screenshots, UI taps, automation, diagnostics, and messaging. Expand with skills over time without leaving the phone — optional local console and HA sensors.",
       "path": "mods/features/mimiclaw-ai-assistant/",
       "jar_hash": "429e908cc2ff71b2de7f172499cd899a"
     },
@@ -99,16 +115,17 @@
       "name": "Qcom Audio",
       "version": "1.0.0",
       "author": "pantherale0",
-      "description": "Fix Qualcomm audio concurrency for voice assistant (ThinkSmart View)",
-      "path": "mods/features/qualcomm-audio-concurrency-fix/"
+      "description": "Stop voice and media fighting for the mic. Smoother assistant audio on Qualcomm (ThinkSmart View).",
+      "path": "mods/features/qualcomm-audio-concurrency-fix/",
+      "detail_description": "Applies Qualcomm audio-concurrency tweaks so the voice assistant and media playback can share the mic and speaker path cleanly — aimed at ThinkSmart View and similar devices."
     },
     {
       "id": "phicomm-r1-support",
       "name": "Phicomm R1",
       "version": "1.3.0",
       "author": "Ava",
-      "description": "Phicomm R1 native LED ring, voice-reactive, music RGB.",
-      "detail_description": "Stock msgcenter voice and dormant lights; optional 4-mic directional wake; RGB music ring.",
+      "description": "Wake the R1 light ring with voice-reactive glow and music RGB that feel native.",
+      "detail_description": "Native R1 LED ring: stock voice and dormant lights, optional 4-mic directional wake glow, and RGB music visualization while tracks play — ducked automatically during voice.",
       "path": "mods/devices/phicomm-r1-support/",
       "jar_hash": "58f7c1a4ece87bf7c0c3a637b249f75a"
     },
@@ -117,7 +134,8 @@
       "name": "Facebook Portal",
       "version": "1.2.0",
       "author": "Ava",
-      "description": "Facebook Portal ambient sensors, presence detection, physical volume, sound level, screen timeout, and alert tones",
+      "description": "Make Portal feel first-class with presence, volume keys, ambient sensing, and polite alerts.",
+      "detail_description": "Presence, ambient light, gestures, physical volume, sound level, screen timeout, and alert tones wired for Facebook Portal hardware so dashboards and automations feel native.",
       "path": "mods/devices/portal-support/",
       "jar_hash": "fde36c17ae67d77912defeb0aadf6ef4"
     },
@@ -126,16 +144,17 @@
       "name": "Tuya S8E",
       "version": "1.0.10",
       "author": "Ava",
-      "description": "Control both Tuya S8E backlights and read onboard temperature and humidity values",
-      "path": "mods/devices/tuya-s8e-support/"
+      "description": "Dim both S8E backlights and read the room. Temperature and humidity at a glance.",
+      "path": "mods/devices/tuya-s8e-support/",
+      "detail_description": "Control the main screen and small-display backlights independently, and expose onboard temperature and humidity sensors to Home Assistant for climate cards and automations."
     },
     {
       "id": "ir-blaster-support",
       "name": "IR Blaster (ESPhome)",
       "version": "1.0.0",
       "author": "Ava",
-      "description": "IR emitter and expose it to Home Assistant as a native ESPHome infrared transmitter.",
-      "detail_description": "Consumer IR + USB detection, Default TCP port 6054.",
+      "description": "Point at the TV. Send infrared like a native ESPHome blaster from Home Assistant.",
+      "detail_description": "Turn the device IR emitter into an ESPHome-style blaster for Home Assistant. USB detection included; default native API on TCP 6054 with optional mDNS discovery.",
       "path": "mods/devices/ir-blaster-support/",
       "jar_hash": "17dc920f2660895ae48915aed1b12218"
     },
@@ -144,16 +163,17 @@
       "name": "YX LED Controller",
       "version": "1.0.0",
       "author": "slovebj",
-      "description": "LED and motion sensor for YX M5612",
-      "path": "mods/devices/yx-led-controller/"
+      "description": "Light up the YX M5612 with LED and motion sensing in one small package.",
+      "path": "mods/devices/yx-led-controller/",
+      "detail_description": "Drive the YX M5612 LED output and read its motion sensor from Home Assistant — handy for status lights, night cues, or occupancy-triggered scenes."
     },
     {
       "id": "screen-color-filter",
       "name": "Screen Color Filter",
       "version": "1.0.1",
       "author": "Ava",
-      "description": "Apply a global screen color tint controllable from Home Assistant",
-      "detail_description": "Full-screen translucent overlay above all Ava layers. Select off, red, blue, dark, yellow, green, or gray from Home Assistant.",
+      "description": "Wash the screen in a soft tint. Night mode moods from Home Assistant.",
+      "detail_description": "Full-screen translucent tint above every layer — pick off, red, blue, dark, yellow, green, or gray from Home Assistant. Touch input still passes through for night-mode moods.",
       "path": "mods/features/screen-color-filter/",
       "jar_hash": "ef4c4061ff93dc8c82cce3b0a848dc47"
     },
@@ -162,8 +182,8 @@
       "name": "Sticky Note",
       "version": "1.0.0",
       "author": "Ava",
-      "description": "Show a draggable on-screen note controlled from Home Assistant",
-      "detail_description": "Show HA text on screen. Drag to move.",
+      "description": "Pin a floating note on screen. Drag it where you need it from Home Assistant.",
+      "detail_description": "Push any Home Assistant text onto a floating on-screen note. Drag it where you need it, resize via settings, and clear it when the reminder is done.",
       "path": "mods/features/sticky-note/",
       "jar_hash": "91ed2c7def2b31d34260baef9dfe1814"
     },
@@ -172,7 +192,8 @@
       "name": "Zigbee Gateway",
       "version": "1.1.2",
       "author": "Ava",
-      "description": "Serial to TCP bridge for Zigbee coordinators",
+      "description": "Plug in a Zigbee stick. Bridge serial to TCP for your coordinator.",
+      "detail_description": "Bridge a USB Zigbee coordinator over serial-to-TCP for Zigbee2MQTT or ZHA. Works with Tuya S6E/T6E/S7E/S9E, NSPanel Pro, and similar sticks on the LAN.",
       "path": "mods/features/zigbee-gateway-mod/"
     }
   ]

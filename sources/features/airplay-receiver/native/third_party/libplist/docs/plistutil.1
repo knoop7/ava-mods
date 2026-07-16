@@ -1,0 +1,135 @@
+.TH "plistutil" 1
+.SH NAME
+plistutil \- Convert a plist FILE between binary, XML, and JSON format
+.SH SYNOPSIS
+.B plistutil
+[OPTIONS]
+[-i FILE]
+[-o FILE]
+.SH DESCRIPTION
+plistutil allows converting a Property List file between binary, XML, and JSON format.
+.SH OPTIONS
+.TP
+.B \-i, \-\-infile FILE
+Input FILE to convert from. If this argument is omitted or - is passed as
+filename, plistutil will read from stdin.
+.TP
+.B \-o, \-\-outfile FILE
+Output FILE to convert to. If this argument is omitted or - is passed as
+filename, plistutil will write to stdout.
+.TP
+.B \-f, \-\-format [bin|xml|json|openstep]
+Force output format, regardless of input type. This is useful if the input
+format is not known, but the output format should always be in a specific
+format (like xml or json).
+
+If omitted, XML plist data will be converted to binary and vice-versa. To
+convert to/from JSON or OpenStep the output format needs to specified.
+.TP
+.B \-p, \-\-print FILE
+Print PList in human-readable format.
+.TP
+.B \-n, \-\-nodepath PATH
+Restrict output to nodepath defined by
+.I PATH
+which selects a specific node within the plist document.
+A node path describes traversal through dictionaries and arrays using / to
+separate the components.
+Traversal begins at the root node and proceeds from left to right.
+Each component selects a child of the current node.
+If the current node is a dictionary, the component is interpreted as a
+dictionary key name.
+If the current node is an array, the component must be a non-negative decimal
+integer specifying the array index (0-based).
+
+Given the following structure:
+.PP
+.RS
+.nf
+<plist version="1.0">
+<dict>
+  <key>Users</key>
+  <array>
+    <dict>
+      <key>Name</key>
+      <string>Alice</string>
+    </dict>
+    <dict>
+      <key>Name</key>
+      <string>Bob</string>
+    </dict>
+  </array>
+</dict>
+</plist>
+.fi
+
+A nodepath of:
+.TP
+\f[B]Users\f[] resolves to the entire array.
+.TP
+\f[B]Users/0\f[] resolves to the first dictionary in the array.
+.TP
+\f[B]Users/0/Name\f[] resolves to the string value "Alice".
+.TP
+\f[B]Users/1/Name\f[] resolves to the string value "Bob".
+.RE
+
+.TP
+.B \-c, \-\-compact
+JSON and OpenStep only: Print output in compact form. By default, the output
+will be pretty-printed.
+.TP
+.B \-C, \-\-coerce
+JSON and OpenStep only: Coerce non-compatible plist types to JSON/OpenStep
+compatible representations.
+Date values become ISO 8601 strings,
+data values become Base64-encoded strings (JSON),
+UID values become integers,
+boolean becomes 1 or 0 (OpenStep),
+and NULL becomes a string 'NULL' (OpenStep)
+
+This options is implied when invoked as plist2json.
+.TP
+.B \-s, \-\-sort
+Sort all dictionary nodes lexicographically by key before converting to the output format.
+.TP
+.B \-h, \-\-help
+Prints usage information.
+.TP
+.B \-d, \-\-debug
+Enabled extended debug output.
+.TP
+.B \-v, \-\-version
+Print version information
+.SH EXAMPLES
+.TP
+.B plistutil -i test.plist -o out.plist
+Convert test.plist and write to out.plist. If test.plist is in XML format,
+out.plist will be in binary format. If test.plist is in binary format,
+out.plist will be in XML format.
+.TP
+.B plistutil -i test.plist -o out.plist -f bin
+Same as before, but the output will always be in binary format.
+.TP
+.B plistutil -i test.plist -f xml
+Print test.plist as XML plist, regardless of the input format.
+.TP
+.B plistutil -i test.plist -f xml -o -
+Same as before.
+.TP
+.B plistutil -i test.plist -f json
+Print test.plist as JSON plist, regardless of the input format.
+.TP
+.B cat test.plist |plistutil -f xml
+Take plist data from stdin - piped via cat - and write the output as XML
+to stdout.
+.SH AUTHORS
+Zach C.
+
+Martin Szulecki
+
+Nikias Bassen
+.SH ON THE WEB
+https://libimobiledevice.org
+
+https://github.com/libimobiledevice/libplist

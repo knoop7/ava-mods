@@ -2,7 +2,8 @@
   "id": "echo-show-support",
   "name": "Echo Show Support",
   "author": "Ava",
-  "description": "Device compatibility hooks for Amazon Echo Show models (brightness, BLE, overlay, screensaver dark-off)",
+  "description": "Bring the assistant to life on Amazon Echo Show with brightness, BLE, overlays, and a calm dark screensaver.",
+  "detail_description": "Echo Show hardware hooks: screen brightness, Bluetooth, overlay stacking, and screensaver dark-off so the assistant UI feels native on Amazon panels.",
   "icon": "mdi:tablet-dashboard",
   "libs": [
     "libs/echo-show-support.jar"

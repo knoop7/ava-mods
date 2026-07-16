@@ -4,4 +4,5 @@
 *.iml
 build/
 **/build/
+**/build-deps/_*/
 .githooks/

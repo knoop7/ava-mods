@@ -3,8 +3,8 @@
   "name": "Sticky Note",
   "version": "1.0.0",
   "author": "Ava",
-  "description": "Show a draggable on-screen note controlled from Home Assistant",
-  "detail_description": "Show HA text on screen. Drag to move.",
+  "description": "Pin a floating note on screen. Drag it where you need it from Home Assistant.",
+  "detail_description": "Push any Home Assistant text onto a floating on-screen note. Drag it where you need it, resize via settings, and clear it when the reminder is done.",
   "icon": "mdi:note-text-outline",
   "overlay_z_order": true,
   "libs": [
@@ -27,7 +27,15 @@
       "name": "Note Color",
       "icon": "mdi:palette",
       "category": "diagnostic",
-      "options": ["yellow", "pink", "blue", "green", "orange", "purple", "dark"],
+      "options": [
+        "yellow",
+        "pink",
+        "blue",
+        "green",
+        "orange",
+        "purple",
+        "dark"
+      ],
       "read": "getColor",
       "set": "setColor"
     },

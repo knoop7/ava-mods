@@ -1,16 +1,17 @@
 {
   "id": "dlna-renderer",
   "name": "DLNA Renderer",
-  "version": "1.5.7",
+  "version": "1.5.8",
   "author": "Ava",
-  "description": "Turn Ava into a LAN DLNA speaker for UPnP music.",
-  "detail_description": "BubbleUPnP supported; optional Cinema UI and voice ducking.",
+  "description": "Cast from your phone or tablet. Turn this device into your DLNA speaker and screen.",
+  "detail_description": "Stream music and video from BubbleUPnP and other UPnP controllers. Shows up as Ava - {device name} [DLNA] on the same Wi-Fi. Optional Cinema UI with artwork; duck playback volume while you talk to the voice assistant.",
   "icon": "mdi:cast",
   "libs": [
     "libs/dlna-renderer-manager.jar"
   ],
   "manager": "com.ava.mods.dlna.DlnaRendererManager",
   "voice_pipeline": true,
+  "overlay_z_order": true,
   "overlay_below_voice": true,
   "playback_reference": true,
   "permissions": [
@@ -18,16 +19,17 @@
     "android.permission.ACCESS_NETWORK_STATE",
     "android.permission.ACCESS_WIFI_STATE",
     "android.permission.CHANGE_WIFI_MULTICAST_STATE",
-    "android.permission.WAKE_LOCK"
+    "android.permission.WAKE_LOCK",
+    "android.permission.SYSTEM_ALERT_WINDOW"
   ],
   "config": [
     {
       "type": "text",
       "key": "device_name",
       "label": "Device Name",
-      "description": "Friendly name shown in DLNA controller apps.",
-      "dialogHint": "Shown in controller renderer lists.",
-      "defaultValue": "Ava"
+      "description": "Shown as Ava - {name} [DLNA]. Leave blank to use the phone model.",
+      "dialogHint": "Middle segment only, e.g. MI 9 — not the full Ava - … name.",
+      "defaultValue": ""
     },
     {
       "type": "switch",
@@ -100,6 +102,15 @@
       "read": "getPlaybackState"
     },
     {
+      "type": "text_sensor",
+      "id": "advertised_name",
+      "name": "DLNA Name",
+      "icon": "mdi:tag-outline",
+      "category": "diagnostic",
+      "enabledByConfig": "show_diagnostic_entities",
+      "read": "getAdvertisedName"
+    },
+    {
       "type": "button",
       "id": "restart_server",
       "name": "Restart DLNA Renderer",
@@ -118,5 +129,5 @@
       "press": "stopPlayback"
     }
   ],
-  "jar_hash": "ac085ec3c2e9522215ab054e2fc201ec"
+  "jar_hash": "5f3f2e3ab5e443d099be6fce28b73f1b"
 }

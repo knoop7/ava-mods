@@ -3,8 +3,8 @@
   "name": "IR Blaster (ESPhome)",
   "version": "1.0.0",
   "author": "Ava",
-  "description": "IR blaster for Home Assistant via ESPHome",
-  "detail_description": "Consumer IR + USB detection, Default TCP port 6054.",
+  "description": "Point at the TV. Send infrared like a native ESPHome blaster from Home Assistant.",
+  "detail_description": "Turn the device IR emitter into an ESPHome-style blaster for Home Assistant. USB detection included; default native API on TCP 6054 with optional mDNS discovery.",
   "icon": "mdi:remote",
   "libs": [
     "libs/ir-blaster-support.jar"

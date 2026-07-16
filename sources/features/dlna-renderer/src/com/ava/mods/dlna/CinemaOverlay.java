@@ -429,25 +429,31 @@ public final class CinemaOverlay {
             if (!visible || root == null || layoutParams == null) {
                 return;
             }
-            if (!root.isAttachedToWindow()) {
-                try {
-                    windowManager.addView(root, layoutParams);
-                } catch (Exception e) {
-                    Log.w(TAG, "bringToFront reattach failed", e);
-                }
-                return;
-            }
-            int vis = root.getVisibility();
-            float alpha = root.getAlpha();
             try {
-                windowManager.removeView(root);
-                windowManager.addView(root, layoutParams);
-                root.setVisibility(vis);
-                root.setAlpha(alpha);
+                if (!root.isAttachedToWindow()) {
+                    windowManager.addView(root, layoutParams);
+                    return;
+                }
+                if (hasLiveDecodeSurface()) {
+                    windowManager.updateViewLayout(root, layoutParams);
+                } else {
+                    int vis = root.getVisibility();
+                    float alpha = root.getAlpha();
+                    windowManager.removeView(root);
+                    windowManager.addView(root, layoutParams);
+                    root.setVisibility(vis);
+                    root.setAlpha(alpha);
+                }
             } catch (Exception e) {
                 Log.w(TAG, "bringToFront failed", e);
             }
         });
+    }
+
+    /** True while video decode has an active Surface bound to MediaPlayer. */
+    private boolean hasLiveDecodeSurface() {
+        Surface s = videoSurface;
+        return currentKind == MediaKind.VIDEO && s != null && s.isValid();
     }
 
     /** Drop overlay window state after a failed initial addView in showInternal. */

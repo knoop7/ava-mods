@@ -3,7 +3,8 @@
   "name": "Qcom Audio",
   "version": "1.0.0",
   "author": "pantherale0",
-  "description": "Fix Qualcomm audio concurrency for voice assistant",
+  "description": "Stop voice and media fighting for the mic. Smoother assistant audio on Qualcomm (ThinkSmart View).",
+  "detail_description": "Applies Qualcomm audio-concurrency tweaks so the voice assistant and media playback can share the mic and speaker path cleanly — aimed at ThinkSmart View and similar devices.",
   "icon": "mdi:microphone",
   "libs": [
     "libs/qualcomm-audio-fix.jar"

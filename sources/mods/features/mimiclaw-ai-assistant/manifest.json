@@ -3,7 +3,8 @@
   "name": "OpenClaw(Mini)",
   "version": "1.5.0",
   "author": "Ava",
-  "description": "A Java-built Android AI assistant for device control, screenshots, UI actions, automation, diagnostics, messaging, and future skills.",
+  "description": "An on-device AI sidekick for screenshots, taps, automation, and room to grow skills.",
+  "detail_description": "On-device AI for screenshots, UI taps, automation, diagnostics, and messaging. Expand with skills over time without leaving the phone — optional local console and HA sensors.",
   "icon": "mdi:robot",
   "libs": [
     "libs/mimiclaw-manager.jar"

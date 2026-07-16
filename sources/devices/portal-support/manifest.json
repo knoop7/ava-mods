@@ -3,7 +3,8 @@
   "name": "Facebook Portal",
   "version": "1.2.0",
   "author": "Ava",
-  "description": "Facebook Portal ambient sensors, presence detection, physical volume, sound level, screen timeout, and alert tones for Home Assistant",
+  "description": "Make Portal feel first-class with presence, volume keys, ambient sensing, and polite alerts.",
+  "detail_description": "Presence, ambient light, gestures, physical volume, sound level, screen timeout, and alert tones wired for Facebook Portal hardware so dashboards and automations feel native.",
   "icon": "mdi:tablet-dashboard",
   "libs": [
     "libs/portal-support.jar"
