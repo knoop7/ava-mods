@@ -2977,7 +2977,7 @@ public final class AirPlayOverlay {
         AudioWaveShadowView v = new AudioWaveShadowView(appContext);
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
-                dp(340),
+                dp(280),
                 Gravity.BOTTOM);
         v.setLayoutParams(lp);
         return v;
@@ -3465,11 +3465,12 @@ public final class AirPlayOverlay {
             if (raw instanceof FrameLayout.LayoutParams) {
                 FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) raw;
                 DisplayMetrics dm = appContext.getResources().getDisplayMetrics();
+                // Keep height modest — avoids giant bitmaps if a layer type regresses.
                 int h = landscape
-                        ? Math.round(dm.heightPixels * 0.78f)
-                        : Math.round(dm.heightPixels * 0.52f);
+                        ? Math.round(dm.heightPixels * 0.55f)
+                        : Math.round(dm.heightPixels * 0.38f);
                 lp.width = FrameLayout.LayoutParams.MATCH_PARENT;
-                lp.height = Math.max(dp(300), h);
+                lp.height = Math.max(dp(220), Math.min(h, dp(420)));
                 lp.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
                 lp.leftMargin = 0;
                 lp.rightMargin = 0;

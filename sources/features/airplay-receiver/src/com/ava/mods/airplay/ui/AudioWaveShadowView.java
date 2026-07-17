@@ -1,23 +1,21 @@
 package com.ava.mods.airplay.ui;
 
 import android.content.Context;
-import android.graphics.BlurMaskFilter;
 import android.graphics.Canvas;
 import android.graphics.LinearGradient;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.RadialGradient;
 import android.graphics.Shader;
-import android.os.Build;
 import android.view.View;
 
 /**
- * Centered background wave shadow — soft gradient + blur, not a hard edge.
- * Left/right levels are mirrored so the ridge stays visually centered.
+ * Background wave shadow — hardware-friendly (no software layer / BlurMaskFilter).
+ * Soft edge comes from multi-stop gradients + translucent stacked fills.
  */
 public final class AudioWaveShadowView extends View {
 
-    private static final int POINTS = 32;
+    private static final int POINTS = 28;
 
     private final Paint basePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint wavePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -36,8 +34,8 @@ public final class AudioWaveShadowView extends View {
         setWillNotDraw(false);
         setClickable(false);
         setFocusable(false);
-        // BlurMaskFilter requires software layer.
-        setLayerType(LAYER_TYPE_SOFTWARE, null);
+        // Stay on hardware layer — software layer OOM-skips drawing on phones.
+        setLayerType(LAYER_TYPE_HARDWARE, null);
         basePaint.setStyle(Paint.Style.FILL);
         wavePaint.setStyle(Paint.Style.FILL);
         glowPaint.setStyle(Paint.Style.FILL);
@@ -45,7 +43,6 @@ public final class AudioWaveShadowView extends View {
 
     public void setLevels(float[] bands01) {
         if (bands01 == null || bands01.length == 0) return;
-        // Resample then mirror L/R so the wave is always centered.
         float[] raw = new float[POINTS];
         float sum = 0f;
         for (int i = 0; i < POINTS; i++) {
@@ -60,6 +57,7 @@ public final class AudioWaveShadowView extends View {
             raw[i] = v;
             sum += v;
         }
+        // Mirror L/R so the ridge stays centered.
         for (int i = 0; i < POINTS / 2; i++) {
             float m = (raw[i] + raw[POINTS - 1 - i]) * 0.5f;
             levels[i] = m;
@@ -83,11 +81,11 @@ public final class AudioWaveShadowView extends View {
         if (baseGrad != null && gradW == w && gradH == h) return;
         gradW = w;
         gradH = h;
-        // Soft cinema lift — always centered fade, no hard cut.
+        // Long soft falloff ≈ “渐变模糊”
         baseGrad = new LinearGradient(
                 0, h, 0, 0,
-                new int[]{0xE6000000, 0x99000000, 0x40000000, 0x00000000},
-                new float[]{0f, 0.42f, 0.78f, 1f},
+                new int[]{0xE6000000, 0xB3000000, 0x66000000, 0x33000000, 0x00000000},
+                new float[]{0f, 0.28f, 0.55f, 0.78f, 1f},
                 Shader.TileMode.CLAMP);
         basePaint.setShader(baseGrad);
     }
@@ -104,44 +102,39 @@ public final class AudioWaveShadowView extends View {
             draw[i] = draw[i] * 0.78f + levels[i] * 0.22f;
         }
 
-        // 1) Soft full bottom gradient (static chrome readability).
+        // 1) Soft bottom gradient
         canvas.drawRect(0, 0, w, h, basePaint);
 
-        // 2) Centered radial glow — breathes with loudness (blurred puddle).
-        float glowR = Math.max(w, h) * (0.55f + 0.25f * drawEnergy);
-        float glowCy = h * (0.92f - 0.08f * drawEnergy);
-        int glowA = Math.round(90 + 110 * drawEnergy);
+        // 2) Centered radial glow (feathered via gradient stops, no BlurMaskFilter)
+        float glowR = Math.max(w, h) * (0.50f + 0.22f * drawEnergy);
+        float glowCy = h * (0.95f - 0.06f * drawEnergy);
+        int a0 = Math.round(100 + 100 * drawEnergy);
+        int a1 = Math.round(40 + 50 * drawEnergy);
         glowPaint.setShader(new RadialGradient(
                 w * 0.5f, glowCy, glowR,
-                new int[]{(glowA << 24), 0x00000000},
-                new float[]{0f, 1f},
+                new int[]{(a0 << 24), (a1 << 24), 0x00000000},
+                new float[]{0f, 0.45f, 1f},
                 Shader.TileMode.CLAMP));
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.HONEYCOMB) {
-            glowPaint.setMaskFilter(new BlurMaskFilter(h * 0.08f, BlurMaskFilter.Blur.NORMAL));
-        }
         canvas.drawCircle(w * 0.5f, glowCy, glowR, glowPaint);
 
-        // 3) Soft blurred wave ridge (symmetric), feathered into the gradient.
-        float baseY = h * (0.70f - 0.10f * drawEnergy);
-        float amp = h * (0.06f + 0.20f * drawEnergy);
-        buildWavePath(w, h, baseY, amp);
+        // 3) Soft wave body — stacked translucent fills for feathered ridge
+        float baseY = h * (0.72f - 0.10f * drawEnergy);
+        float amp = h * (0.05f + 0.18f * drawEnergy);
 
-        // Draw several translucent blurred passes for 渐变模糊.
-        float[] blurs = {h * 0.10f, h * 0.055f, h * 0.028f};
+        float[] lift = {0.14f, 0.08f, 0.03f};
         int[] alphas = {
-                Math.round(55 + 50 * drawEnergy),
-                Math.round(70 + 70 * drawEnergy),
-                Math.round(90 + 90 * drawEnergy)
+                Math.round(70 + 60 * drawEnergy),
+                Math.round(50 + 45 * drawEnergy),
+                Math.round(28 + 30 * drawEnergy)
         };
-        for (int p = 0; p < blurs.length; p++) {
+        for (int p = 0; p < lift.length; p++) {
+            buildWavePath(w, h, baseY - h * lift[p], amp * (1f - p * 0.18f));
+            float top = baseY - amp - h * lift[p];
             wavePaint.setShader(new LinearGradient(
-                    0, h, 0, baseY - amp,
-                    new int[]{(alphas[p] << 24), (alphas[p] << 24) & 0x00FFFFFF},
-                    new float[]{0f, 1f},
+                    0, h, 0, top,
+                    new int[]{(alphas[p] << 24), (alphas[p] << 24) & 0x55FFFFFF, 0x00000000},
+                    new float[]{0f, 0.55f, 1f},
                     Shader.TileMode.CLAMP));
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.HONEYCOMB) {
-                wavePaint.setMaskFilter(new BlurMaskFilter(blurs[p], BlurMaskFilter.Blur.NORMAL));
-            }
             canvas.drawPath(wavePath, wavePaint);
         }
     }
@@ -149,17 +142,13 @@ public final class AudioWaveShadowView extends View {
     private void buildWavePath(int w, int h, float baseY, float amp) {
         wavePath.reset();
         wavePath.moveTo(0, h);
-        float x0 = 0f;
-        float y0 = sampleY(0, baseY, amp);
-        wavePath.lineTo(x0, y0);
+        wavePath.lineTo(0, sampleY(0, baseY, amp));
         for (int i = 1; i < POINTS; i++) {
             float x = (i / (float) (POINTS - 1)) * w;
             float y = sampleY(i, baseY, amp);
             float px = ((i - 1) / (float) (POINTS - 1)) * w;
             float py = sampleY(i - 1, baseY, amp);
-            float cpx = (px + x) * 0.5f;
-            float cpy = (py + y) * 0.5f;
-            wavePath.quadTo(px, py, cpx, cpy);
+            wavePath.quadTo(px, py, (px + x) * 0.5f, (py + y) * 0.5f);
         }
         wavePath.lineTo(w, sampleY(POINTS - 1, baseY, amp));
         wavePath.lineTo(w, h);
@@ -171,7 +160,6 @@ public final class AudioWaveShadowView extends View {
         float cur = draw[i];
         float next = draw[Math.min(POINTS - 1, i + 1)];
         float smooth = prev * 0.25f + cur * 0.5f + next * 0.25f;
-        // Center-weighted envelope so sides stay lower → feels centered.
         float t = i / (float) (POINTS - 1);
         float center = 1f - Math.abs(t - 0.5f) * 1.35f;
         if (center < 0.35f) center = 0.35f;
