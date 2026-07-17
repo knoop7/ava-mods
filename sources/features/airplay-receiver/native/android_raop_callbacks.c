@@ -47,8 +47,9 @@ void android_callbacks_init(android_callback_ctx_t *ctx, JNIEnv *env, jobject ca
 
     jclass cls = (*env)->GetObjectClass(env, callback_obj);
     ctx->on_video_data = (*env)->GetMethodID(env, cls, "onVideoData", "([BJZ)V");
-    ctx->on_audio_data = (*env)->GetMethodID(env, cls, "onAudioData", "([BIJI)V");
+    ctx->on_audio_data = (*env)->GetMethodID(env, cls, "onAudioData", "([BIJJI)V");
     ctx->on_audio_format = (*env)->GetMethodID(env, cls, "onAudioFormat", "(IIZ)V");
+    ctx->on_audio_transport = (*env)->GetMethodID(env, cls, "onAudioTransport", "(ZLjava/lang/String;)V");
     ctx->on_video_size = (*env)->GetMethodID(env, cls, "onVideoSize", "(FFFF)V");
     ctx->on_volume_change = (*env)->GetMethodID(env, cls, "onVolumeChange", "(F)V");
     ctx->on_conn_init = (*env)->GetMethodID(env, cls, "onConnectionInit", "()V");
@@ -58,7 +59,9 @@ void android_callbacks_init(android_callback_ctx_t *ctx, JNIEnv *env, jobject ca
     ctx->on_metadata = (*env)->GetMethodID(env, cls, "onMetadata", "([B)V");
     ctx->on_coverart = (*env)->GetMethodID(env, cls, "onCoverArt", "([B)V");
     ctx->on_progress = (*env)->GetMethodID(env, cls, "onProgress", "(JJJ)V");
-    ctx->on_dacp_id = (*env)->GetMethodID(env, cls, "onDacpId", "(Ljava/lang/String;Ljava/lang/String;)V");
+    ctx->on_dacp_id = (*env)->GetMethodID(env, cls, "onDacpId",
+                                          "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V");
+    ctx->on_audio_flush = (*env)->GetMethodID(env, cls, "onAudioFlush", "()V");
     ctx->on_audio_only = (*env)->GetMethodID(env, cls, "onAudioOnly", "(Z)V");
     ctx->on_video_play = (*env)->GetMethodID(env, cls, "onVideoPlay", "(Ljava/lang/String;F)V");
     ctx->on_video_scrub = (*env)->GetMethodID(env, cls, "onVideoScrub", "(F)V");
@@ -106,7 +109,8 @@ static void _audio_process(void *cls, raop_ntp_t *ntp, audio_decode_struct *data
     jbyteArray arr = (*env)->NewByteArray(env, data->data_len);
     (*env)->SetByteArrayRegion(env, arr, 0, data->data_len, (jbyte *)data->data);
     (*env)->CallVoidMethod(env, ctx->callback_obj, ctx->on_audio_data,
-                           arr, (jint)data->ct, (jlong)data->ntp_time_local, (jint)data->seqnum);
+                           arr, (jint)data->ct, (jlong)data->ntp_time_local,
+                           (jlong)data->rtp_time, (jint)data->seqnum);
     (*env)->DeleteLocalRef(env, arr);
 }
 
@@ -168,6 +172,17 @@ static void _audio_get_format(void *cls, unsigned char *ct, unsigned short *spf,
                            (jint)*ct, (jint)*spf, (jboolean)*usingScreen);
 }
 
+static void _audio_set_transport(void *cls, int classic_raop, const char *user_agent) {
+    android_callback_ctx_t *ctx = (android_callback_ctx_t *)cls;
+    JNIEnv *env = _get_env(ctx);
+    if (!env || !ctx->on_audio_transport) return;
+    jstring jua = (*env)->NewStringUTF(env, user_agent ? user_agent : "");
+    (*env)->CallVoidMethod(env, ctx->callback_obj, ctx->on_audio_transport,
+                           (jboolean)(classic_raop ? JNI_TRUE : JNI_FALSE), jua);
+    (*env)->DeleteLocalRef(env, jua);
+    LOGI("audio_set_transport classic=%d ua=%s", classic_raop, user_agent ? user_agent : "");
+}
+
 static void _video_report_size(void *cls, float *w_src, float *h_src, float *w, float *h) {
     android_callback_ctx_t *ctx = (android_callback_ctx_t *)cls;
     JNIEnv *env = _get_env(ctx);
@@ -215,7 +230,14 @@ static void _video_reset(void *cls, reset_type_t t) {
         raop_remove_hls_connections(ctx->raop);
     }
 }
-static void _audio_flush(void *cls) { LOGI("audio_flush"); }
+static void _audio_flush(void *cls) {
+    android_callback_ctx_t *ctx = (android_callback_ctx_t *)cls;
+    JNIEnv *env = _get_env(ctx);
+    if (!env || !ctx->on_audio_flush) return;
+    LOGI("audio_flush");
+    (*env)->CallVoidMethod(env, ctx->callback_obj, ctx->on_audio_flush);
+}
+
 static void _video_flush(void *cls) { LOGI("video_flush"); }
 static double _audio_set_client_volume(void *cls) { return 0.0; }
 static void _audio_set_metadata(void *cls, const void *buf, int len) {
@@ -238,15 +260,31 @@ static void _audio_set_coverart(void *cls, const void *buf, int len) {
     (*env)->DeleteLocalRef(env, arr);
 }
 
-static void _audio_remote_control_id(void *cls, const char *dacp_id, const char *active_remote) {
+static void _notify_dacp(void *cls, const char *dacp_id, const char *active_remote,
+                         const char *client_ip) {
     android_callback_ctx_t *ctx = (android_callback_ctx_t *)cls;
     JNIEnv *env = _get_env(ctx);
-    if (!env) return;
+    if (!env || !ctx->on_dacp_id) return;
     jstring jdacp = (*env)->NewStringUTF(env, dacp_id ? dacp_id : "");
     jstring jremote = (*env)->NewStringUTF(env, active_remote ? active_remote : "");
-    (*env)->CallVoidMethod(env, ctx->callback_obj, ctx->on_dacp_id, jdacp, jremote);
+    jstring jip = (*env)->NewStringUTF(env, client_ip ? client_ip : "");
+    (*env)->CallVoidMethod(env, ctx->callback_obj, ctx->on_dacp_id, jdacp, jremote, jip);
     (*env)->DeleteLocalRef(env, jdacp);
     (*env)->DeleteLocalRef(env, jremote);
+    (*env)->DeleteLocalRef(env, jip);
+}
+
+static void _audio_remote_control_id(void *cls, const char *dacp_id, const char *active_remote) {
+    _notify_dacp(cls, dacp_id, active_remote, NULL);
+}
+
+static void _export_dacp(void *cls, const char *active_remote, const char *dacp_id,
+                         const char *client_ip) {
+    _notify_dacp(cls, dacp_id, active_remote, client_ip);
+    LOGI("export_dacp id=%s remote=%s ip=%s",
+         dacp_id ? dacp_id : "",
+         active_remote ? active_remote : "",
+         client_ip ? client_ip : "");
 }
 
 static void _audio_set_progress(void *cls, uint32_t *start, uint32_t *curr, uint32_t *end) {
@@ -389,8 +427,10 @@ void android_callbacks_fill(raop_callbacks_t *cbs, android_callback_ctx_t *ctx) 
     cbs->audio_set_metadata = _audio_set_metadata;
     cbs->audio_set_coverart = _audio_set_coverart;
     cbs->audio_remote_control_id = _audio_remote_control_id;
+    cbs->export_dacp = _export_dacp;
     cbs->audio_set_progress = _audio_set_progress;
     cbs->audio_get_format = _audio_get_format;
+    cbs->audio_set_transport = _audio_set_transport;
     cbs->video_report_size = _video_report_size;
     cbs->mirror_video_running = _mirror_video_running;
     cbs->display_pin = _display_pin;

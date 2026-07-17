@@ -20,7 +20,9 @@
 
 #include "dnssdint.h"
 #include "utils.h"
+#include "classic_rsa.h"
 #include <ctype.h>
+#include <openssl/crypto.h>
 #include <stdlib.h>
 #include <inttypes.h>
 #include <plist/plist.h>
@@ -581,12 +583,168 @@ raop_handler_fpsetup(raop_conn_t *conn,
     }
 }
 
+static char *
+sdp_find_attr(char *haystack, int haystack_len, const char *attr)
+{
+    if (!haystack || haystack_len <= 0 || !attr) {
+        return NULL;
+    }
+    const size_t attr_len = strlen(attr);
+    for (int i = 0; i + (int) attr_len <= haystack_len; i++) {
+        if (!strncmp(haystack + i, attr, attr_len)) {
+            return haystack + i + attr_len;
+        }
+    }
+    return NULL;
+}
+
+static int
+sdp_trim_field_len(const char *value, int max_len)
+{
+    int len = 0;
+    while (len < max_len && value[len] && value[len] != '\r' && value[len] != '\n') {
+        len++;
+    }
+    return len;
+}
+
+static void
+raop_handler_announce(raop_conn_t *conn,
+                      http_request_t *request, http_response_t *response,
+                      char **response_data, int *response_datalen)
+{
+    raop_t *raop = conn->raop;
+    const char *data = NULL;
+    int datalen = 0;
+    char *sdp = NULL;
+    char *paesiv = NULL;
+    char *prsaaeskey = NULL;
+    char *pfmtp = NULL;
+    bool alac_stream = false;
+
+    data = http_request_get_data(request, &datalen);
+    if (!data || datalen <= 0) {
+        http_response_init(response, "RTSP/1.0", 400, "Bad Request");
+        return;
+    }
+
+    sdp = calloc(1, (size_t) datalen + 1);
+    if (!sdp) {
+        http_response_init(response, "RTSP/1.0", 500, "Internal Server Error");
+        return;
+    }
+    memcpy(sdp, data, (size_t) datalen);
+
+    pfmtp = sdp_find_attr(sdp, datalen, "a=fmtp:");
+    if (pfmtp || strstr(sdp, "AppleLossless") || strstr(sdp, "ALAC")) {
+        alac_stream = true;
+    }
+    paesiv = sdp_find_attr(sdp, datalen, "a=aesiv:");
+    prsaaeskey = sdp_find_attr(sdp, datalen, "a=rsaaeskey:");
+
+    if (!alac_stream) {
+        logger_log(raop->logger, LOGGER_ERR, "Classic ANNOUNCE: unsupported audio format (len=%d)", datalen);
+        if (logger_get_level(raop->logger) >= LOGGER_DEBUG) {
+            logger_log(raop->logger, LOGGER_DEBUG, "Classic ANNOUNCE SDP:\n%.*s", datalen, sdp);
+        }
+        free(sdp);
+        http_response_init(response, "RTSP/1.0", 456, "Header Field Not Valid for Resource");
+        return;
+    }
+
+    conn->classic_ct = 2; /* ALAC */
+    conn->classic_encrypted = false;
+    memset(conn->classic_aeskey, 0, sizeof(conn->classic_aeskey));
+    memset(conn->classic_aesiv, 0, sizeof(conn->classic_aesiv));
+
+    if (!paesiv && !prsaaeskey) {
+        conn->classic_encrypted = false;
+    } else if (paesiv && prsaaeskey) {
+        int aesiv_field_len = sdp_trim_field_len(paesiv, datalen - (int) (paesiv - sdp));
+        int rsaaeskey_field_len = sdp_trim_field_len(prsaaeskey, datalen - (int) (prsaaeskey - sdp));
+        char *aesiv_b64 = NULL;
+        char *rsaaeskey_b64 = NULL;
+        int aesiv_len = 0;
+        int rsaaeskey_len = 0;
+        int aeskey_len = 0;
+        unsigned char *aesiv = NULL;
+        unsigned char *rsaaeskey = NULL;
+        unsigned char *aeskey = NULL;
+
+        aesiv_b64 = calloc(1, (size_t) aesiv_field_len + 1);
+        rsaaeskey_b64 = calloc(1, (size_t) rsaaeskey_field_len + 1);
+        if (!aesiv_b64 || !rsaaeskey_b64) {
+            free(aesiv_b64);
+            free(rsaaeskey_b64);
+            free(sdp);
+            http_response_init(response, "RTSP/1.0", 500, "Internal Server Error");
+            return;
+        }
+        memcpy(aesiv_b64, paesiv, (size_t) aesiv_field_len);
+        memcpy(rsaaeskey_b64, prsaaeskey, (size_t) rsaaeskey_field_len);
+
+        aesiv = classic_rsa_base64_dec(aesiv_b64, &aesiv_len);
+        rsaaeskey = classic_rsa_base64_dec(rsaaeskey_b64, &rsaaeskey_len);
+        free(aesiv_b64);
+        free(rsaaeskey_b64);
+
+        if (!aesiv || aesiv_len != 16) {
+            logger_log(raop->logger, LOGGER_ERR, "Classic ANNOUNCE: invalid aesiv (len=%d)", aesiv_len);
+            free(aesiv);
+            free(rsaaeskey);
+            free(sdp);
+            http_response_init(response, "RTSP/1.0", 456, "Header Field Not Valid for Resource");
+            return;
+        }
+
+        aeskey = classic_rsa_decrypt_key(rsaaeskey, rsaaeskey_len, &aeskey_len);
+        free(rsaaeskey);
+
+        if (!aeskey || aeskey_len != 16) {
+            logger_log(raop->logger, LOGGER_ERR, "Classic ANNOUNCE: RSA decrypt failed (len=%d)", aeskey_len);
+            free(aesiv);
+            free(aeskey);
+            free(sdp);
+            http_response_init(response, "RTSP/1.0", 456, "Header Field Not Valid for Resource");
+            return;
+        }
+
+        memcpy(conn->classic_aesiv, aesiv, 16);
+        memcpy(conn->classic_aeskey, aeskey, 16);
+        conn->classic_encrypted = true;
+        free(aesiv);
+        OPENSSL_free(aeskey);
+    } else {
+        logger_log(raop->logger, LOGGER_ERR, "Classic ANNOUNCE: missing aesiv or rsaaeskey");
+        free(sdp);
+        http_response_init(response, "RTSP/1.0", 456, "Header Field Not Valid for Resource");
+        return;
+    }
+
+    conn->classic_announced = true;
+
+    const char *user_agent = http_request_get_header(request, "User-Agent");
+    if (user_agent) {
+        logger_log(raop->logger, LOGGER_INFO, "Classic RAOP ANNOUNCE from User-Agent: %s", user_agent);
+    } else {
+        logger_log(raop->logger, LOGGER_INFO, "Classic RAOP ANNOUNCE (ALAC, encrypted=%d)", conn->classic_encrypted);
+    }
+
+    if (pfmtp) {
+        int fmtp_len = sdp_trim_field_len(pfmtp, datalen - (int) (pfmtp - sdp));
+        logger_log(raop->logger, LOGGER_DEBUG, "Classic ANNOUNCE fmtp: %.*s", fmtp_len, pfmtp);
+    }
+
+    free(sdp);
+}
+
 static void
 raop_handler_options(raop_conn_t *conn,
                      http_request_t *request, http_response_t *response,
                      char **response_data, int *response_datalen)
 {
-    http_response_add_header(response, "Public", "SETUP, RECORD, FLUSH, TEARDOWN, OPTIONS, GET_PARAMETER, SET_PARAMETER");
+    http_response_add_header(response, "Public",
+        "ANNOUNCE, SETUP, RECORD, PAUSE, FLUSH, TEARDOWN, OPTIONS, GET_PARAMETER, SET_PARAMETER");
 }
 
 static void
@@ -612,6 +770,96 @@ raop_handler_setup(raop_conn_t *conn,
         if (conn->raop_rtp) {
             raop_rtp_remote_control_id(conn->raop_rtp, dacp_id, active_remote_header);
         }
+    }
+
+    /* Classic RAOP SETUP (Transport header, no bplist) */
+    if (conn->classic_announced) {
+        const char *transport = http_request_get_header(request, "Transport");
+        if (!transport) {
+            http_response_init(response, "RTSP/1.0", 451, "Parameter Not Understood");
+            return;
+        }
+
+        unsigned short remote_cport = 0;
+        unsigned short remote_tport = 0;
+        const char *p = strstr(transport, "control_port=");
+        if (p) {
+            remote_cport = (unsigned short) atoi(p + strlen("control_port="));
+        }
+        p = strstr(transport, "timing_port=");
+        if (p) {
+            remote_tport = (unsigned short) atoi(p + strlen("timing_port="));
+        }
+        if (!remote_cport || !remote_tport) {
+            logger_log(raop->logger, LOGGER_ERR, "Classic SETUP missing control/timing ports in Transport: %s", transport);
+            http_response_init(response, "RTSP/1.0", 451, "Parameter Not Understood");
+            return;
+        }
+
+        timing_protocol_t time_protocol = NTP;
+        char remote[40] = { 0 };
+        int len = utils_ipaddress_to_string(conn->remotelen, conn->remote, conn->zone_id, remote, (int) sizeof(remote));
+        if (!len || len > (int) sizeof(remote)) {
+            logger_log(raop->logger, LOGGER_ERR, "Classic SETUP: failed to parse client IP");
+            http_response_init(response, "RTSP/1.0", 500, "Internal Server Error");
+            return;
+        }
+
+        if (conn->raop_rtp) {
+            raop_rtp_destroy(conn->raop_rtp);
+            conn->raop_rtp = NULL;
+        }
+        if (conn->raop_ntp) {
+            raop_ntp_destroy(conn->raop_ntp);
+            conn->raop_ntp = NULL;
+        }
+
+        unsigned short timing_lport = raop->timing_lport;
+        conn->raop_ntp = raop_ntp_init(raop->logger, &raop->callbacks, remote,
+                                       conn->remotelen, remote_tport, &time_protocol);
+        raop_ntp_start(conn->raop_ntp, &timing_lport);
+        conn->raop_rtp = raop_rtp_init(raop->logger, &raop->callbacks, conn->raop_ntp,
+                                       remote, conn->remotelen,
+                                       conn->classic_aeskey, conn->classic_aesiv);
+
+        unsigned short cport = raop->control_lport;
+        unsigned short dport = raop->data_lport;
+        unsigned char ct = conn->classic_ct;
+        unsigned int sr = AUDIO_SAMPLE_RATE;
+
+            if (conn->raop_rtp) {
+            raop_rtp_start_audio(conn->raop_rtp, &remote_cport, &cport, &dport, &ct, &sr);
+            if (dacp_id && active_remote_header) {
+                raop_rtp_remote_control_id(conn->raop_rtp, dacp_id, active_remote_header);
+            }
+            if (raop->callbacks.audio_get_format) {
+                unsigned short spf = 352;
+                bool using_screen = false;
+                bool is_media = true;
+                uint64_t audio_format = 0;
+                raop->callbacks.audio_get_format(raop->callbacks.cls, &ct, &spf,
+                                                 &using_screen, &is_media, &audio_format);
+            }
+            if (raop->callbacks.audio_set_transport) {
+                const char *ua = http_request_get_header(request, "User-Agent");
+                raop->callbacks.audio_set_transport(raop->callbacks.cls, 1, ua);
+            }
+            logger_log(raop->logger, LOGGER_INFO,
+                       "Classic RAOP SETUP OK: cport=%u tport=%u dport=%u remote_cport=%u",
+                       cport, timing_lport, dport, remote_cport);
+        } else {
+            logger_log(raop->logger, LOGGER_ERR, "Classic SETUP: RAOP init failed");
+            http_response_init(response, "RTSP/1.0", 500, "Internal Server Error");
+            return;
+        }
+
+        char res_transport[256];
+        snprintf(res_transport, sizeof(res_transport),
+                 "RTP/AVP/UDP;unicast;interleaved=0-1;mode=record;control_port=%u;timing_port=%u;server_port=%u",
+                 cport, timing_lport, dport);
+        http_response_add_header(response, "Transport", res_transport);
+        http_response_add_header(response, "Session", "1");
+        return;
     }
 
     // Parsing bplist
@@ -1020,6 +1268,10 @@ raop_handler_setup(raop_conn_t *conn,
                     }
 
                     raop->callbacks.audio_get_format(raop->callbacks.cls, &ct, &spf, &usingScreen, &isMedia, &audioFormat);
+                }
+                if (raop->callbacks.audio_set_transport) {
+                    const char *ua = http_request_get_header(request, "User-Agent");
+                    raop->callbacks.audio_set_transport(raop->callbacks.cls, 0, ua);
                 }
 
                 if (conn->raop_rtp) {

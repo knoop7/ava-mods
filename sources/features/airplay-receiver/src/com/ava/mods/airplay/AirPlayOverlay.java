@@ -34,6 +34,7 @@ import android.view.SurfaceView;
 import android.view.TextureView;
 import android.view.View;
 import android.view.ViewConfiguration;
+import android.view.ViewGroup;
 import android.view.ViewOutlineProvider;
 import android.view.WindowManager;
 import android.widget.FrameLayout;
@@ -45,6 +46,9 @@ import android.widget.Switch;
 import android.widget.TextView;
 
 import com.ava.mods.airplay.audio.TrackInfo;
+import com.ava.mods.airplay.audio.PcmLevelMeter;
+import com.ava.mods.airplay.ui.AudioWaveShadowView;
+import com.ava.mods.airplay.ui.CautiousMarqueeText;
 import com.ava.mods.airplay.ui.VideoContentScale;
 import com.ava.mods.airplay.ui.VideoIcons;
 
@@ -72,6 +76,10 @@ public final class AirPlayOverlay {
     private static final int BADGE_ALPHA = 64;
     /** Match DLNA CinemaOverlay bottom bar side margin. */
     private static final int BOTTOM_BAR_SIDE_MARGIN_DP = 20;
+    /**
+     * Minimum L/R clip inset for title/artist marquee (scaled up on large screens).
+     */
+    private static final int AUDIO_META_INSET_MIN_DP = 40;
     private static final String HOME_PREFS_NAME = "ava_home_prefs";
     private static final String KEY_DARK_MODE = "dark_mode";
     private static final int ACCENT_BLUE = 0xFF0417E0;
@@ -210,14 +218,28 @@ public final class AirPlayOverlay {
     // now playing
     private ImageView coverView;
     private View coverVignette;
+    /** Flat dark scrim for classic MA layout (no gradient). */
+    private View audioClassicDim;
+    private AudioWaveShadowView audioWaveShadow;
     private View audioChromeStrip;
     private LinearLayout audioBottomBar;
-    private TextView npTitle;
-    private TextView npSubtitle;
-    private TextView npPlayPause;
+    private LinearLayout audioControlsRow;
+    private CautiousMarqueeText npTitle;
+    private CautiousMarqueeText npSubtitle;
+    private final float[] audioLevelUi = new float[32];
+    /** Cinema transport — FrameLayout + Material glyphs. */
+    private View npPlayPause;
+    private View npPrev;
+    private View npNext;
+    private boolean audioChromeLandscape;
     private TextView npPos;
     private TextView npDur;
     private SeekBar npSeek;
+    private LinearLayout audioScrubRow;
+    private View audioControlSpacerStart;
+    private View audioControlSpacerEnd;
+    private boolean audioCenteredLayoutApplied;
+    private int audioBarSafeInsetPx;
 
     /** Top-end brand badge — same placement/alpha math as DLNA CinemaOverlay. */
     private ImageView badgeView;
@@ -394,7 +416,7 @@ public final class AirPlayOverlay {
                 if (r == null || lp == null || !isVisible) return;
                 try {
                     if (!r.isAttachedToWindow()) {
-                        windowManager.addView(r, lp);
+                    windowManager.addView(r, lp);
                         applyImmersive(r);
                         return;
                     }
@@ -589,6 +611,7 @@ public final class AirPlayOverlay {
         mirrorSurfaceRef = null;
         videoSurfaceRef = null;
         isVisible = false;
+        unbindAudioLevelMeter();
         boundEngine = null;
         mode = Mode.IDLE;
         videoControlsLocked = false;
@@ -789,23 +812,19 @@ public final class AirPlayOverlay {
         }
     }
 
-    /** Bind DLNA Cinema AUDIO fields: title / artist·album / full-bleed cover. */
+    /** Bind audio cinema: centered title / artist, no scrub (MA + iOS same UI). */
     private void bindNowPlaying(AirPlayEngine engine) {
+        applyCenteredAudioLayout();
         TrackInfo track = engine.getTrackInfo();
         if (npTitle != null) {
             npTitle.setText(track.title.isEmpty() ? "AirPlay" : track.title);
         }
         if (npSubtitle != null) {
-            StringBuilder sb = new StringBuilder();
-            if (!track.artist.isEmpty()) sb.append(track.artist);
-            if (!track.album.isEmpty()) {
-                if (sb.length() > 0) sb.append(" · ");
-                sb.append(track.album);
-            }
+            String artist = track.artist;
             String name = engine.getAdvertisedName();
-            npSubtitle.setText(sb.length() == 0
-                    ? (name == null || name.isEmpty() ? "AirPlay" : name)
-                    : sb.toString());
+            npSubtitle.setText(artist != null && !artist.isEmpty()
+                    ? artist
+                    : (name == null || name.isEmpty() ? "AirPlay" : name));
         }
         if (coverView != null) {
             if (track.coverArt != null) {
@@ -818,11 +837,11 @@ public final class AirPlayOverlay {
             coverView.setScaleType(ImageView.ScaleType.CENTER_CROP);
             coverView.setVisibility(View.VISIBLE);
         }
-        if (coverVignette != null) coverVignette.setVisibility(View.VISIBLE);
         if (npPlayPause != null) {
             lastAudioPlayingIcon = engine.isPlaying();
-            npPlayPause.setText(engine.isPlaying() ? "❚❚" : "▶");
+            setAudioPlayPauseIcon(engine.isPlaying());
         }
+        bindAudioLevelMeter(engine);
         if (audioBottomBar != null) {
             audioBottomBar.setVisibility(View.VISIBLE);
             audioBottomBar.setAlpha(1f);
@@ -830,6 +849,43 @@ public final class AirPlayOverlay {
         }
         scheduleAudioIdleHide(engine);
     }
+
+    private void bindAudioLevelMeter(AirPlayEngine engine) {
+        if (engine == null) {
+            unbindAudioLevelMeter();
+            return;
+        }
+        engine.audioRenderer.setLevelListener(new PcmLevelMeter.Listener() {
+            @Override
+            public void onLevels(float[] bands01) {
+                if (bands01 == null) return;
+                int n = Math.min(audioLevelUi.length, bands01.length);
+                System.arraycopy(bands01, 0, audioLevelUi, 0, n);
+                mainHandler.post(updateAudioWaveUi);
+            }
+        });
+        if (audioWaveShadow != null) {
+            audioWaveShadow.setVisibility(View.VISIBLE);
+        }
+    }
+
+    private void unbindAudioLevelMeter() {
+        if (boundEngine != null) {
+            boundEngine.audioRenderer.setLevelListener(null);
+        }
+        if (audioWaveShadow != null) {
+            audioWaveShadow.clearLevels();
+        }
+    }
+
+    private final Runnable updateAudioWaveUi = new Runnable() {
+        @Override
+        public void run() {
+            if (audioWaveShadow != null) {
+                audioWaveShadow.setLevels(audioLevelUi);
+            }
+        }
+    };
 
     /** Soft crossfade like DLNA CinemaOverlay — never blank the cover first. */
     private void applyCoverArt(Bitmap bitmap) {
@@ -895,27 +951,15 @@ public final class AirPlayOverlay {
                 videoDownloadBtn.setVisibility(info.durationMs > 0 ? View.VISIBLE : View.GONE);
             }
         } else if (mode == Mode.AUDIO) {
-            // Music = DLNA Cinema scrub model: SeekBar max stays 1000 (normalized).
-            long pos = boundEngine.currentPositionMs();
-            long dur = boundEngine.getDurationMs();
-            if (dur <= 0) dur = boundEngine.getTrackInfo().durationMs;
-            if (npPos != null) npPos.setText(formatVideoTime(pos));
-            if (npDur != null) npDur.setText(formatVideoTime(dur));
-            if (npSeek != null) {
-                npSeek.setMax(1000);
-                if (dur > 0) {
-                    int p = (int) Math.min(1000L, Math.max(0L, pos * 1000L / dur));
-                    npSeek.setProgress(p);
-                } else {
-                    npSeek.setProgress(0);
-                }
-            }
+            // Unified MA/iOS chrome: no scrub — only play-state icon refresh.
+            applyCenteredAudioLayout();
             boolean playing = boundEngine.isPlaying();
             if (npPlayPause != null
                     && (lastAudioPlayingIcon == null || lastAudioPlayingIcon != playing)) {
                 lastAudioPlayingIcon = playing;
-                npPlayPause.setText(playing ? "❚❚" : "▶");
+                setAudioPlayPauseIcon(playing);
             }
+            applyMusicChromeLayout(false);
             scheduleAudioIdleHide(boundEngine);
         }
     }
@@ -2761,21 +2805,31 @@ public final class AirPlayOverlay {
         host.addView(coverHost, matchParent());
 
         coverVignette = new View(appContext);
+        // Soft full-bleed gradient so centered title/controls stay readable.
         GradientDrawable vignette = new GradientDrawable(
                 GradientDrawable.Orientation.TOP_BOTTOM,
-                new int[]{0x00000000, 0x33000000, 0x99000000, 0xE6000000});
+                new int[]{0x66000000, 0x80000000, 0xA6000000, 0xD9000000});
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN) {
             coverVignette.setBackground(vignette);
         }
         host.addView(coverVignette, matchParent());
 
-        host.addView(makeAudioBottomGradient());
+        // Unused flat dim (unified UI uses gradient vignette instead).
+        audioClassicDim = new View(appContext);
+        audioClassicDim.setBackgroundColor(0xB3000000);
+        audioClassicDim.setVisibility(View.GONE);
+        host.addView(audioClassicDim, matchParent());
+
+        audioWaveShadow = makeAudioWaveShadow();
+        host.addView(audioWaveShadow);
 
         audioChromeStrip = buildAudioChromeStrip(safe);
         host.addView(audioChromeStrip);
 
         audioBottomBar = buildAudioBottomBar(safe);
         host.addView(audioBottomBar);
+        audioCenteredLayoutApplied = false;
+        applyCenteredAudioLayout();
 
         return host;
     }
@@ -2817,6 +2871,7 @@ public final class AirPlayOverlay {
 
     /** Same bottom bar as DLNA {@code CinemaOverlay.buildBottomBar} (prev / play / next). */
     private LinearLayout buildAudioBottomBar(int safe) {
+        audioBarSafeInsetPx = safe;
         LinearLayout bar = new LinearLayout(appContext);
         bar.setOrientation(LinearLayout.VERTICAL);
         FrameLayout.LayoutParams bottomLp = new FrameLayout.LayoutParams(
@@ -2827,22 +2882,30 @@ public final class AirPlayOverlay {
         bottomLp.setMargins(sideMargin, 0, sideMargin, safe);
         bar.setLayoutParams(bottomLp);
 
-        npTitle = new TextView(appContext);
+        npTitle = new CautiousMarqueeText(appContext);
         npTitle.setTextColor(Color.WHITE);
         npTitle.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f);
         npTitle.setTypeface(Typeface.DEFAULT_BOLD);
-        npTitle.setMaxLines(2);
+        npTitle.setRestGravity(Gravity.START);
+        npTitle.setLayoutParams(new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT));
         bar.addView(npTitle);
 
-        npSubtitle = new TextView(appContext);
+        npSubtitle = new CautiousMarqueeText(appContext);
         npSubtitle.setTextColor(0x99FFFFFF);
         npSubtitle.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f);
-        npSubtitle.setPadding(0, dp(2), 0, dp(8));
+        npSubtitle.setContentPadding(0, dp(2), 0, dp(8));
+        npSubtitle.setRestGravity(Gravity.START);
+        npSubtitle.setLayoutParams(new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT));
         bar.addView(npSubtitle);
 
         LinearLayout scrubRow = new LinearLayout(appContext);
         scrubRow.setOrientation(LinearLayout.HORIZONTAL);
         scrubRow.setGravity(Gravity.CENTER_VERTICAL);
+        audioScrubRow = scrubRow;
 
         npPos = monoText("0:00");
         scrubRow.addView(npPos);
@@ -2861,66 +2924,60 @@ public final class AirPlayOverlay {
         scrubRow.addView(npDur);
         bar.addView(scrubRow);
 
+        // Clean transport cluster (sizes applied via vmin metrics).
         LinearLayout controls = new LinearLayout(appContext);
         controls.setOrientation(LinearLayout.HORIZONTAL);
-        controls.setGravity(Gravity.CENTER);
-        controls.setPadding(0, dp(8), 0, 0);
+        controls.setGravity(Gravity.CENTER_VERTICAL);
+        audioControlsRow = controls;
 
-        // Visual spacers matching DLNA shuffle / repeat slots.
-        controls.addView(audioControlSpacer());
-
-        TextView prev = transportBtn("⏮", new Runnable() {
+        npPrev = makeCinemaSkipButton("skip_previous", new Runnable() {
             @Override
             public void run() {
                 callback.onPrevious();
             }
         });
-        LinearLayout.LayoutParams prevLp = new LinearLayout.LayoutParams(dp(44), dp(44));
-        prevLp.leftMargin = dp(8);
-        controls.addView(prev, prevLp);
+        controls.addView(npPrev);
 
-        npPlayPause = transportBtn("❚❚", new Runnable() {
+        npPlayPause = makeCinemaPlayButton(new Runnable() {
             @Override
             public void run() {
                 callback.onPlayPause();
                 if (boundEngine == null) return;
                 boolean playing = boundEngine.isPlaying();
                 lastAudioPlayingIcon = playing;
-                if (npPlayPause != null) npPlayPause.setText(playing ? "❚❚" : "▶");
+                setAudioPlayPauseIcon(playing);
                 scheduleAudioIdleHide(boundEngine);
             }
         });
-        LinearLayout.LayoutParams playLp = new LinearLayout.LayoutParams(dp(44), dp(44));
-        playLp.leftMargin = dp(32);
-        playLp.rightMargin = dp(32);
-        controls.addView(npPlayPause, playLp);
+        controls.addView(npPlayPause);
 
-        TextView next = transportBtn("⏭", new Runnable() {
+        npNext = makeCinemaSkipButton("skip_next", new Runnable() {
             @Override
             public void run() {
                 callback.onNext();
             }
         });
-        LinearLayout.LayoutParams nextLp = new LinearLayout.LayoutParams(dp(44), dp(44));
-        nextLp.rightMargin = dp(8);
-        controls.addView(next, nextLp);
+        controls.addView(npNext);
 
-        controls.addView(audioControlSpacer());
-        bar.addView(controls);
+        audioControlSpacerStart = audioControlSpacer();
+        audioControlSpacerEnd = audioControlSpacer();
+        audioControlSpacerStart.setVisibility(View.GONE);
+        audioControlSpacerEnd.setVisibility(View.GONE);
+
+        LinearLayout.LayoutParams transportLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT);
+        transportLp.gravity = Gravity.CENTER_HORIZONTAL;
+        bar.addView(controls, transportLp);
         return bar;
     }
 
-    private View makeAudioBottomGradient() {
-        View v = new View(appContext);
-        GradientDrawable g = new GradientDrawable(
-                GradientDrawable.Orientation.BOTTOM_TOP,
-                new int[]{0xD9000000, 0x00000000});
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN) {
-            v.setBackground(g);
-        }
+    /** Background wave shadow — replaces flat bottom gradient; reacts to PCM. */
+    private AudioWaveShadowView makeAudioWaveShadow() {
+        AudioWaveShadowView v = new AudioWaveShadowView(appContext);
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
-                dp(120),
+                dp(340),
                 Gravity.BOTTOM);
         v.setLayoutParams(lp);
         return v;
@@ -3235,6 +3292,322 @@ public final class AirPlayOverlay {
             bar.getProgressDrawable().setColorFilter(Color.WHITE, android.graphics.PorterDuff.Mode.SRC_IN);
             bar.getThumb().setColorFilter(Color.WHITE, android.graphics.PorterDuff.Mode.SRC_IN);
         } catch (Throwable ignored) {}
+    }
+
+    /**
+     * Clean cinema music chrome (MA + iOS): Ava-style vmin scaling, solid play,
+     * no glass clutter. Portrait centered; landscape right column.
+     */
+    private void applyCenteredAudioLayout() {
+        if (audioCenteredLayoutApplied) return;
+        audioCenteredLayoutApplied = true;
+
+        if (coverVignette != null) coverVignette.setVisibility(View.VISIBLE);
+        if (audioClassicDim != null) audioClassicDim.setVisibility(View.GONE);
+        if (audioWaveShadow != null) audioWaveShadow.setVisibility(View.VISIBLE);
+        if (audioScrubRow != null) audioScrubRow.setVisibility(View.GONE);
+        if (audioControlSpacerStart != null) audioControlSpacerStart.setVisibility(View.GONE);
+        if (audioControlSpacerEnd != null) audioControlSpacerEnd.setVisibility(View.GONE);
+
+        // Drop any leftover capsule chrome.
+        if (audioControlsRow != null) {
+            audioControlsRow.setBackground(null);
+            audioControlsRow.setPadding(0, 0, 0, 0);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                audioControlsRow.setElevation(0f);
+            }
+        }
+
+        applyMusicChromeLayout(true);
+
+        if (audioBottomBar != null) {
+            audioBottomBar.addOnLayoutChangeListener(new View.OnLayoutChangeListener() {
+                @Override
+                public void onLayoutChange(View v, int left, int top, int right, int bottom,
+                                          int oldLeft, int oldTop, int oldRight, int oldBottom) {
+                    if ((right - left) != (oldRight - oldLeft)) {
+                        applyMusicChromeLayout(false);
+                    }
+                }
+            });
+        }
+    }
+
+    /**
+     * Ava {@code DetailOverlayMetrics}: scale = clamp(vmin/360, 0.9, 1.28).
+     */
+    private static final class MusicMetrics {
+        float titleSp;
+        float artistSp;
+        int padHPx;
+        int titleArtistGapPx;
+        int transportTopPx;
+        int playPx;
+        int skipPx;
+        int skipIconPx;
+        int playIconPx;
+        int clusterGapPx;
+        int sidePadPx;
+    }
+
+    private MusicMetrics computeMusicMetrics(boolean landscape) {
+        DisplayMetrics dm = appContext.getResources().getDisplayMetrics();
+        float wDp = dm.widthPixels / dm.density;
+        float hDp = dm.heightPixels / dm.density;
+        float vmin = Math.min(wDp, hDp);
+        float vmax = Math.max(wDp, hDp);
+        float aspect = vmax / Math.max(1f, vmin);
+        float scale = Math.max(0.9f, Math.min(1.28f, vmin / 360f));
+        float textBoost = 1f;
+        if (landscape) {
+            textBoost = aspect >= 1.55f ? 1.08f : 1.04f;
+        }
+        float textScale = scale * textBoost;
+
+        MusicMetrics m = new MusicMetrics();
+        m.titleSp = clamp(29f * textScale, 26f, 36f);
+        m.artistSp = clamp(19.5f * textScale, 16f, 24f);
+        m.padHPx = dp(Math.round(Math.max(AUDIO_META_INSET_MIN_DP, 36f * scale)));
+        m.titleArtistGapPx = dp(Math.round(clamp(14f * scale, 12f, 20f)));
+        m.transportTopPx = dp(Math.round(clamp(34f * scale, 28f, 48f)));
+        m.playPx = dp(Math.round(clamp((landscape ? 72f : 78f) * scale, 66f, 90f)));
+        m.skipPx = dp(Math.round(clamp(50f * scale, 44f, 58f)));
+        m.skipIconPx = dp(Math.round(clamp(30f * scale, 26f, 36f)));
+        m.playIconPx = Math.max(dp(28), Math.round(m.playPx * 0.46f));
+        m.clusterGapPx = dp(Math.round(clamp(20f * scale, 16f, 28f)));
+        m.sidePadPx = dp(Math.round(clamp((landscape ? 36f : 28f) * scale, 24f, 44f)));
+        return m;
+    }
+
+    private static float clamp(float v, float lo, float hi) {
+        return Math.max(lo, Math.min(hi, v));
+    }
+
+    private void applyMusicChromeLayout(boolean force) {
+        if (audioBottomBar == null) return;
+        boolean landscape = isLandscapeUi();
+        if (!force && landscape == audioChromeLandscape) return;
+        audioChromeLandscape = landscape;
+
+        MusicMetrics m = computeMusicMetrics(landscape);
+        styleMusicMeta(m, landscape);
+        layoutMusicBar(m, landscape);
+        layoutMusicTransport(m, landscape);
+    }
+
+    private void styleMusicMeta(MusicMetrics m, boolean landscape) {
+        Typeface titleTf = Typeface.create("sans-serif", Typeface.BOLD);
+        Typeface artistTf = Typeface.create("sans-serif-medium", Typeface.NORMAL);
+        // Always centered — portrait and landscape (no left/right skew).
+        int restG = Gravity.CENTER_HORIZONTAL;
+
+        if (npTitle != null) {
+            npTitle.setTextColor(Color.WHITE);
+            npTitle.setTextSize(TypedValue.COMPLEX_UNIT_SP, m.titleSp);
+            npTitle.setTypeface(titleTf);
+            npTitle.setRestGravity(restG);
+            npTitle.setContentPadding(m.padHPx, 0, m.padHPx, 0);
+            npTitle.setShadowLayer(12f, 0f, 3f, 0xB3000000);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                npTitle.setLetterSpacing(-0.02f);
+            }
+        }
+        if (npSubtitle != null) {
+            npSubtitle.setTextColor(0x9EFFFFFF); // ~62% like Ava
+            npSubtitle.setTextSize(TypedValue.COMPLEX_UNIT_SP, m.artistSp);
+            npSubtitle.setTypeface(artistTf != null ? artistTf : Typeface.SANS_SERIF);
+            npSubtitle.setAllCaps(false);
+            npSubtitle.setRestGravity(restG);
+            npSubtitle.setContentPadding(m.padHPx, m.titleArtistGapPx, m.padHPx, 0);
+            npSubtitle.setShadowLayer(8f, 0f, 2f, 0x80000000);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                npSubtitle.setLetterSpacing(0.01f);
+            }
+        }
+    }
+
+    private void layoutMusicBar(MusicMetrics m, boolean landscape) {
+        ViewGroup.LayoutParams raw = audioBottomBar.getLayoutParams();
+        if (!(raw instanceof FrameLayout.LayoutParams)) return;
+        FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) raw;
+        // Full-bleed centered column in both orientations.
+        lp.gravity = Gravity.CENTER;
+        lp.width = FrameLayout.LayoutParams.MATCH_PARENT;
+        lp.leftMargin = 0;
+        lp.rightMargin = 0;
+        lp.topMargin = 0;
+        lp.bottomMargin = landscape ? Math.max(audioBarSafeInsetPx, dp(16)) : 0;
+        audioBottomBar.setGravity(Gravity.CENTER_HORIZONTAL);
+        audioBottomBar.setLayoutParams(lp);
+    }
+
+    private void layoutMusicTransport(MusicMetrics m, boolean landscape) {
+        if (audioControlsRow == null) return;
+        LinearLayout.LayoutParams clp =
+                (audioControlsRow.getLayoutParams() instanceof LinearLayout.LayoutParams)
+                        ? (LinearLayout.LayoutParams) audioControlsRow.getLayoutParams()
+                        : new LinearLayout.LayoutParams(
+                                LinearLayout.LayoutParams.WRAP_CONTENT,
+                                LinearLayout.LayoutParams.WRAP_CONTENT);
+        clp.width = LinearLayout.LayoutParams.WRAP_CONTENT;
+        clp.topMargin = m.transportTopPx;
+        clp.gravity = Gravity.CENTER_HORIZONTAL;
+        audioControlsRow.setLayoutParams(clp);
+        audioControlsRow.setGravity(Gravity.CENTER);
+
+        int half = Math.max(1, m.clusterGapPx / 2);
+        sizeCinemaSkip(npPrev, m.skipPx, m.skipIconPx, 0, half);
+        sizeCinemaPlay(npPlayPause, m.playPx, m.playIconPx, half, half);
+        sizeCinemaSkip(npNext, m.skipPx, m.skipIconPx, half, 0);
+
+        if (audioWaveShadow != null) {
+            ViewGroup.LayoutParams raw = audioWaveShadow.getLayoutParams();
+            if (raw instanceof FrameLayout.LayoutParams) {
+                FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) raw;
+                DisplayMetrics dm = appContext.getResources().getDisplayMetrics();
+                int h = landscape
+                        ? Math.round(dm.heightPixels * 0.78f)
+                        : Math.round(dm.heightPixels * 0.52f);
+                lp.width = FrameLayout.LayoutParams.MATCH_PARENT;
+                lp.height = Math.max(dp(300), h);
+                lp.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
+                lp.leftMargin = 0;
+                lp.rightMargin = 0;
+                audioWaveShadow.setLayoutParams(lp);
+            }
+        }
+    }
+
+    private boolean isLandscapeUi() {
+        DisplayMetrics dm = appContext.getResources().getDisplayMetrics();
+        return dm.widthPixels > dm.heightPixels;
+    }
+
+    private View makeCinemaSkipButton(String glyph, final Runnable action) {
+        FrameLayout btn = VideoIcons.iconButton(appContext, glyph, 50, 30, action);
+        tintGlyphButton(btn, 0xE6FFFFFF);
+        bindPressScale(btn);
+        btn.setLayoutParams(new LinearLayout.LayoutParams(dp(50), dp(50)));
+        return btn;
+    }
+
+    private View makeCinemaPlayButton(final Runnable action) {
+        FrameLayout wrap = new FrameLayout(appContext);
+        int size = dp(78);
+        wrap.setLayoutParams(new LinearLayout.LayoutParams(size, size));
+
+        GradientDrawable bg = new GradientDrawable();
+        bg.setShape(GradientDrawable.OVAL);
+        bg.setColor(0xFFFFFFFF);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN) {
+            wrap.setBackground(bg);
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            wrap.setElevation(dp(8));
+        }
+
+        ImageView iv = VideoIcons.glyphView(appContext, "pause", 34);
+        iv.setColorFilter(0xFF111111);
+        wrap.addView(iv, new FrameLayout.LayoutParams(dp(34), dp(34), Gravity.CENTER));
+        wrap.setTag(iv);
+        wrap.setClickable(true);
+        wrap.setFocusable(true);
+        wrap.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                if (action != null) action.run();
+            }
+        });
+        bindPressScale(wrap);
+        return wrap;
+    }
+
+    private void sizeCinemaSkip(View btn, int hit, int icon, int left, int right) {
+        if (btn == null) return;
+        LinearLayout.LayoutParams lp = (btn.getLayoutParams() instanceof LinearLayout.LayoutParams)
+                ? (LinearLayout.LayoutParams) btn.getLayoutParams()
+                : new LinearLayout.LayoutParams(hit, hit);
+        lp.width = hit;
+        lp.height = hit;
+        lp.leftMargin = left;
+        lp.rightMargin = right;
+        btn.setLayoutParams(lp);
+        if (btn instanceof FrameLayout && ((FrameLayout) btn).getChildCount() > 0) {
+            View child = ((FrameLayout) btn).getChildAt(0);
+            child.setLayoutParams(new FrameLayout.LayoutParams(icon, icon, Gravity.CENTER));
+        }
+        tintGlyphButton(btn, 0xE6FFFFFF);
+    }
+
+    private void sizeCinemaPlay(View btn, int hit, int icon, int left, int right) {
+        if (btn == null) return;
+        LinearLayout.LayoutParams lp = (btn.getLayoutParams() instanceof LinearLayout.LayoutParams)
+                ? (LinearLayout.LayoutParams) btn.getLayoutParams()
+                : new LinearLayout.LayoutParams(hit, hit);
+        lp.width = hit;
+        lp.height = hit;
+        lp.leftMargin = left;
+        lp.rightMargin = right;
+        btn.setLayoutParams(lp);
+        Object tag = btn.getTag();
+        if (tag instanceof ImageView) {
+            ((ImageView) tag).setLayoutParams(
+                    new FrameLayout.LayoutParams(icon, icon, Gravity.CENTER));
+        }
+    }
+
+    private void setAudioPlayPauseIcon(boolean playing) {
+        if (npPlayPause == null) return;
+        ImageView iv = null;
+        Object tag = npPlayPause.getTag();
+        if (tag instanceof ImageView) {
+            iv = (ImageView) tag;
+        } else if (npPlayPause instanceof FrameLayout) {
+            View child = ((FrameLayout) npPlayPause).getChildAt(0);
+            if (child instanceof ImageView) iv = (ImageView) child;
+        }
+        if (iv == null) return;
+        Drawable d = VideoIcons.load(appContext, playing ? "pause" : "play_arrow");
+        if (d != null) {
+            d = d.mutate();
+            d.setColorFilter(0xFF111111, PorterDuff.Mode.SRC_IN);
+            iv.setImageDrawable(d);
+        }
+        iv.setTranslationX(playing ? 0f : dp(2));
+    }
+
+    private void tintGlyphButton(View btn, int color) {
+        if (!(btn instanceof FrameLayout)) return;
+        View child = ((FrameLayout) btn).getChildAt(0);
+        if (!(child instanceof ImageView)) return;
+        Drawable d = ((ImageView) child).getDrawable();
+        if (d != null) {
+            d = d.mutate();
+            d.setColorFilter(color, PorterDuff.Mode.SRC_IN);
+            ((ImageView) child).setImageDrawable(d);
+        } else {
+            ((ImageView) child).setColorFilter(color);
+        }
+    }
+
+    private void bindPressScale(final View v) {
+        v.setOnTouchListener(new View.OnTouchListener() {
+            @Override
+            public boolean onTouch(View view, MotionEvent event) {
+                switch (event.getAction()) {
+                    case MotionEvent.ACTION_DOWN:
+                        view.animate().scaleX(0.94f).scaleY(0.94f).setDuration(80).start();
+                        break;
+                    case MotionEvent.ACTION_UP:
+                    case MotionEvent.ACTION_CANCEL:
+                        view.animate().scaleX(1f).scaleY(1f).setDuration(140).start();
+                        break;
+                    default:
+                        break;
+                }
+                return false;
+            }
+        });
     }
 
     private SeekBar.OnSeekBarChangeListener seekListener(final boolean video) {

@@ -1,0 +1,566 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AirPlay Music Chrome — 5 Designs · Portrait & Landscape</title>
+<style>
+  :root {
+    --bg: #0c0d10;
+    --ink: #f2f0ea;
+    --muted: #8a8892;
+    --line: rgba(255,255,255,0.08);
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    min-height: 100%;
+    background:
+      radial-gradient(1200px 600px at 10% -10%, #1a2230 0%, transparent 55%),
+      radial-gradient(900px 500px at 90% 0%, #241810 0%, transparent 50%),
+      var(--bg);
+    color: var(--ink);
+    font-family: "Avenir Next", "Segoe UI", "PingFang SC", "Hiragino Sans GB", sans-serif;
+  }
+  header {
+    padding: 32px 40px 8px;
+    max-width: 1560px;
+    margin: 0 auto;
+  }
+  header h1 {
+    margin: 0 0 8px;
+    font-size: 28px;
+    font-weight: 650;
+    letter-spacing: -0.03em;
+  }
+  header p {
+    margin: 0;
+    color: var(--muted);
+    font-size: 14px;
+    line-height: 1.55;
+    max-width: 760px;
+  }
+  .toolbar {
+    max-width: 1560px;
+    margin: 18px auto 0;
+    padding: 0 40px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+  }
+  .seg {
+    display: inline-flex;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .seg button {
+    border: 0;
+    background: transparent;
+    color: var(--muted);
+    padding: 9px 14px;
+    font-size: 12px;
+    font-weight: 650;
+    letter-spacing: 0.04em;
+    cursor: pointer;
+  }
+  .seg button.active {
+    background: #f2f0ea;
+    color: #12131a;
+  }
+  .hint {
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .hint code {
+    background: rgba(255,255,255,0.06);
+    border: 1px solid var(--line);
+    padding: 4px 8px;
+    border-radius: 6px;
+    color: #d7d3c8;
+  }
+  #picked { margin-left: 4px; }
+
+  .stack {
+    max-width: 1560px;
+    margin: 0 auto;
+    padding: 22px 40px 56px;
+    display: flex;
+    flex-direction: column;
+    gap: 28px;
+  }
+  .card {
+    background: linear-gradient(180deg, #1a1d26, #12141a);
+    border: 1px solid var(--line);
+    border-radius: 22px;
+    padding: 20px;
+    box-shadow: 0 24px 60px rgba(0,0,0,0.35);
+  }
+  .card.selected {
+    border-color: rgba(255,255,255,0.35);
+    box-shadow: 0 0 0 1px rgba(255,255,255,0.18), 0 24px 60px rgba(0,0,0,0.45);
+  }
+  .card-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    align-items: flex-start;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+  }
+  .name {
+    font-size: 17px;
+    font-weight: 650;
+    letter-spacing: -0.02em;
+  }
+  .tag {
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: #c8c2b4;
+    font-weight: 600;
+    margin-top: 4px;
+  }
+  .blurb {
+    margin: 0;
+    font-size: 12.5px;
+    line-height: 1.5;
+    color: var(--muted);
+    max-width: 520px;
+  }
+  .pick {
+    border: 1px solid var(--line);
+    background: rgba(255,255,255,0.04);
+    color: var(--ink);
+    border-radius: 12px;
+    padding: 11px 16px;
+    font-size: 13px;
+    font-weight: 650;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .pick:hover { background: rgba(255,255,255,0.08); }
+  .card.selected .pick {
+    background: #f2f0ea;
+    color: #12131a;
+    border-color: transparent;
+  }
+
+  .duo {
+    display: grid;
+    grid-template-columns: minmax(240px, 300px) minmax(360px, 1fr);
+    gap: 22px;
+    align-items: center;
+    margin-top: 16px;
+  }
+  @media (max-width: 900px) {
+    .duo { grid-template-columns: 1fr; }
+  }
+  .frame-wrap { display: flex; flex-direction: column; gap: 8px; }
+  .frame-label {
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-weight: 650;
+  }
+
+  .phone {
+    position: relative;
+    border-radius: 26px;
+    overflow: hidden;
+    background: #111;
+    border: 1px solid rgba(255,255,255,0.12);
+    box-shadow: inset 0 0 0 1px rgba(0,0,0,0.4);
+  }
+  .phone.portrait {
+    width: min(100%, 280px);
+    aspect-ratio: 9 / 17.5;
+  }
+  .phone.landscape {
+    width: 100%;
+    max-width: 620px;
+    aspect-ratio: 17.5 / 9;
+  }
+  body.mode-portrait .phone.landscape,
+  body.mode-landscape .phone.portrait { display: none; }
+  body.mode-both .duo { display: grid; }
+  body.mode-portrait .duo,
+  body.mode-landscape .duo {
+    grid-template-columns: 1fr;
+    justify-items: center;
+  }
+  body.mode-portrait .frame-wrap.land,
+  body.mode-landscape .frame-wrap.port { display: none; }
+
+  .cover {
+    position: absolute;
+    inset: 0;
+    background:
+      linear-gradient(180deg, rgba(0,0,0,0.18), transparent 28%, rgba(0,0,0,0.5) 58%, rgba(0,0,0,0.9) 100%),
+      url("./cover.jpg") center / cover no-repeat;
+    transform: scale(1.04);
+    filter: saturate(0.92) contrast(1.05);
+  }
+  .phone.landscape .cover {
+    background:
+      linear-gradient(90deg, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.2) 42%, rgba(0,0,0,0.72) 100%),
+      linear-gradient(180deg, rgba(0,0,0,0.2), transparent 40%, rgba(0,0,0,0.55) 100%),
+      url("./cover.jpg") center / cover no-repeat;
+  }
+
+  .chrome {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: stretch;
+    padding: 0 0 8%;
+  }
+  .phone.landscape .chrome {
+    padding: 0 7% 0 46%;
+    justify-content: center;
+    align-items: stretch;
+  }
+  .title, .artist {
+    margin: 0;
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    padding: 0 50px;
+  }
+  .phone.landscape .title,
+  .phone.landscape .artist {
+    text-align: left;
+    padding: 0;
+  }
+  .transport {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 28px;
+    margin-top: 36px;
+  }
+  .phone.landscape .transport {
+    justify-content: flex-start;
+    margin-top: 28px;
+  }
+  .icon-btn, .play-btn {
+    border: 0;
+    background: transparent;
+    color: #fff;
+    display: grid;
+    place-items: center;
+    cursor: pointer;
+    transition: transform .18s ease;
+  }
+  .icon-btn:active, .play-btn:active { transform: scale(0.94); }
+  .icon-btn svg, .play-btn svg { display: block; }
+
+  /* ===== A ===== */
+  .a .title {
+    font-size: 30px; font-weight: 700; letter-spacing: -0.035em;
+    text-shadow: 0 3px 18px rgba(0,0,0,0.55);
+  }
+  .a.landscape .title { font-size: 28px; }
+  .a .artist {
+    margin-top: 14px; font-size: 15px; font-weight: 500;
+    color: rgba(255,255,255,0.62); letter-spacing: 0.02em;
+  }
+  .a .transport { gap: 22px; margin-top: 42px; }
+  .a.landscape .transport { margin-top: 30px; }
+  .a .icon-btn { width: 52px; height: 52px; color: rgba(255,255,255,0.88); }
+  .a .play-btn {
+    width: 68px; height: 68px; border-radius: 999px; background: #fff; color: #111;
+    box-shadow: 0 10px 28px rgba(0,0,0,0.35);
+  }
+  .a.landscape .play-btn { width: 62px; height: 62px; }
+  .a.landscape .icon-btn { width: 46px; height: 46px; }
+
+  /* ===== B ===== */
+  .b .title {
+    font-size: 27px; font-weight: 600; letter-spacing: -0.02em;
+    text-shadow: 0 2px 14px rgba(0,0,0,0.45);
+  }
+  .b.landscape .title { font-size: 26px; }
+  .b .artist {
+    margin-top: 18px; font-size: 13px; font-weight: 500;
+    letter-spacing: 0.18em; text-transform: uppercase;
+    color: rgba(255,255,255,0.55);
+  }
+  .b .transport {
+    margin: 40px 40px 0; padding: 12px 22px; gap: 18px; border-radius: 999px;
+    background: rgba(20,22,28,0.42);
+    border: 1px solid rgba(255,255,255,0.14);
+    backdrop-filter: blur(18px) saturate(1.2);
+    -webkit-backdrop-filter: blur(18px) saturate(1.2);
+    box-shadow: 0 16px 40px rgba(0,0,0,0.28);
+  }
+  .b.landscape .transport {
+    margin: 28px 0 0; align-self: flex-start; width: max-content;
+  }
+  .b .icon-btn { width: 44px; height: 44px; color: rgba(255,255,255,0.9); }
+  .b .play-btn {
+    width: 56px; height: 56px; border-radius: 999px;
+    background: rgba(255,255,255,0.94); color: #151515;
+  }
+
+  /* ===== C ===== */
+  .c .eyebrow {
+    text-align: center; font-size: 10px; letter-spacing: 0.28em;
+    text-transform: uppercase; color: rgba(255,255,255,0.42); margin-bottom: 18px;
+  }
+  .c.landscape .eyebrow { text-align: left; }
+  .c .title {
+    font-family: "Iowan Old Style", "Palatino Linotype", "Songti SC", Palatino, serif;
+    font-size: 34px; font-weight: 600; letter-spacing: -0.01em; line-height: 1.15;
+    text-shadow: 0 4px 22px rgba(0,0,0,0.5);
+  }
+  .c.landscape .title { font-size: 30px; }
+  .c .rule {
+    width: 36px; height: 1px; margin: 20px auto 16px;
+    background: rgba(255,255,255,0.35);
+  }
+  .c.landscape .rule { margin-left: 0; }
+  .c .artist {
+    font-size: 14px; font-weight: 400;
+    color: rgba(255,255,255,0.7); letter-spacing: 0.04em;
+  }
+  .c .transport { gap: 34px; margin-top: 48px; }
+  .c.landscape .transport { margin-top: 32px; gap: 28px; }
+  .c .icon-btn { width: 48px; height: 48px; color: rgba(255,255,255,0.8); }
+  .c .play-btn {
+    width: 72px; height: 72px; border-radius: 999px; background: transparent; color: #fff;
+    border: 1.5px solid rgba(255,255,255,0.85);
+    box-shadow: 0 0 0 8px rgba(255,255,255,0.04);
+  }
+  .c.landscape .play-btn { width: 64px; height: 64px; }
+
+  /* ===== D ===== */
+  .d .chrome { justify-content: flex-end; padding: 0 0 7%; }
+  .d.landscape .chrome {
+    justify-content: center;
+    padding: 0 6% 0 46%;
+  }
+  .d .meta { margin-bottom: 22px; }
+  .d.landscape .meta { margin-bottom: 18px; }
+  .d .title { font-size: 26px; font-weight: 700; letter-spacing: -0.03em; }
+  .d.landscape .title { font-size: 25px; }
+  .d .artist { margin-top: 10px; font-size: 14px; color: rgba(255,255,255,0.58); }
+  .d .dock {
+    margin: 0 28px; padding: 14px 18px; border-radius: 22px;
+    background: rgba(12,12,14,0.55);
+    border: 1px solid rgba(255,255,255,0.1);
+    backdrop-filter: blur(22px);
+    -webkit-backdrop-filter: blur(22px);
+    box-shadow: 0 18px 50px rgba(0,0,0,0.4);
+  }
+  .d.landscape .dock {
+    margin: 0; align-self: flex-start; width: max-content; min-width: 260px;
+  }
+  .d .transport { margin-top: 0; gap: 20px; }
+  .d .icon-btn {
+    width: 48px; height: 48px; border-radius: 999px;
+    background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.92);
+  }
+  .d .play-btn {
+    width: 60px; height: 60px; border-radius: 999px;
+    background: linear-gradient(180deg, #fff, #e8e4da); color: #121212;
+    box-shadow: 0 8px 20px rgba(0,0,0,0.35);
+  }
+
+  /* ===== E ===== */
+  .e .cover { filter: saturate(0.75) contrast(1.08) brightness(0.92); }
+  .e .artist {
+    order: -1; margin-bottom: 12px; font-size: 11px; font-weight: 600;
+    letter-spacing: 0.32em; text-transform: uppercase; color: rgba(255,255,255,0.45);
+  }
+  .e .title {
+    font-size: 36px; font-weight: 550; letter-spacing: -0.045em;
+    text-shadow: 0 6px 30px rgba(0,0,0,0.55);
+  }
+  .e.landscape .title { font-size: 32px; }
+  .e .transport { margin-top: 56px; gap: 40px; }
+  .e.landscape .transport { margin-top: 34px; gap: 28px; }
+  .e .icon-btn {
+    width: auto; height: auto; padding: 8px; font-size: 12px; font-weight: 600;
+    letter-spacing: 0.16em; text-transform: uppercase; color: rgba(255,255,255,0.55);
+  }
+  .e .icon-btn svg { display: none; }
+  .e .icon-btn::after { content: attr(data-label); }
+  .e .play-btn {
+    width: 84px; height: 84px; border-radius: 999px; background: #fff; color: #0e0e10;
+    box-shadow: 0 16px 40px rgba(0,0,0,0.4);
+  }
+  .e.landscape .play-btn { width: 72px; height: 72px; }
+
+  footer {
+    max-width: 1560px; margin: 0 auto; padding: 0 40px 48px;
+    color: var(--muted); font-size: 12px;
+  }
+</style>
+</head>
+<body class="mode-both">
+  <header>
+    <h1>AirPlay 音乐控件 · 5 种方向</h1>
+    <p>每套都带竖屏 + 横屏。横屏采用「封面占左、文案/控件靠右」的构图（对齐 Ava landscape 思路）。</p>
+  </header>
+
+  <div class="toolbar">
+    <div class="seg" id="modeSeg">
+      <button type="button" data-mode="both" class="active">横竖对照</button>
+      <button type="button" data-mode="portrait">只看竖屏</button>
+      <button type="button" data-mode="landscape">只看横屏</button>
+    </div>
+    <span class="hint"><code>design-previews/music-chrome-5.html</code><span id="picked"> · 当前未选择</span></span>
+  </div>
+
+  <div class="stack" id="stack"></div>
+
+  <footer>选定后回我 A–E（可混搭，如「竖屏 C / 横屏 A」）。左右约 50dp、歌名歌手间距与无限滚动约束会一并保留。</footer>
+
+<script>
+const ICONS = {
+  prev: '<svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/></svg>',
+  next: '<svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor"><path d="M16 6h2v12h-2zM6 18l8.5-6L6 6z"/></svg>',
+  pause: '<svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>',
+};
+
+const DESIGNS = [
+  {
+    id: "A",
+    name: "A · Cinema Solid",
+    tag: "Closest to Ava",
+    blurb: "白实心播放键 + 跳过图标。竖屏居中；横屏左封面、右文案控件。最接近主机 Detailed Overlay。",
+  },
+  {
+    id: "B",
+    name: "B · Glass Capsule",
+    tag: "Soft / modern",
+    blurb: "毛玻璃胶囊控件。歌手全大写疏字距。横屏胶囊贴齐文案左缘，不拉满全宽。",
+  },
+  {
+    id: "C",
+    name: "C · Editorial Night",
+    tag: "Quiet luxury",
+    blurb: "衬线歌名 + 细线 + 描边圆环播放键。横屏同样左对齐，杂志排版感更明显。",
+  },
+  {
+    id: "D",
+    name: "D · Floating Dock",
+    tag: "Docked controls",
+    blurb: "竖屏：文案上、坞在下。横屏：右栏内文案 + 紧凑坞，层级仍清晰。",
+  },
+  {
+    id: "E",
+    name: "E · Quiet Monolith",
+    tag: "Maximal calm",
+    blurb: "歌手上置小标签，歌名超大。prev/next 为文字。横屏放大留白，播放键仍是视觉锚点。",
+  },
+];
+
+function chromeHTML(id, orient) {
+  const land = orient === "landscape";
+  const cls = id.toLowerCase() + " " + orient;
+  const eyebrow = id === "C" ? '<div class="eyebrow">Now Playing</div>' : "";
+  const rule = id === "C" ? '<div class="rule"></div>' : "";
+  const artistFirst = id === "E";
+  const title = '<h2 class="title">Midnight City Lights</h2>';
+  const artist = '<p class="artist">Nora Vale</p>';
+  const metaInner = artistFirst
+    ? (artist + title)
+    : (eyebrow + title + rule + artist);
+
+  const transport = `
+    <div class="transport">
+      <button class="icon-btn" data-label="Prev" aria-label="prev">${ICONS.prev}</button>
+      <button class="play-btn" aria-label="pause">${ICONS.pause}</button>
+      <button class="icon-btn" data-label="Next" aria-label="next">${ICONS.next}</button>
+    </div>`;
+
+  let body;
+  if (id === "D") {
+    body = `<div class="meta">${metaInner}</div><div class="dock">${transport}</div>`;
+  } else {
+    body = metaInner + transport;
+  }
+
+  return `
+    <div class="phone ${orient} ${cls}">
+      <div class="cover"></div>
+      <div class="chrome">${body}</div>
+    </div>`;
+}
+
+function render() {
+  const stack = document.getElementById("stack");
+  stack.innerHTML = DESIGNS.map((d) => `
+    <article class="card" data-id="${d.id}">
+      <div class="card-head">
+        <div>
+          <div class="name">${d.name}</div>
+          <div class="tag">${d.tag}</div>
+          <p class="blurb" style="margin-top:10px">${d.blurb}</p>
+        </div>
+        <button class="pick" type="button">选用此方案</button>
+      </div>
+      <div class="duo">
+        <div class="frame-wrap port">
+          <div class="frame-label">Portrait</div>
+          ${chromeHTML(d.id, "portrait")}
+        </div>
+        <div class="frame-wrap land">
+          <div class="frame-label">Landscape</div>
+          ${chromeHTML(d.id, "landscape")}
+        </div>
+      </div>
+    </article>
+  `).join("");
+
+  stack.querySelectorAll(".card").forEach((card) => {
+    card.querySelector(".pick").addEventListener("click", () => {
+      stack.querySelectorAll(".card").forEach((c) => c.classList.remove("selected"));
+      card.classList.add("selected");
+      const name = card.querySelector(".name").textContent;
+      document.getElementById("picked").textContent = " · 已选：" + name;
+      try { localStorage.setItem("airplay-chrome-pick", card.dataset.id); } catch (_) {}
+    });
+  });
+
+  try {
+    const saved = localStorage.getItem("airplay-chrome-pick");
+    if (saved) {
+      const card = stack.querySelector('.card[data-id="' + saved + '"]');
+      if (card) card.querySelector(".pick").click();
+    }
+  } catch (_) {}
+}
+
+document.getElementById("modeSeg").addEventListener("click", (e) => {
+  const btn = e.target.closest("button[data-mode]");
+  if (!btn) return;
+  document.querySelectorAll("#modeSeg button").forEach((b) => b.classList.remove("active"));
+  btn.classList.add("active");
+  document.body.className = "mode-" + btn.dataset.mode;
+  try { localStorage.setItem("airplay-chrome-mode", btn.dataset.mode); } catch (_) {}
+});
+
+try {
+  const mode = localStorage.getItem("airplay-chrome-mode");
+  if (mode) {
+    document.body.className = "mode-" + mode;
+    document.querySelectorAll("#modeSeg button").forEach((b) => {
+      b.classList.toggle("active", b.dataset.mode === mode);
+    });
+  }
+} catch (_) {}
+
+render();
+</script>
+</body>
+</html>

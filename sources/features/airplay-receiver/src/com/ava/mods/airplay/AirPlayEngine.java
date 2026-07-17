@@ -31,6 +31,8 @@ import com.ava.mods.airplay.renderer.AirPlayVideoPlayer;
 import com.ava.mods.airplay.renderer.AudioRenderer;
 import com.ava.mods.airplay.renderer.VideoRenderer;
 
+import java.io.BufferedReader;
+import java.io.FileReader;
 import java.net.NetworkInterface;
 import java.util.Enumeration;
 import java.util.Map;
@@ -141,6 +143,28 @@ public final class AirPlayEngine implements RaopCallbackHandler {
     private volatile boolean audioScrubbing = false;
     /** Sender advanced this much past frozen pos ⇒ clear userPaused. */
     private static final long REMOTE_RESUME_SLACK_MS = 1200L;
+    private static final int AUDIO_SAMPLE_RATE_HZ = 44100;
+    /** Prefer SET_PARAMETER progress when received within this window. */
+    private static final long RTP_PROGRESS_STALE_MS = 3000L;
+    /** Cap for NTP schedule lead (ALAC sync is typically 1750 ms). */
+    private static final long MAX_PLAYBACK_LEAD_MS = 2500L;
+    /** Debounce overlay hide across MA seek / brief RAOP reconnects. */
+    private static final long OVERLAY_HIDE_DEBOUNCE_MS = 5_000L;
+    /** RTP sample anchor for Classic RAOP / MA when progress RTSP is absent. */
+    private volatile long rtpProgressAnchor = -1L;
+    /**
+     * How far ahead the sender's schedule is vs wall clock (ms). Classic ALAC
+     * ships ~1750 ms early; UI must add this so scrubber matches heard audio.
+     */
+    private volatile long playbackLeadMs = 0L;
+    /**
+     * From SETUP: classic RAOP (Music Assistant / cliraop) vs AP2 (iPhone/Mac).
+     * Classic has no remote seek — hide scrubber and center elapsed time.
+     */
+    private volatile boolean classicRaop = false;
+    private volatile String audioUserAgent = "";
+    /** Apple SET_PARAMETER progress seen — upgrades seek UI if transport was ambiguous. */
+    private volatile boolean appleProgressSeen = false;
 
     private volatile byte[] coverArtBytes;
     private MediaSessionCompat mediaSession;
@@ -211,13 +235,119 @@ public final class AirPlayEngine implements RaopCallbackHandler {
         return liveOrFrozenPositionMs();
     }
 
+    public int getAudioSessionId() {
+        return audioRenderer.getAudioSessionId();
+    }
+
     private long liveOrFrozenPositionMs() {
-        if (progressBaseTime == 0L || !playing || audioScrubbing) return positionMs;
-        long elapsed = SystemClock.elapsedRealtime() - progressBaseTime;
-        long computed = progressBaseMs + elapsed;
+        // positionMs / progressBaseMs already store heard-track time (sender + lead
+        // applied at update). Do NOT add playbackLeadMs again — that inflated DACP seeks.
+        long computed;
+        if (progressBaseTime == 0L || !playing || audioScrubbing) {
+            computed = positionMs;
+        } else {
+            long elapsed = SystemClock.elapsedRealtime() - progressBaseTime;
+            computed = progressBaseMs + elapsed;
+        }
         if (computed < 0) computed = 0;
         if (durationMs > 0 && computed > durationMs) computed = durationMs;
         return computed;
+    }
+
+    /** Convert sender/RTP timeline → heard position for UI + DACP. */
+    private long heardFromSenderMs(long senderPosMs) {
+        long heard = senderPosMs + playbackLeadMs;
+        if (heard < 0L) heard = 0L;
+        if (durationMs > 0 && heard > durationMs) heard = durationMs;
+        return heard;
+    }
+
+    private final Runnable hideOverlayDebounced = new Runnable() {
+        @Override
+        public void run() {
+            if (connectionCount > 0) return;
+            // Debounce elapsed — tear down soft-idle audio chrome for real.
+            audioOnly = false;
+            coverArtBytes = null;
+            trackInfo = new TrackInfo();
+            positionMs = 0L;
+            durationMs = 0L;
+            progressBaseMs = 0L;
+            progressBaseTime = 0L;
+            lastProgressAt = 0L;
+            resetRtpProgressAnchor();
+            userPaused = false;
+            playing = false;
+            audioScrubbing = false;
+            if (mediaSession != null) mediaSession.setActive(false);
+            refreshDacpPlayer();
+            if (listener != null) listener.onHideOverlay();
+        }
+    };
+
+    private void cancelHideOverlayDebounce() {
+        mainHandler.removeCallbacks(hideOverlayDebounced);
+    }
+
+    private void scheduleHideOverlayDebounced() {
+        cancelHideOverlayDebounce();
+        mainHandler.postDelayed(hideOverlayDebounced, OVERLAY_HIDE_DEBOUNCE_MS);
+    }
+
+    /**
+     * {@code ntpTimeNs} is CLOCK_REALTIME nanos for when this packet is
+     * scheduled to play. Positive lead ⇒ packet arrived early (ASAP playback).
+     */
+    private void updatePlaybackLeadFromNtp(long ntpTimeNs) {
+        if (ntpTimeNs <= 0L) return;
+        long nowWallNs = System.currentTimeMillis() * 1_000_000L;
+        long leadMs = (ntpTimeNs - nowWallNs) / 1_000_000L;
+        if (leadMs < 0L) leadMs = 0L;
+        if (leadMs > MAX_PLAYBACK_LEAD_MS) leadMs = MAX_PLAYBACK_LEAD_MS;
+        // EMA so brief NTP jitter does not jump the scrubber.
+        long prev = playbackLeadMs;
+        playbackLeadMs = prev == 0L ? leadMs : (prev * 3L + leadMs) / 4L;
+    }
+
+    private static long rtpDeltaMs(long rtpTime, long anchor) {
+        long delta = (rtpTime - anchor) & 0xFFFFFFFFL;
+        if (delta > 0x80000000L) delta -= 0x100000000L;
+        return delta * 1000L / AUDIO_SAMPLE_RATE_HZ;
+    }
+
+    private void resetRtpProgressAnchor() {
+        rtpProgressAnchor = -1L;
+        playbackLeadMs = 0L;
+    }
+
+    /**
+     * Classic RAOP senders (e.g. Music Assistant cliraop) often skip SET_PARAMETER
+     * progress. Use RTP timestamps from audio packets as a fallback timeline.
+     */
+    private void updatePositionFromRtp(long rtpTime) {
+        if (audioScrubbing || userPaused || !playing) return;
+        long now = SystemClock.elapsedRealtime();
+        if (lastProgressAt > 0L
+                && (now - lastProgressAt) < RTP_PROGRESS_STALE_MS
+                && durationMs > 0L) {
+            return;
+        }
+        if (rtpProgressAnchor < 0L) {
+            rtpProgressAnchor = rtpTime;
+        }
+        long senderMs = rtpDeltaMs(rtpTime, rtpProgressAnchor);
+        if (senderMs < 0L) {
+            rtpProgressAnchor = rtpTime;
+            senderMs = 0L;
+        } else if (senderMs + 2000L < Math.max(0L, positionMs - playbackLeadMs)) {
+            // Sender seeked/flushed — re-anchor RTP timeline.
+            rtpProgressAnchor = rtpTime;
+            senderMs = 0L;
+        }
+        long posMs = heardFromSenderMs(senderMs);
+        positionMs = posMs;
+        progressBaseMs = posMs;
+        progressBaseTime = now;
     }
 
     private void log(String msg) {
@@ -287,7 +417,11 @@ public final class AirPlayEngine implements RaopCallbackHandler {
 
             @Override
             public void onStop() {
-                if (videoPlaybackActive) stopVideoPlayback();
+                if (videoPlaybackActive) {
+                    stopVideoPlayback();
+                } else if (audioOnly) {
+                    stopAudioRemote();
+                }
             }
 
             @Override
@@ -630,6 +764,7 @@ public final class AirPlayEngine implements RaopCallbackHandler {
     }
 
     public void destroy() {
+        cancelHideOverlayDebounce();
         stopServer();
         if (dacpPlayer != null) dacpPlayer.release();
         if (mediaReceiver != null) {
@@ -655,8 +790,28 @@ public final class AirPlayEngine implements RaopCallbackHandler {
     }
 
     @Override
-    public void onAudioData(byte[] data, int ct, long ntpTimeNs, int seqNum) {
-        audioRenderer.feedAudio(data, ct, ntpTimeNs);
+    public void onAudioData(byte[] data, int ct, long ntpTimeNs, long rtpTime, int seqNum) {
+        if (!videoPlaybackActive && !mirroringActive) {
+            if (!audioOnly) {
+                onAudioOnly(true);
+            }
+            // Classic RAOP (e.g. Music Assistant cliraop) may not send AP2 progress/metadata promptly.
+            // Never auto-unpause from late packets — that forced a second pause tap.
+            if (!playing && !userPaused) {
+                playing = true;
+                progressBaseTime = SystemClock.elapsedRealtime();
+                maybeShowAudioOverlay();
+                if (listener != null) listener.onTrackChanged();
+            }
+            if (!userPaused) {
+                updatePlaybackLeadFromNtp(ntpTimeNs);
+                updatePositionFromRtp(rtpTime);
+            }
+        }
+        // Drop PCM while locally paused so buffered MA audio cannot unmute us.
+        if (!userPaused) {
+            audioRenderer.feedAudio(data, ct, ntpTimeNs);
+        }
     }
 
     @Override
@@ -714,6 +869,28 @@ public final class AirPlayEngine implements RaopCallbackHandler {
     }
 
     @Override
+    public void onAudioTransport(boolean classicRaop, String userAgent) {
+        this.classicRaop = classicRaop;
+        this.audioUserAgent = userAgent != null ? userAgent : "";
+        if (!classicRaop) {
+            // AP2 Apple path — scrubber allowed even before first progress packet.
+            appleProgressSeen = true;
+        }
+        log("Audio transport: classic=" + classicRaop + " ua=" + this.audioUserAgent);
+        if (listener != null) listener.onTrackChanged();
+    }
+
+    /** Classic RAOP / Music Assistant — no remote seek. */
+    public boolean isClassicRaop() {
+        return classicRaop;
+    }
+
+    /** Music chrome has no scrubber (MA + iOS share the same centered UI). */
+    public boolean supportsAudioSeek() {
+        return false;
+    }
+
+    @Override
     public void onVideoSize(float srcW, float srcH, float w, float h) {
         clearPin();
         if (w > 0 && h > 0) {
@@ -737,6 +914,7 @@ public final class AirPlayEngine implements RaopCallbackHandler {
     public void onConnectionInit() {
         boolean firstConnection = connectionCount == 0;
         connectionCount++;
+        cancelHideOverlayDebounce();
         log("Client connected (" + connectionCount + ")");
         if (!firstConnection) return;
         if (requiresPin()) return;
@@ -750,24 +928,36 @@ public final class AirPlayEngine implements RaopCallbackHandler {
         connectionCount = c;
         if (connectionCount == 0) {
             endVideoPlayback("AirPlay Video stopped (disconnect)");
-            audioOnly = false;
-            mirroringActive = false;
-            lastVideoPollAt = 0L;
-            videoPollSuppressed = false;
-            coverArtBytes = null;
-            trackInfo = new TrackInfo();
-            positionMs = 0L;
-            durationMs = 0L;
-            progressBaseMs = 0L;
-            progressBaseTime = 0L;
-            lastProgressAt = 0L;
-            userPaused = false;
-            playing = false;
-            audioScrubbing = false;
-            if (mediaSession != null) mediaSession.setActive(false);
+            // Keep audio chrome / metadata across brief MA seek reconnects; hide after debounce.
+            boolean keepAudioChrome = audioOnly;
+            if (!keepAudioChrome) {
+                mirroringActive = false;
+                lastVideoPollAt = 0L;
+                videoPollSuppressed = false;
+                coverArtBytes = null;
+                trackInfo = new TrackInfo();
+                positionMs = 0L;
+                durationMs = 0L;
+                progressBaseMs = 0L;
+                progressBaseTime = 0L;
+                lastProgressAt = 0L;
+                resetRtpProgressAnchor();
+                userPaused = false;
+                playing = false;
+                audioScrubbing = false;
+                classicRaop = false;
+                appleProgressSeen = false;
+                audioUserAgent = "";
+                if (mediaSession != null) mediaSession.setActive(false);
+                if (listener != null) listener.onHideOverlay();
+            } else {
+                // Soft idle: stop extrapolating until audio resumes.
+                playing = false;
+                progressBaseTime = 0L;
+                scheduleHideOverlayDebounced();
+            }
             audioRenderer.markSessionEnded();
             refreshDacpPlayer();
-            if (listener != null) listener.onHideOverlay();
         }
         log("Client disconnected (" + connectionCount + ")");
     }
@@ -823,34 +1013,31 @@ public final class AirPlayEngine implements RaopCallbackHandler {
         if (durMs <= 0) return;
         long now = SystemClock.elapsedRealtime();
         lastProgressAt = now;
+        // Real Apple progress RTSP — treat as seek-capable even if SETUP looked classic.
+        if (!appleProgressSeen) {
+            appleProgressSeen = true;
+            if (listener != null) listener.onTrackChanged();
+        }
+        rtpProgressAnchor = -1L; // prefer SET_PARAMETER; keep measured lead
         durationMs = durMs;
+        long heardMs = heardFromSenderMs(posMs);
 
         // Scrubbing: keep absolute sample, never auto-play.
         if (audioScrubbing) {
-            positionMs = posMs;
-            progressBaseMs = posMs;
+            positionMs = heardMs;
+            progressBaseMs = heardMs;
             progressBaseTime = 0L;
             updatePlaybackState();
             refreshDacpPlayer();
             return;
         }
 
-        // Local pause: absorb sender position; only clear if sender clearly resumed.
+        // Local pause: absorb sender position; do NOT auto-resume from progress —
+        // late packets after pause made the UI require a second tap.
         if (userPaused) {
-            long frozenAt = positionMs;
-            positionMs = posMs;
-            progressBaseMs = posMs;
+            positionMs = heardMs;
+            progressBaseMs = heardMs;
             progressBaseTime = 0L;
-            if (posMs > frozenAt + REMOTE_RESUME_SLACK_MS) {
-                userPaused = false;
-                playing = true;
-                progressBaseTime = now;
-                updatePlaybackState();
-                refreshDacpPlayer();
-                maybeShowAudioOverlay();
-                if (listener != null) listener.onTrackChanged();
-                return;
-            }
             playing = false;
             updatePlaybackState();
             refreshDacpPlayer();
@@ -858,8 +1045,8 @@ public final class AirPlayEngine implements RaopCallbackHandler {
         }
 
         boolean wasPlaying = playing;
-        positionMs = posMs;
-        progressBaseMs = posMs;
+        positionMs = heardMs;
+        progressBaseMs = heardMs;
         progressBaseTime = now;
         playing = true;
 
@@ -870,9 +1057,22 @@ public final class AirPlayEngine implements RaopCallbackHandler {
     }
 
     @Override
-    public void onDacpId(String dacpId, String activeRemote) {
-        if (dacpController != null) dacpController.update(dacpId, activeRemote);
-        log("DACP: " + dacpId);
+    public void onDacpId(String dacpId, String activeRemote, String clientIp) {
+        if (dacpController != null) dacpController.update(dacpId, activeRemote, clientIp);
+        log("DACP: " + dacpId
+                + (activeRemote != null && !activeRemote.isEmpty()
+                ? " remote=" + activeRemote.substring(0, Math.min(8, activeRemote.length())) + "…"
+                : "")
+                + (clientIp != null && !clientIp.isEmpty() ? " ip=" + clientIp : ""));
+    }
+
+    @Override
+    public void onAudioFlush() {
+        resetRtpProgressAnchor();
+        positionMs = 0L;
+        progressBaseMs = 0L;
+        progressBaseTime = playing ? SystemClock.elapsedRealtime() : 0L;
+        if (listener != null) listener.onTrackChanged();
     }
 
     @Override
@@ -921,13 +1121,17 @@ public final class AirPlayEngine implements RaopCallbackHandler {
         progressBaseMs = 0L;
         progressBaseTime = 0L;
         lastProgressAt = 0L;
+        resetRtpProgressAnchor();
         userPaused = false;
         playing = false;
         audioScrubbing = false;
+        classicRaop = false;
+        appleProgressSeen = false;
+        audioUserAgent = "";
         if (modeCallback != null) modeCallback.onMode(false);
     }
 
-    /** Show cinema UI only once audio actually has a track or playback progress. */
+    /** Show cinema UI once audio has a track, progress, or active playback. */
     private void maybeShowAudioOverlay() {
         if (!audioOnly || videoPlaybackActive || mirroringActive) return;
         TrackInfo info = trackInfo;
@@ -935,8 +1139,9 @@ public final class AirPlayEngine implements RaopCallbackHandler {
                 (info.title != null && !info.title.isEmpty())
                         || (info.artist != null && !info.artist.isEmpty())
                         || info.coverArt != null);
-        boolean hasProgress = durationMs > 0 && playing;
-        if (!hasTrack && !hasProgress) return;
+        boolean hasProgress = (durationMs > 0 && playing) || (playing && positionMs > 0);
+        boolean hasActiveAudio = playing && connectionCount > 0;
+        if (!hasTrack && !hasProgress && !hasActiveAudio) return;
         if (listener != null) listener.onShowOverlay();
     }
 
@@ -954,16 +1159,21 @@ public final class AirPlayEngine implements RaopCallbackHandler {
     }
 
     public void seekAudioTo(long positionMs) {
+        if (!supportsAudioSeek()) {
+            log("Ignore seek — classic RAOP / MA has no remote seek");
+            return;
+        }
         long target = Math.max(0L, positionMs);
         if (durationMs > 0) target = Math.min(target, durationMs);
+        // Local UI only. MA AirPlay DACP has no playingtime/seek handler — sending
+        // dacp.playingtime only polls MA logs and does nothing.
         this.positionMs = target;
         progressBaseMs = target;
         progressBaseTime = playing ? SystemClock.elapsedRealtime() : 0L;
         lastProgressAt = SystemClock.elapsedRealtime();
         updatePlaybackState();
         refreshDacpPlayer();
-        if (dacpController != null) dacpController.seekTo(target);
-        if (listener != null) listener.onTrackChanged();
+        log("Local seek " + target + "ms (MA DACP has no seek)");
     }
 
     public void setAudioScrubbing(boolean scrubbing) {
@@ -985,21 +1195,53 @@ public final class AirPlayEngine implements RaopCallbackHandler {
         boolean nowPlaying = !isPlaying();
         setPlayingInternal(nowPlaying);
         if (dacpController != null) {
-            if (nowPlaying) dacpController.play();
-            else dacpController.pause();
+            // MA handles playpause as a true toggle; separate pause/play raced with
+            // still-buffered audio and needed a second tap.
+            dacpController.playPause();
         }
         if (listener != null) listener.onTrackChanged();
     }
 
     public void skipNext() {
-        if (dacpController != null) dacpController.nextItem();
+        if (dacpController == null) {
+            log("skipNext: no DACP controller");
+            return;
+        }
+        log("skipNext resolved=" + dacpController.isResolved());
+        dacpController.nextItem();
     }
 
     public void skipPrevious() {
-        if (dacpController != null) dacpController.prevItem();
+        if (dacpController == null) {
+            log("skipPrevious: no DACP controller");
+            return;
+        }
+        log("skipPrevious resolved=" + dacpController.isResolved());
+        dacpController.prevItem();
+    }
+
+    /** MA: {@code /ctrl-int/1/stop} */
+    public void stopAudioRemote() {
+        setPlayingInternal(false);
+        if (dacpController != null) dacpController.stop();
+        if (listener != null) listener.onTrackChanged();
+    }
+
+    /** MA: {@code /ctrl-int/1/shuffle_songs} toggle */
+    public void toggleShuffleRemote() {
+        if (dacpController != null) dacpController.shuffleSongs();
+    }
+
+    public void volumeUpRemote() {
+        if (dacpController != null) dacpController.volumeUp();
+    }
+
+    public void volumeDownRemote() {
+        if (dacpController != null) dacpController.volumeDown();
     }
 
     public void audioScanBegin(boolean forward) {
+        // beginff/beginrew are AirPlay-spec only — MA ignores them.
         if (dacpController == null) return;
         if (forward) dacpController.beginFastForward();
         else dacpController.beginRewind();
@@ -1028,6 +1270,7 @@ public final class AirPlayEngine implements RaopCallbackHandler {
             progressBaseTime = SystemClock.elapsedRealtime();
             lastProgressAt = progressBaseTime;
         }
+        audioRenderer.setPlaybackPaused(!p);
         refreshDacpPlayer();
         updatePlaybackState();
     }
@@ -1042,13 +1285,16 @@ public final class AirPlayEngine implements RaopCallbackHandler {
         int pbState = isPlaying ? PlaybackStateCompat.STATE_PLAYING : PlaybackStateCompat.STATE_PAUSED;
         float speed = isPlaying ? 1f : 0f;
         long pos = liveOrFrozenPositionMs();
+        long actions = PlaybackStateCompat.ACTION_PLAY
+                | PlaybackStateCompat.ACTION_PAUSE
+                | PlaybackStateCompat.ACTION_PLAY_PAUSE
+                | PlaybackStateCompat.ACTION_SKIP_TO_NEXT
+                | PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS;
+        if (supportsAudioSeek()) {
+            actions |= PlaybackStateCompat.ACTION_SEEK_TO;
+        }
         PlaybackStateCompat state = new PlaybackStateCompat.Builder()
-                .setActions(PlaybackStateCompat.ACTION_PLAY
-                        | PlaybackStateCompat.ACTION_PAUSE
-                        | PlaybackStateCompat.ACTION_PLAY_PAUSE
-                        | PlaybackStateCompat.ACTION_SKIP_TO_NEXT
-                        | PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS
-                        | PlaybackStateCompat.ACTION_SEEK_TO)
+                .setActions(actions)
                 .setState(pbState, pos, speed, SystemClock.elapsedRealtime())
                 .build();
         if (mediaSession != null) mediaSession.setPlaybackState(state);
@@ -1114,16 +1360,46 @@ public final class AirPlayEngine implements RaopCallbackHandler {
             Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces();
             while (interfaces.hasMoreElements()) {
                 NetworkInterface iface = interfaces.nextElement();
+                if (iface == null || !iface.isUp() || iface.isLoopback()) continue;
                 String n = iface.getName();
-                if (n != null && (n.startsWith("wlan") || n.startsWith("eth"))) {
-                    byte[] mac = iface.getHardwareAddress();
-                    if (mac != null && mac.length == 6) return mac;
+                if (n == null) continue;
+                if (!(n.startsWith("wlan") || n.startsWith("eth") || n.startsWith("rmnet") || n.startsWith("ap"))) {
+                    continue;
                 }
+                byte[] mac = iface.getHardwareAddress();
+                if (mac != null && mac.length == 6) {
+                    boolean nonZero = false;
+                    for (byte b : mac) {
+                        if (b != 0) { nonZero = true; break; }
+                    }
+                    if (nonZero) return mac;
+                }
+            }
+            // sysfs fallback (Android privacy APIs may return null/randomized MAC)
+            for (String path : new String[]{"/sys/class/net/wlan0/address", "/sys/class/net/eth0/address"}) {
+                byte[] mac = readMacFromSysfs(path);
+                if (mac != null) return mac;
             }
         } catch (Exception e) {
             Log.w(TAG, "Failed to get hardware address", e);
         }
         return new byte[]{(byte) 0xAA, (byte) 0xBB, (byte) 0xCC, (byte) 0xDD, (byte) 0xEE, (byte) 0xFF};
+    }
+
+    private byte[] readMacFromSysfs(String path) {
+        try (BufferedReader br = new BufferedReader(new FileReader(path))) {
+            String line = br.readLine();
+            if (line == null) return null;
+            String[] parts = line.trim().split(":");
+            if (parts.length != 6) return null;
+            byte[] mac = new byte[6];
+            for (int i = 0; i < 6; i++) {
+                mac[i] = (byte) Integer.parseInt(parts[i], 16);
+            }
+            return mac;
+        } catch (Exception ignored) {
+            return null;
+        }
     }
 
     private boolean requiresPin() {

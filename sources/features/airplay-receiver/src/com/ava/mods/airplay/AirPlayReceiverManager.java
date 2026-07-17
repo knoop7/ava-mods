@@ -536,10 +536,35 @@ public final class AirPlayReceiverManager implements AirPlayEngine.Listener {
             public void run() {
                 AirPlayEngine e = engine;
                 if (e == null) return;
+                boolean already = overlay.isVisible();
+                // AirPlay cinema ≠ Sendspin vinyl FAB — claim once when becoming visible.
+                if (!already) {
+                    HostMediaExclusive.claim(appContext);
+                }
                 overlay.show(e);
                 notifyEntity("playback_state");
             }
         });
+    }
+
+    /**
+     * Host hook for OverlayZOrderCoordinator / Sendspin: true while AirPlay owns
+     * the media surface so Ava must not raise or re-show the vinyl FAB.
+     */
+    public boolean isExclusiveMediaOverlayActive(Context context) {
+        return showOverlay && overlay.isVisible();
+    }
+
+    /** AEC playback-reference: active while RAOP audio is playing. */
+    public boolean isPlaybackReferenceActive(Context context) {
+        AirPlayEngine e = engine;
+        return e != null && e.isAudioOnly() && e.isPlaying();
+    }
+
+    public int getPlaybackAudioSessionId(Context context) {
+        AirPlayEngine e = engine;
+        if (e == null || !isPlaybackReferenceActive(context)) return 0;
+        return e.getAudioSessionId();
     }
 
     @Override

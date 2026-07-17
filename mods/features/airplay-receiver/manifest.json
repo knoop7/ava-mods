@@ -1,7 +1,7 @@
 {
   "id": "airplay-receiver",
   "name": "AirPlay Receiver",
-  "version": "1.0.31",
+  "version": "1.0.54",
   "author": "Ava",
   "description": "Cast from iPhone or Mac. Turn this device into your AirPlay screen and speaker.",
   "detail_description": "Mirror the display, stream albums with artwork, or play video fullscreen. Shows up as {device name} [Airplay] on the same Wi-Fi. Ties to the voice satellite; PIN and ducking when you want them.",
@@ -34,7 +34,7 @@
       "key": "device_name",
       "label": "Device Name",
       "description": "Shown as Ava - {name} [Airplay]. Leave blank to use the phone model.",
-      "dialogHint": "Middle segment only, e.g. MI 9 — not the full Ava - … name.",
+      "dialogHint": "Middle segment only, e.g. MI 9 \u2014 not the full Ava - \u2026 name.",
       "defaultValue": ""
     },
     {
@@ -169,5 +169,5 @@
       "press": "stopPlayback"
     }
   ],
-  "jar_hash": "cf042cf63dfc5d4b6828ee5f269988df"
+  "jar_hash": "7255f12c4825d2b074dcb4afd0b27e24"
 }

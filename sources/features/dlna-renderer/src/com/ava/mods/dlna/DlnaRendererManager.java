@@ -379,6 +379,11 @@ public class DlnaRendererManager {
         }
     }
 
+    /** Host exclusivity vs Sendspin vinyl FAB (see ModMediaOverlayExclusive). */
+    public boolean isExclusiveMediaOverlayActive(Context context) {
+        return showCinemaOverlay && cinemaOverlay.isVisible();
+    }
+
     public void onVoicePipelineEvent(Context context, String event, Bundle extras) {
         if (event == null) {
             return;

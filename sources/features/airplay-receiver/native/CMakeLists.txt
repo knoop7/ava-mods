@@ -109,6 +109,7 @@ set(ALAC_SOURCES
 set(BRIDGE_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/android_dnssd_shim.c
     ${CMAKE_CURRENT_SOURCE_DIR}/android_raop_callbacks.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/classic_rsa.c
     ${CMAKE_CURRENT_SOURCE_DIR}/native_bridge.cpp
 )
 

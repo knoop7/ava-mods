@@ -95,6 +95,8 @@ struct raop_callbacks_s {
     void  (*audio_remote_control_id)(void *cls, const char *dacp_id, const char *active_remote_header);
     void  (*audio_set_progress)(void *cls, uint32_t *start, uint32_t *curr, uint32_t *end);
     void  (*audio_get_format)(void *cls, unsigned char *ct, unsigned short *spf, bool *usingScreen, bool *isMedia, uint64_t *audioFormat);
+    /* classic_raop=1: ANNOUNCE/RSA path (MA cliraop etc.); 0: Apple AP2 bplist SETUP */
+    void  (*audio_set_transport)(void *cls, int classic_raop, const char *user_agent);
     void  (*video_report_size)(void *cls, float *width_source, float *height_source, float *width, float *height);
     void  (*mirror_video_running)(void *cls, bool is_running);
     void  (*report_client_request) (void *cls, char *deviceid, char *model, char *name, bool *admit);
@@ -102,7 +104,8 @@ struct raop_callbacks_s {
     void  (*register_client) (void *cls, const char *device_id, const char *pk_str, const char *name);
     bool  (*check_register) (void *cls, const char *pk_str);
     const char*  (*passwd) (void *cls, int *len);
-    void  (*export_dacp) (void *cls, const char *active_remote, const char *dacp_id);
+    /* client_ip: RTSP peer (may be NULL); receivers should prefer it as DACP host. */
+    void  (*export_dacp) (void *cls, const char *active_remote, const char *dacp_id, const char *client_ip);
     int   (*video_set_codec)(void *cls, video_codec_t codec);
     /* for HLS video player controls */
     void  (*on_video_play) (void *cls, const char *location, const float start_position);

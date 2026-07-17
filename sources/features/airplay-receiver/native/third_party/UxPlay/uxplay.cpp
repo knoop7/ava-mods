@@ -2210,11 +2210,14 @@ extern "C" const char *passwd(void *cls, int *len){
     return NULL;
 }
 
-extern "C" void export_dacp(void *cls, const char *active_remote, const char *dacp_id) {
+extern "C" void export_dacp(void *cls, const char *active_remote, const char *dacp_id,
+                            const char *client_ip) {
       if (dacpfile.length()) {
         FILE *fp = fopen(dacpfile.c_str(), "w");
         if (fp) {
-            fprintf(fp,"%s\n%s\n", dacp_id, active_remote);
+            fprintf(fp,"%s\n%s\n%s\n", dacp_id ? dacp_id : "",
+                    active_remote ? active_remote : "",
+                    client_ip ? client_ip : "");
             fclose(fp);
         } else {
             LOGE("failed to open DACP export file \"%s\"", dacpfile.c_str());

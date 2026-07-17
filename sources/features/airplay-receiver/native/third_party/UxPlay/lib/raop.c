@@ -119,6 +119,13 @@ struct raop_conn_s {
     char *client_session_id;
     bool authenticated;
     bool have_active_remote;
+
+    /* Classic RAOP (ANNOUNCE/SETUP) session state for non-Apple senders (e.g. cliraop) */
+    bool classic_announced;
+    bool classic_encrypted;
+    unsigned char classic_aeskey[16];
+    unsigned char classic_aesiv[16];
+    unsigned char classic_ct;
 };
 typedef struct raop_conn_s raop_conn_t;
 
@@ -178,6 +185,12 @@ conn_init(void *opaque, unsigned char *local, int locallen, unsigned char *remot
     conn->authenticated = false;
 
     conn->have_active_remote = false;
+
+    conn->classic_announced = false;
+    conn->classic_encrypted = false;
+    memset(conn->classic_aeskey, 0, sizeof(conn->classic_aeskey));
+    memset(conn->classic_aesiv, 0, sizeof(conn->classic_aesiv));
+    conn->classic_ct = 2; /* ALAC */
     
     if (raop->callbacks.conn_init) {
         raop->callbacks.conn_init(raop->callbacks.cls);
@@ -337,14 +350,19 @@ conn_request(void *ptr, http_request_t *request, http_response_t **response) {
 	    http_response_add_header(*response, "Audio-Jack-Status", "connected; type=digital");
     }
 
-    if (!conn->have_active_remote) {
+    {
         const char *active_remote = http_request_get_header(request, "Active-Remote");
-        if (active_remote) {
-            conn->have_active_remote = true;
-            if (raop->callbacks.export_dacp) {
-                const char *dacp_id = http_request_get_header(request, "DACP-ID");
-                raop->callbacks.export_dacp(raop->callbacks.cls, active_remote, dacp_id);
+        if (active_remote && raop->callbacks.export_dacp) {
+            const char *dacp_id = http_request_get_header(request, "DACP-ID");
+            /* Re-export when DACP-ID arrives later; always refresh Active-Remote. */
+            char ipaddr[64] = { 0 };
+            if (conn->remote && conn->remotelen > 0) {
+                utils_ipaddress_to_string(conn->remotelen, conn->remote, conn->zone_id,
+                                          ipaddr, (int) sizeof(ipaddr));
             }
+            raop->callbacks.export_dacp(raop->callbacks.cls, active_remote, dacp_id,
+                                        ipaddr[0] ? ipaddr : NULL);
+            conn->have_active_remote = true;
         }
     }
 
@@ -424,6 +442,8 @@ conn_request(void *ptr, http_request_t *request, http_response_t **response) {
             }
         } else if (!strcmp(method, "OPTIONS")) {
             handler = &raop_handler_options;
+        } else if (!strcmp(method, "ANNOUNCE")) {
+            handler = &raop_handler_announce;
         } else if (!strcmp(method, "SETUP")) {
             raop->hls_pending = false;
             handler = &raop_handler_setup;

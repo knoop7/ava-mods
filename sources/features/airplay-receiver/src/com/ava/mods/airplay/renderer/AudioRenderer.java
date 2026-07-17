@@ -7,6 +7,7 @@ import android.media.MediaCodec;
 import android.media.MediaFormat;
 import android.util.Log;
 
+import com.ava.mods.airplay.audio.PcmLevelMeter;
 import com.ava.mods.airplay.bridge.NativeBridge;
 
 import java.nio.ByteBuffer;
@@ -30,15 +31,56 @@ public final class AudioRenderer {
     private volatile float volume = 1.0f;
     private volatile String codecLabel = "";
     private volatile boolean pendingReset = false;
+    private volatile boolean playbackPaused = false;
+    private volatile long framesWritten = 0L;
+
+    private final PcmLevelMeter levelMeter = new PcmLevelMeter();
+    private final float[] levelScratch = new float[32];
+    private volatile PcmLevelMeter.Listener levelListener;
+    private int levelEmitCounter;
 
     public float getVolume() { return volume; }
     public String getCodecLabel() { return codecLabel; }
+
+    public int getAudioSessionId() {
+        AudioTrack t = track;
+        return t != null ? t.getAudioSessionId() : 0;
+    }
+
+    public void setLevelListener(PcmLevelMeter.Listener listener) {
+        levelListener = listener;
+        if (listener == null) {
+            levelMeter.reset();
+        }
+    }
+
+    public int getLevelBandCount() {
+        return levelMeter.bandCount();
+    }
+
+    /**
+     * PCM still sitting in the AudioTrack buffer (ms). Heard audio lags
+     * {@code write()} by roughly this amount.
+     */
+    public long getBufferedMs() {
+        AudioTrack t = track;
+        if (t == null) return 0L;
+        try {
+            long head = t.getPlaybackHeadPosition() & 0xFFFFFFFFL;
+            long buffered = framesWritten - head;
+            if (buffered < 0L) buffered = 0L;
+            return buffered * 1000L / 44100L;
+        } catch (Exception e) {
+            return 0L;
+        }
+    }
 
     public void markSessionEnded() {
         pendingReset = true;
     }
 
     public void feedAudio(byte[] data, int ct, long ntpTimeNs) {
+        if (playbackPaused) return;
         if (pendingReset) {
             pendingReset = false;
             stop();
@@ -86,8 +128,26 @@ public final class AudioRenderer {
     private void feedSoftwareAlac(byte[] data) {
         byte[] pcm = NativeBridge.nativeAlacDecode(swAlacHandle, data);
         if (pcm == null) return;
+        writePcm(pcm);
+    }
+
+    private void writePcm(byte[] pcm) {
         AudioTrack t = track;
-        if (t != null) t.write(pcm, 0, pcm.length);
+        if (t == null || pcm == null || pcm.length == 0) return;
+        t.write(pcm, 0, pcm.length);
+        // stereo 16-bit → frames
+        framesWritten += pcm.length / 4;
+        emitLevels(pcm, pcm.length);
+    }
+
+    private void emitLevels(byte[] pcm, int length) {
+        PcmLevelMeter.Listener listener = levelListener;
+        if (listener == null) return;
+        levelMeter.processStereoPcm16(pcm, length);
+        // ~ every 3rd buffer keeps UI ~30–50fps without flooding the main thread.
+        if ((++levelEmitCounter % 3) != 0) return;
+        levelMeter.copyBands(levelScratch);
+        listener.onLevels(levelScratch);
     }
 
     private void startSoftwareAlac() {
@@ -210,7 +270,7 @@ public final class AudioRenderer {
             if (buf == null) break;
             byte[] pcm = new byte[info.size];
             buf.get(pcm);
-            t.write(pcm, 0, pcm.length);
+            writePcm(pcm);
             c.releaseOutputBuffer(idx, false);
         }
     }
@@ -223,6 +283,18 @@ public final class AudioRenderer {
         volume = v;
         AudioTrack t = track;
         if (t != null) t.setVolume(v);
+    }
+
+    public void setPlaybackPaused(boolean paused) {
+        playbackPaused = paused;
+        AudioTrack t = track;
+        if (t == null) return;
+        try {
+            if (paused) t.pause();
+            else t.play();
+        } catch (Exception e) {
+            Log.w(TAG, "AudioTrack pause/play failed", e);
+        }
     }
 
     public void stop() {
@@ -241,6 +313,8 @@ public final class AudioRenderer {
         currentCt = -1;
         failedCt = -1;
         codecLabel = "";
+        playbackPaused = false;
+        framesWritten = 0L;
     }
 
     public void release() {
