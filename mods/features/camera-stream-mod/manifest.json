@@ -1,0 +1,190 @@
+{
+  "id": "camera-stream-mod",
+  "name": "Camera Stream",
+  "version": "1.0.3",
+  "author": "Ava",
+  "description": "Forward this device camera to Frigate or an NVR. Choose MJPEG or RTSP and tune quality.",
+  "detail_description": "LAN camera forwarder for Frigate / go2rtc / ffmpeg. Pick MJPEG (HTTP) or RTSP (H.264), then set FPS, resolution, JPEG quality or bitrate. For RTSP you can prefer auto / hardware / software H.264 encoding (auto tries hardware first, then falls back). No auto-start: open this mod’s settings and turn on Enable Stream (or the HA Camera Stream switch) while the voice satellite master service is running. When the master service stops, the stream always stops. Paste the Stream URL into your NVR — not a second HA camera preview.",
+  "icon": "mdi:cctv",
+  "libs": [
+    "libs/camera-stream-manager.jar"
+  ],
+  "manager": "com.ava.mods.camerastream.CameraStreamManager",
+  "camera_stream": true,
+  "permissions": [
+    "camera",
+    "android.permission.INTERNET",
+    "android.permission.ACCESS_NETWORK_STATE",
+    "android.permission.ACCESS_WIFI_STATE"
+  ],
+  "entities": [
+    {
+      "type": "switch",
+      "id": "stream",
+      "name": "Camera Stream",
+      "icon": "mdi:video-wireless",
+      "on": "startStream",
+      "off": "stopStream",
+      "read": "isStreamEnabled"
+    },
+    {
+      "type": "binary_sensor",
+      "id": "server_running",
+      "name": "Stream Server",
+      "icon": "mdi:server-network",
+      "class": "connectivity",
+      "category": "diagnostic",
+      "read": "isServerRunning"
+    },
+    {
+      "type": "text_sensor",
+      "id": "stream_url",
+      "name": "Stream URL",
+      "icon": "mdi:link-variant",
+      "category": "diagnostic",
+      "read": "getStreamUrl"
+    },
+    {
+      "type": "text_sensor",
+      "id": "last_error",
+      "name": "Stream Error",
+      "icon": "mdi:alert-circle-outline",
+      "category": "diagnostic",
+      "read": "getLastError"
+    },
+    {
+      "type": "button",
+      "id": "restart",
+      "name": "Restart Stream",
+      "icon": "mdi:restart",
+      "category": "diagnostic",
+      "press": "restartStream"
+    }
+  ],
+  "config": [
+    {
+      "type": "switch",
+      "key": "stream_enabled",
+      "label": "Enable Stream",
+      "description": "Start LAN stream (requires voice satellite master service). Off by default — not auto-start.",
+      "defaultValue": "false"
+    },
+    {
+      "type": "select",
+      "key": "stream_format",
+      "label": "Stream Format",
+      "description": "MJPEG over HTTP, or RTSP with H.264 for Frigate / NVR",
+      "defaultValue": "mjpeg",
+      "options": [
+        "mjpeg",
+        "rtsp"
+      ]
+    },
+    {
+      "type": "select",
+      "key": "h264_encoder",
+      "label": "H.264 Encoder (RTSP)",
+      "description": "auto = hardware first then software fallback. hardware/software force one path. MJPEG ignores this.",
+      "defaultValue": "auto",
+      "options": [
+        "auto",
+        "hardware",
+        "software"
+      ]
+    },
+    {
+      "type": "number",
+      "key": "port",
+      "label": "Listen Port",
+      "description": "TCP port for MJPEG HTTP or RTSP",
+      "defaultValue": "8554",
+      "min": 1024,
+      "max": 65535,
+      "step": 1
+    },
+    {
+      "type": "text",
+      "key": "path",
+      "label": "Stream Path",
+      "description": "URL path segment, e.g. ava → http://ip:8554/ava or rtsp://ip:8554/ava",
+      "dialogHint": "ava",
+      "defaultValue": "ava"
+    },
+    {
+      "type": "text",
+      "key": "token",
+      "label": "Access Token (optional)",
+      "description": "If set, clients must send Bearer token (or ?token= for MJPEG)",
+      "dialogHint": "leave empty for open LAN access",
+      "defaultValue": ""
+    },
+    {
+      "type": "switch",
+      "key": "use_front_camera",
+      "label": "Front Camera",
+      "description": "Use front camera when available; off = rear",
+      "defaultValue": "true"
+    },
+    {
+      "type": "select",
+      "key": "fps",
+      "label": "Frame Rate",
+      "description": "Lower FPS saves CPU and heat on wall panels",
+      "defaultValue": "5",
+      "options": [
+        "1",
+        "2",
+        "3",
+        "5",
+        "8",
+        "10",
+        "15"
+      ]
+    },
+    {
+      "type": "select",
+      "key": "resolution",
+      "label": "Resolution (short edge)",
+      "description": "240 / 360 / 480 / 720 — start low, raise if smooth",
+      "defaultValue": "480",
+      "options": [
+        "240",
+        "360",
+        "480",
+        "720"
+      ]
+    },
+    {
+      "type": "select",
+      "key": "jpeg_quality",
+      "label": "JPEG Quality (MJPEG)",
+      "description": "Used for MJPEG HTTP frames",
+      "defaultValue": "75",
+      "options": [
+        "50",
+        "60",
+        "70",
+        "75",
+        "80",
+        "85",
+        "90"
+      ]
+    },
+    {
+      "type": "select",
+      "key": "bitrate_kbps",
+      "label": "Bitrate kbps (RTSP)",
+      "description": "H.264 target bitrate when format is RTSP",
+      "defaultValue": "800",
+      "options": [
+        "400",
+        "600",
+        "800",
+        "1200",
+        "1600",
+        "2000",
+        "3000"
+      ]
+    }
+  ]
+}

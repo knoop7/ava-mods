@@ -82,6 +82,16 @@
       "detail_description": "Expose a simple torch switch in Home Assistant. Toggle the camera LED from automations, dashboards, or voice — useful as a night light or closet lamp."
     },
     {
+      "id": "camera-stream-mod",
+      "name": "Camera Stream",
+      "version": "1.0.3",
+      "author": "Ava",
+      "description": "Forward this device camera to Frigate or an NVR. Choose MJPEG or RTSP and tune quality.",
+      "detail_description": "LAN forwarder for Frigate / go2rtc / ffmpeg. Pick MJPEG or RTSP (H.264), tune FPS and resolution. RTSP can prefer auto / hardware / software H.264 encoding. No auto-start — only streams while the voice satellite master service is running and you turn the stream switch on.",
+      "path": "mods/features/camera-stream-mod/",
+      "icon": "mdi:cctv"
+    },
+    {
       "id": "ble-adv-proxy",
       "name": "BLE ADV Proxy",
       "version": "0.4.9",
