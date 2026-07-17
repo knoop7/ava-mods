@@ -833,6 +833,9 @@ public final class AirPlayOverlay {
             } else if (lastCoverBitmap == null) {
                 coverView.setImageDrawable(null);
                 coverView.setBackgroundColor(0xFF1A1A1A);
+                if (audioWaveShadow != null) {
+                    audioWaveShadow.clearAmbient();
+                }
             }
             coverView.setScaleType(ImageView.ScaleType.CENTER_CROP);
             coverView.setVisibility(View.VISIBLE);
@@ -894,6 +897,9 @@ public final class AirPlayOverlay {
         Drawable previous = coverView.getDrawable();
         Drawable next = new BitmapDrawable(appContext.getResources(), bitmap);
         lastCoverBitmap = bitmap;
+        if (audioWaveShadow != null) {
+            audioWaveShadow.setAmbientFromCover(bitmap);
+        }
         if (previous == null
                 || (previous instanceof BitmapDrawable
                 && ((BitmapDrawable) previous).getBitmap() == null)) {
@@ -2972,13 +2978,13 @@ public final class AirPlayOverlay {
         return bar;
     }
 
-    /** Background wave shadow — replaces flat bottom gradient; reacts to PCM. */
+    /** Background wave shadow — full-bleed cover wash + PCM wave. */
     private AudioWaveShadowView makeAudioWaveShadow() {
         AudioWaveShadowView v = new AudioWaveShadowView(appContext);
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
-                dp(280),
-                Gravity.BOTTOM);
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                Gravity.FILL);
         v.setLayoutParams(lp);
         return v;
     }
@@ -3464,16 +3470,13 @@ public final class AirPlayOverlay {
             ViewGroup.LayoutParams raw = audioWaveShadow.getLayoutParams();
             if (raw instanceof FrameLayout.LayoutParams) {
                 FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) raw;
-                DisplayMetrics dm = appContext.getResources().getDisplayMetrics();
-                // Keep height modest — avoids giant bitmaps if a layer type regresses.
-                int h = landscape
-                        ? Math.round(dm.heightPixels * 0.55f)
-                        : Math.round(dm.heightPixels * 0.38f);
                 lp.width = FrameLayout.LayoutParams.MATCH_PARENT;
-                lp.height = Math.max(dp(220), Math.min(h, dp(420)));
-                lp.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
+                lp.height = FrameLayout.LayoutParams.MATCH_PARENT;
+                lp.gravity = Gravity.FILL;
                 lp.leftMargin = 0;
                 lp.rightMargin = 0;
+                lp.topMargin = 0;
+                lp.bottomMargin = 0;
                 audioWaveShadow.setLayoutParams(lp);
             }
         }
