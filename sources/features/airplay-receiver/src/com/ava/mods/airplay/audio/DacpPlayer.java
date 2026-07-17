@@ -4,6 +4,7 @@ package com.ava.mods.airplay.audio;
  * Thin DACP playback helper used by AirPlayEngine.
  * MediaSessionCompat in the engine owns transport UI; this class only
  * refreshes sender-side play/pause/next/prev via {@link DacpController}.
+ * (Media session types come from androidx.media bundled in this mod's DEX.)
  */
 public final class DacpPlayer {
 

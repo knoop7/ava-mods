@@ -62,8 +62,18 @@ echo "Using NDK: $NDK_DIR"
 
 mkdir -p "$DEPS_DIR" libs/jni "$BUILD_DIR/classes" "$BUILD_DIR/mod-dex"
 
-# --- Compile-time AndroidX / Media3 (provided by Ava at runtime) ---
-if [ ! -f "$DEPS_DIR/media3-exoplayer.jar" ]; then
+# --- Compile-time AndroidX / Media3 ---
+# Media3 stays on Ava host ClassLoader at runtime.
+# androidx.media (MediaSessionCompat) is bundled into this mod's DEX so AirPlay
+# does not depend on the host retaining those classes under R8.
+# Force a fresh androidx.media jar when rebuilding (avoids stale/wrong cache).
+if [ ! -f "$DEPS_DIR/media3-exoplayer.jar" ] || [ ! -f "$DEPS_DIR/media.jar" ]; then
+  chmod +x ./fetch-deps.sh
+  ./fetch-deps.sh
+fi
+# Ensure media.jar matches androidx imports used by AirPlayEngine.
+if ! jar tf "$DEPS_DIR/media.jar" 2>/dev/null | grep -qE 'androidx/media/session/MediaSessionCompat.class|android/support/v4/media/session/MediaSessionCompat.class'; then
+  echo "Refreshing media.jar (needs MediaSessionCompat)..."
   chmod +x ./fetch-deps.sh
   ./fetch-deps.sh
 fi
@@ -90,6 +100,21 @@ for jar in "${DEP_JARS[@]}"; do
 done
 DEP_CP=$(IFS=:; echo "${DEP_JARS[*]}")
 
+# Host-provided at runtime (not packaged into mod DEX).
+HOST_RUNTIME_JARS=(
+  "$DEPS_DIR/annotation.jar"
+  "$DEPS_DIR/collection.jar"
+  "$DEPS_DIR/versionedparcelable.jar"
+  "$DEPS_DIR/core.jar"
+  "$DEPS_DIR/media3-common.jar"
+  "$DEPS_DIR/media3-database.jar"
+  "$DEPS_DIR/media3-datasource.jar"
+  "$DEPS_DIR/media3-decoder.jar"
+  "$DEPS_DIR/media3-extractor.jar"
+  "$DEPS_DIR/media3-exoplayer.jar"
+  "$DEPS_DIR/media3-exoplayer-hls.jar"
+)
+
 echo "Compiling Java sources..."
 rm -rf "$BUILD_DIR/classes"
 mkdir -p "$BUILD_DIR/classes"
@@ -100,12 +125,16 @@ javac -source 1.8 -target 1.8 \
   -d "$BUILD_DIR/classes" \
   @"$BUILD_DIR/sources.list"
 
-echo "Dexing (mod classes only — Media3 comes from Ava host ClassLoader)..."
+echo "Dexing mod classes + bundled androidx.media (Media3 still from Ava host)..."
 rm -rf "$BUILD_DIR/mod-dex"
 mkdir -p "$BUILD_DIR/mod-dex"
-"$D8_TOOL" --min-api 24 --lib "$ANDROID_JAR" --output "$BUILD_DIR/mod-dex" \
-  $(find "$BUILD_DIR/classes" -name '*.class')
-# Note: Media3/AndroidX are compile-only; Ava host ClassLoader provides them at runtime.
+D8_ARGS=(--min-api 24 --lib "$ANDROID_JAR" --output "$BUILD_DIR/mod-dex")
+for hj in "${HOST_RUNTIME_JARS[@]}"; do
+  D8_ARGS+=(--classpath "$hj")
+done
+MOD_CLASSES=()
+while IFS= read -r -d '' f; do MOD_CLASSES+=("$f"); done < <(find "$BUILD_DIR/classes" -name '*.class' -print0)
+"$D8_TOOL" "${D8_ARGS[@]}" "${MOD_CLASSES[@]}" "$DEPS_DIR/media.jar"
 
 # Mod-owned assets (AirPlay badge PNG) — served by DexClassLoader from the jar
 # (same packing as DLNA CinemaOverlay assets/dlna-icon.png).

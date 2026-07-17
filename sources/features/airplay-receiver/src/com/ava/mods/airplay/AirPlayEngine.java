@@ -536,7 +536,15 @@ public final class AirPlayEngine implements RaopCallbackHandler {
         boolean nohold = p.getBoolean(Prefs.ALLOW_NEW_CONN, Prefs.DEF_ALLOW_NEW_CONN);
         boolean requirePin = p.getBoolean(Prefs.REQUIRE_PIN, Prefs.DEF_REQUIRE_PIN);
 
-        nativeHandle = NativeBridge.nativeInit(this, hwAddr, effectiveName, keyFile, nohold, requirePin);
+        nativeHandle = 0L;
+        try {
+            NativeBridge.ensureLoaded(appContext);
+            nativeHandle = NativeBridge.nativeInit(this, hwAddr, effectiveName, keyFile, nohold, requirePin);
+        } catch (UnsatisfiedLinkError ule) {
+            log("Native libs unavailable: " + ule.getMessage());
+            failStart();
+            return;
+        }
         if (nativeHandle == 0L) {
             log("Native init failed");
             failStart();

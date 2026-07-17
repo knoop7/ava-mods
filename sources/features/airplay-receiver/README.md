@@ -34,7 +34,7 @@ chmod +x build.sh fetch-deps.sh
 ./build.sh
 ```
 
-Requires Android SDK (platform 34+), build-tools `d8`, and NDK. First build may run `fetch-deps.sh` for compile-only Media3/AndroidX jars (not packaged into the mod jar).
+Requires Android SDK (platform 34+), build-tools `d8`, and NDK. First build may run `fetch-deps.sh`. **androidx.media** (MediaSessionCompat) is packaged into the mod DEX; **Media3** stays compile-only and is provided by Ava at runtime.
 
 ## Layout
 

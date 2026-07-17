@@ -1,7 +1,7 @@
 {
   "id": "airplay-receiver",
   "name": "AirPlay Receiver",
-  "version": "1.0.58",
+  "version": "1.0.61",
   "author": "Ava",
   "description": "Cast from iPhone or Mac. Turn this device into your AirPlay screen and speaker.",
   "detail_description": "Mirror the display, stream albums with artwork, or play video fullscreen. Shows up as {device name} [Airplay] on the same Wi-Fi. Ties to the voice satellite; PIN and ducking when you want them.",
@@ -169,5 +169,5 @@
       "press": "stopPlayback"
     }
   ],
-  "jar_hash": "11d1dd9571d6e3b3c1578e3ef65b838a"
+  "jar_hash": "1e20dbae08fcc389d5a7c8c6db0bb741"
 }

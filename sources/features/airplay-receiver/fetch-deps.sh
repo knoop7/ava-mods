@@ -71,7 +71,28 @@ fetch_jar "https://repo1.maven.org/maven2/androidx/collection/collection-jvm/1.4
 # AARs
 fetch_aar_classes "androidx/versionedparcelable/versionedparcelable/1.2.0/versionedparcelable-1.2.0.aar" versionedparcelable
 fetch_aar_classes "androidx/core/core/1.13.1/core-1.13.1.aar" core
-fetch_aar_classes "androidx/media/media/1.7.0/media-1.7.0.aar" media
+# Exact Maven AAR only (avoid gradle cache glob matching the wrong "media-*.aar").
+rm -f "$DEPS_DIR/media.jar" "$DEPS_DIR/media.aar"
+{
+  aar="$DEPS_DIR/media.aar"
+  jar="$DEPS_DIR/media.jar"
+  echo "Fetching media (androidx.media:media:1.7.0) ..."
+  curl -fsSL -o "$aar" "$GOOGLE/androidx/media/media/1.7.0/media-1.7.0.aar"
+  tmp="$DEPS_DIR/_extract_media"
+  rm -rf "$tmp"; mkdir -p "$tmp"
+  unzip -q -o "$aar" -d "$tmp"
+  cp "$tmp/classes.jar" "$jar"
+  rm -rf "$tmp" "$aar"
+  echo "OK media.jar"
+}
+if jar tf "$DEPS_DIR/media.jar" | grep -q 'androidx/media/session/MediaSessionCompat.class'; then
+  echo "OK media.jar has androidx.media.session.MediaSessionCompat"
+elif jar tf "$DEPS_DIR/media.jar" | grep -q 'android/support/v4/media/session/MediaSessionCompat.class'; then
+  echo "OK media.jar has MediaSessionCompat (android.support.v4.media.session; androidx.media AAR bytecode)"
+else
+  echo "ERROR: media.jar missing MediaSessionCompat" >&2
+  exit 1
+fi
 fetch_aar_classes "androidx/media3/media3-common/1.8.0/media3-common-1.8.0.aar" media3-common
 fetch_aar_classes "androidx/media3/media3-database/1.8.0/media3-database-1.8.0.aar" media3-database
 fetch_aar_classes "androidx/media3/media3-datasource/1.8.0/media3-datasource-1.8.0.aar" media3-datasource
