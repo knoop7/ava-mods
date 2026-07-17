@@ -34,7 +34,9 @@ chmod +x build.sh fetch-deps.sh
 ./build.sh
 ```
 
-Requires Android SDK (platform 34+), build-tools `d8`, and NDK. First build may run `fetch-deps.sh`. **androidx.media** (MediaSessionCompat) is packaged into the mod DEX; **Media3** stays compile-only and is provided by Ava at runtime.
+Requires Android SDK (platform 34+), build-tools `d8`, and NDK. First build may run `fetch-deps.sh`.
+
+**Runtime deps (host-provided, not packaged into this mod DEX):** `androidx.media` (MediaSessionCompat) and Media3 (`media3-common` / `media3-exoplayer` / HLS). The host must keep those types on its ClassLoader (R8 keep rules). Packaging `media.jar` into the mod causes `NoSuchMethodError` under parent-first `DexClassLoader`.
 
 ## Layout
 

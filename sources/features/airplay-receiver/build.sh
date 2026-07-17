@@ -62,11 +62,11 @@ echo "Using NDK: $NDK_DIR"
 
 mkdir -p "$DEPS_DIR" libs/jni "$BUILD_DIR/classes" "$BUILD_DIR/mod-dex"
 
-# --- Compile-time AndroidX / Media3 ---
-# Media3 stays on Ava host ClassLoader at runtime.
-# androidx.media (MediaSessionCompat) is bundled into this mod's DEX so AirPlay
-# does not depend on the host retaining those classes under R8.
-# Force a fresh androidx.media jar when rebuilding (avoids stale/wrong cache).
+# --- Compile-time AndroidX / Media3 (host-provided at runtime) ---
+# Media3 and androidx.media (MediaSessionCompat) are compile-only here.
+# The host app must ship them on its ClassLoader. Packaging media.jar into this
+# mod DEX causes parent-first ClassLoader splits (NoSuchMethodError on
+# MediaSessionCompat$Token). Do not add media.jar to the d8 inputs below.
 if [ ! -f "$DEPS_DIR/media3-exoplayer.jar" ] || [ ! -f "$DEPS_DIR/media.jar" ]; then
   chmod +x ./fetch-deps.sh
   ./fetch-deps.sh
@@ -106,6 +106,7 @@ HOST_RUNTIME_JARS=(
   "$DEPS_DIR/collection.jar"
   "$DEPS_DIR/versionedparcelable.jar"
   "$DEPS_DIR/core.jar"
+  "$DEPS_DIR/media.jar"
   "$DEPS_DIR/media3-common.jar"
   "$DEPS_DIR/media3-database.jar"
   "$DEPS_DIR/media3-datasource.jar"
@@ -125,7 +126,7 @@ javac -source 1.8 -target 1.8 \
   -d "$BUILD_DIR/classes" \
   @"$BUILD_DIR/sources.list"
 
-echo "Dexing mod classes + bundled androidx.media (Media3 still from Ava host)..."
+echo "Dexing mod classes only (MediaSessionCompat + Media3 from host)..."
 rm -rf "$BUILD_DIR/mod-dex"
 mkdir -p "$BUILD_DIR/mod-dex"
 D8_ARGS=(--min-api 24 --lib "$ANDROID_JAR" --output "$BUILD_DIR/mod-dex")
@@ -134,7 +135,7 @@ for hj in "${HOST_RUNTIME_JARS[@]}"; do
 done
 MOD_CLASSES=()
 while IFS= read -r -d '' f; do MOD_CLASSES+=("$f"); done < <(find "$BUILD_DIR/classes" -name '*.class' -print0)
-"$D8_TOOL" "${D8_ARGS[@]}" "${MOD_CLASSES[@]}" "$DEPS_DIR/media.jar"
+"$D8_TOOL" "${D8_ARGS[@]}" "${MOD_CLASSES[@]}"
 
 # Mod-owned assets (AirPlay badge PNG) — served by DexClassLoader from the jar
 # (same packing as DLNA CinemaOverlay assets/dlna-icon.png).

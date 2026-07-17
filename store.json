@@ -5,12 +5,12 @@
     {
       "id": "airplay-receiver",
       "name": "AirPlay Receiver",
-      "version": "1.0.61",
+      "version": "1.0.62",
       "author": "Ava",
       "description": "Cast from iPhone or Mac. Turn this device into your AirPlay screen and speaker.",
       "detail_description": "Mirror the display, stream albums with artwork, or play video fullscreen. Shows up as {device name} [Airplay] on the same Wi-Fi. Ties to the voice satellite; PIN and ducking when you want them.",
       "path": "mods/features/airplay-receiver/",
-      "jar_hash": "1e20dbae08fcc389d5a7c8c6db0bb741"
+      "jar_hash": "52b653ed05d9868f2aeafb8859eb272e"
     },
     {
       "id": "dlna-renderer",
