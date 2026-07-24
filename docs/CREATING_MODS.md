@@ -219,6 +219,9 @@ Supported optional methods:
 - `boolean isSupported()` or `boolean isSupported(Context context)`
 - `int getMinBrightness()` or `int getMinBrightness(Context context)`
 - `boolean isLowEndBleChip()` or `boolean isLowEndBleChip(Context context)`
+- `boolean suppressHostBleAdvertisingDuringProxy()` or `boolean suppressHostBleAdvertisingDuringProxy(Context context)` — pause Ava's own BLE service advertisement while the Home Assistant proxy scanner owns a constrained controller
+- `int getBleProxyHandoverDelayMs()` or `int getBleProxyHandoverDelayMs(Context context)` — delay proxy scan startup after releasing that advertisement; Ava clamps the result to 0–5000 ms
+- `boolean recoverBluetoothProxyScanFailure(int errorCode)` or `boolean recoverBluetoothProxyScanFailure(Context context, int errorCode)` — optionally recover a device-specific Bluetooth stack failure before Ava rebuilds the proxy scan session; blocking work runs off the main thread
 - `boolean grantOverlayPermissionIfNeeded()` or `boolean grantOverlayPermissionIfNeeded(Context context)`
 - `boolean sleepScreenForDark(Context context)` — screensaver dark-off; mod tries Shizuku/root on supported hardware only
 - `boolean wakeScreenFromDark(Context context)` — restore screen after dark-off

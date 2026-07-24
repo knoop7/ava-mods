@@ -55,12 +55,12 @@
     {
       "id": "echo-show-support",
       "name": "Echo Show Support",
-      "version": "1.1.5",
+      "version": "1.1.6",
       "author": "Ava",
       "description": "Bring the assistant to life on Amazon Echo Show with brightness, BLE, overlays, and a calm dark screensaver.",
       "detail_description": "Echo Show hardware hooks: screen brightness, Bluetooth, overlay stacking, and screensaver dark-off so the assistant UI feels native on Amazon panels.",
       "path": "mods/devices/echo-show-support/",
-      "jar_hash": "5e2a1d6d0218098a8b545855a53f3b90"
+      "jar_hash": "5100202e11ace2e17b5e8adbf17271f8"
     },
     {
       "id": "connectivity-keepalive",

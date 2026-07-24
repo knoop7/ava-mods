@@ -11,9 +11,17 @@ This mod does not expose Home Assistant entities. It provides optional manager h
 | `isSupported()` | Echo Show device detection |
 | `getMinBrightness()` | Minimum backlight (10) for dim/safe touch |
 | `isLowEndBleChip()` | BLE scan tuning |
+| `suppressHostBleAdvertisingDuringProxy()` | Pause Ava's own BLE service advertisement while proxy scanning |
+| `getBleProxyHandoverDelayMs()` | Allow the controller to settle before proxy scan start |
+| `recoverBluetoothProxyScanFailure(Context, int)` | Root-only Crown GATT recovery after a proxy scan failure |
 | `grantOverlayPermissionIfNeeded(Context)` | Root `appops` for overlay |
 | `sleepScreenForDark(Context)` | Screensaver **Turn off in dark** — Shizuku/root sleep |
 | `wakeScreenFromDark(Context)` | Restore screen when ambient light returns |
+
+On rooted Crown devices, a proxy scan registration failure can indicate that Android's GATT
+service did not bind. The mod performs one cooldown-limited system Bluetooth cycle and lets Ava
+rebuild the proxy scan session. The Android version and scan error code are recorded for diagnosis,
+not used as compatibility gates. The mod never opens `/dev/stpbt` or competes with the vendor HAL.
 
 ## Screensaver dark-off (v1.1+)
 

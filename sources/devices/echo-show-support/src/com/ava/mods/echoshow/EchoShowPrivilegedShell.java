@@ -4,6 +4,7 @@ import android.util.Log;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Best-effort Shizuku / root shell for Echo Show device hooks only.
@@ -76,6 +77,32 @@ final class EchoShowPrivilegedShell {
             return 0;
         }
         return tryRootExec(command);
+    }
+
+    static int execRoot(String command) {
+        if (!isRootAvailable()) {
+            return -1;
+        }
+        Process process = null;
+        try {
+            process = Runtime.getRuntime().exec(new String[]{"su", "-c", command});
+            if (!process.waitFor(10, TimeUnit.SECONDS)) {
+                Log.w(TAG, "root command timed out: " + command);
+                return -1;
+            }
+            return process.exitValue();
+        } catch (Exception e) {
+            Log.w(TAG, "root exec failed: " + e.getMessage());
+            return -1;
+        } finally {
+            if (process != null) {
+                process.destroy();
+            }
+        }
+    }
+
+    static String execRootOutput(String command) {
+        return tryRootExecOutput(command);
     }
 
     /**

@@ -14,7 +14,7 @@ Complete reference for `manifest.json` fields.
 | `icon` | string | No | MDI icon name (e.g., "mdi:led-on") |
 | `libs` | array | No | JAR files to load |
 | `manager` | string | No | Manager class name |
-| `manager` device hooks | methods | No | Optional methods used by Ava core for device compatibility: `isSupported`, `getMinBrightness`, `isLowEndBleChip`, `grantOverlayPermissionIfNeeded` |
+| `manager` device hooks | methods | No | Optional methods used by Ava core for device compatibility, including display, BLE proxy handover, and privileged screen hooks; see Creating Mods |
 | `entities` | array | Yes | Entity definitions |
 
 ## Entity Fields
