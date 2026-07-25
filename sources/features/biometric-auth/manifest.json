@@ -1,0 +1,95 @@
+{
+  "id": "biometric-auth",
+  "name": "Biometric Auth",
+  "version": "1.0.5",
+  "author": "Ava",
+  "description": "Ask for a fingerprint on this device, then unlock secure Home Assistant actions.",
+  "detail_description": "Full system-like flow: if no fingerprint is enrolled, a full-screen wizard opens the real Settings enrollment (TEE registration). After you return, Ava continues to BiometricPrompt / overlay verify. Success pulses binary_sensor.authenticated for automations. Templates never leave the secure chip.",
+  "icon": "mdi:fingerprint",
+  "libs": [
+    "libs/biometric-auth-manager.jar"
+  ],
+  "manager": "com.ava.mods.biometric.BiometricAuthManager",
+  "permissions": [
+    "android.permission.USE_BIOMETRIC",
+    "android.permission.USE_FINGERPRINT"
+  ],
+  "entities": [
+    {
+      "type": "button",
+      "id": "authenticate",
+      "name": "Authenticate",
+      "icon": "mdi:fingerprint",
+      "press": "requestAuthentication"
+    },
+    {
+      "type": "button",
+      "id": "cancel",
+      "name": "Cancel Authentication",
+      "icon": "mdi:close-circle-outline",
+      "category": "diagnostic",
+      "press": "cancelAuthentication"
+    },
+    {
+      "type": "binary_sensor",
+      "id": "authenticated",
+      "name": "Authenticated",
+      "icon": "mdi:shield-check",
+      "class": "lock",
+      "read": "isAuthenticated"
+    },
+    {
+      "type": "binary_sensor",
+      "id": "available",
+      "name": "Biometric Available",
+      "icon": "mdi:fingerprint-off",
+      "category": "diagnostic",
+      "read": "isAvailable"
+    },
+    {
+      "type": "binary_sensor",
+      "id": "prompt_active",
+      "name": "Prompt Active",
+      "icon": "mdi:progress-check",
+      "category": "diagnostic",
+      "read": "isPromptActive"
+    }
+  ],
+  "config": [
+    {
+      "type": "text",
+      "key": "prompt_title",
+      "label": "Prompt Title",
+      "description": "Title shown on the biometric dialog",
+      "dialogHint": "Verify fingerprint to unlock door",
+      "defaultValue": "Verify fingerprint"
+    },
+    {
+      "type": "text",
+      "key": "prompt_subtitle",
+      "label": "Prompt Subtitle",
+      "description": "Subtitle under the title",
+      "dialogHint": "Confirm to continue secure action",
+      "defaultValue": "Confirm to continue secure action"
+    },
+    {
+      "type": "text",
+      "key": "negative_button",
+      "label": "Cancel Button Label",
+      "description": "Negative / cancel button text on the prompt",
+      "defaultValue": "Cancel"
+    },
+    {
+      "type": "number",
+      "key": "success_hold_seconds",
+      "label": "Success Hold Seconds",
+      "description": "How long Authenticated stays on after a successful scan (for HA automations)",
+      "dialogHint": "3 seconds is usually enough for lock.unlock automations.",
+      "defaultValue": "3",
+      "min": 1,
+      "max": 60,
+      "step": 1
+    }
+  ],
+  "jar_hash": "8398353148d6aff50386431fbcdeb2f6"
+}

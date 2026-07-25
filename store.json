@@ -205,6 +205,17 @@
       "description": "Plug in a Zigbee stick. Bridge serial to TCP for your coordinator.",
       "detail_description": "Bridge a USB Zigbee coordinator over serial-to-TCP for Zigbee2MQTT or ZHA. Works with Tuya S6E/T6E/S7E/S9E, NSPanel Pro, and similar sticks on the LAN.",
       "path": "mods/features/zigbee-gateway-mod/"
+    },
+    {
+      "id": "biometric-auth",
+      "name": "Biometric Auth",
+      "version": "1.0.5",
+      "author": "Ava",
+      "description": "Ask for a fingerprint on this device, then unlock secure Home Assistant actions.",
+      "detail_description": "Full system-like flow: if no fingerprint is enrolled, opens real Settings enrollment (TEE). After return, continues to verify. Success pulses binary_sensor.authenticated for automations. Templates never leave the secure chip.",
+      "path": "mods/features/biometric-auth/",
+      "jar_hash": "8398353148d6aff50386431fbcdeb2f6",
+      "icon": "mdi:fingerprint"
     }
   ]
 }
