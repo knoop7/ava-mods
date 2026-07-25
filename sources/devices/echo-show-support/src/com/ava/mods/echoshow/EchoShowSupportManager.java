@@ -2,7 +2,6 @@ package com.ava.mods.echoshow;
 
 import android.bluetooth.BluetoothAdapter;
 import android.content.Context;
-import android.os.Build;
 import android.os.SystemClock;
 import android.util.Log;
 import java.io.DataOutputStream;
@@ -17,13 +16,12 @@ public class EchoShowSupportManager {
     private static final Object BLUETOOTH_RECOVERY_LOCK = new Object();
     private static volatile long lastBluetoothRecoveryAttemptMs;
     private final Context context;
-
-    private static final String[] ECHO_SHOW_CODENAMES = new String[] {
-        "crown", "checkers", "cronos"
-    };
+    private final EchoShowCompatibility compatibility;
 
     private EchoShowSupportManager(Context context) {
         this.context = context.getApplicationContext();
+        this.compatibility = EchoShowCompatibility.current();
+        Log.i(TAG, "Hardware profile: " + compatibility.getDiagnosticSummary());
         EchoShowBleFeatureRepair.scheduleAutoRepair(this.context);
     }
 
@@ -39,35 +37,43 @@ public class EchoShowSupportManager {
     }
 
     public boolean isSupported() {
-        String model = safeLower(Build.MODEL);
-        String board = safeLower(Build.BOARD);
-        String device = safeLower(Build.DEVICE);
+        return compatibility.isSupported();
+    }
 
-        for (String codename : ECHO_SHOW_CODENAMES) {
-            if (model.contains(codename) || board.contains(codename) || device.contains(codename)) {
-                return true;
-            }
-        }
+    /** Read-only product and board-revision diagnostics. */
+    public String getHardwareProfileStatus() {
+        return compatibility.getDiagnosticSummary();
+    }
 
-        return model.contains("amazon") || (model.contains("echo") && model.contains("show"));
+    public String getDeviceCodename() {
+        return compatibility.getCodename();
+    }
+
+    public String getBoardRevision() {
+        String revision = compatibility.getBoardRevision();
+        return revision.isEmpty() ? "unknown" : revision;
     }
 
     public int getMinBrightness() {
-        return 10;
+        return compatibility.getMinimumBacklight();
     }
 
     public boolean isLowEndBleChip() {
-        return true;
+        return compatibility.supports(
+                EchoShowCompatibility.Capability.MT76X8_BLE_PROXY_TUNING
+        );
     }
 
     /** Free the controller's single legacy advertising slot while proxy scanning. */
     public boolean suppressHostBleAdvertisingDuringProxy() {
-        return true;
+        return compatibility.supports(
+                EchoShowCompatibility.Capability.MT76X8_BLE_PROXY_TUNING
+        );
     }
 
     /** Give the device Bluetooth stack time to release the previous scanner. */
     public int getBleProxyHandoverDelayMs() {
-        return 1000;
+        return compatibility.getBleProxyHandoverDelayMs();
     }
 
     /**
@@ -145,7 +151,7 @@ public class EchoShowSupportManager {
     }
 
     public boolean grantOverlayPermissionIfNeeded(Context context) {
-        if (!isSupported()) {
+        if (!compatibility.supports(EchoShowCompatibility.Capability.OVERLAY_PERMISSION)) {
             return false;
         }
 
@@ -176,7 +182,7 @@ public class EchoShowSupportManager {
      * Tries Shizuku display power off, then root keyevents, then min brightness.
      */
     public boolean sleepScreenForDark(Context context) {
-        if (!isSupported()) {
+        if (!compatibility.supports(EchoShowCompatibility.Capability.DARK_SCREEN_CONTROL)) {
             return false;
         }
         return EchoShowScreenControl.sleepForDark(context);
@@ -186,21 +192,14 @@ public class EchoShowSupportManager {
      * ModDeviceSupport hook: restore screen after dark sleep.
      */
     public boolean wakeScreenFromDark(Context context) {
-        if (!isSupported()) {
+        if (!compatibility.supports(EchoShowCompatibility.Capability.DARK_SCREEN_CONTROL)) {
             return false;
         }
         return EchoShowScreenControl.wakeFromDark(context);
     }
 
-    private String safeLower(String value) {
-        return value == null ? "" : value.toLowerCase();
-    }
-
     private boolean isCrownMt76x8Rooted() {
-        String model = safeLower(Build.MODEL);
-        String board = safeLower(Build.BOARD);
-        String device = safeLower(Build.DEVICE);
-        if (!model.contains("crown") && !board.contains("crown") && !device.contains("crown")) {
+        if (!compatibility.supports(EchoShowCompatibility.Capability.CROWN_GATT_RECOVERY)) {
             return false;
         }
         if (!EchoShowPrivilegedShell.isRootAvailable()) {

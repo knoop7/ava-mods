@@ -2,7 +2,6 @@ package com.ava.mods.echoshow;
 
 import android.content.Context;
 import android.content.pm.PackageManager;
-import android.os.Build;
 import android.util.Log;
 import android.util.Xml;
 
@@ -12,11 +11,10 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.InputStreamReader;
-import java.util.Locale;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-/** Repairs the missing BLE feature declaration on affected Echo Show LineageOS builds. */
+/** Repairs the missing BLE feature declaration on affected Echo display LineageOS builds. */
 final class EchoShowBleFeatureRepair {
     private static final String TAG = "EchoShowBleRepair";
     private static final String BLE_FEATURE = "android.hardware.bluetooth_le";
@@ -28,7 +26,7 @@ final class EchoShowBleFeatureRepair {
             "TARGET='" + TARGET_XML + "'\n" +
             "TMP='/data/local/tmp/ava_bluetooth_le.xml.'$$\n" +
             "STAGED=\"${TARGET}.ava-new.$$\"\n" +
-            "MOUNT_POINT='/'\n" +
+            "MOUNT_POINT=''\n" +
             "WAS_RO=0\n" +
             "REMOUNTED=0\n" +
             "cleanup() {\n" +
@@ -42,9 +40,16 @@ final class EchoShowBleFeatureRepair {
             "}\n" +
             "trap cleanup EXIT HUP INT TERM\n" +
             "if [ -e \"$TARGET\" ]; then echo 'AVA_BLE_ALREADY_EXISTS'; exit 10; fi\n" +
-            "if awk '$2 == \"/vendor\" { found=1 } END { exit !found }' /proc/mounts; then\n" +
-            "  MOUNT_POINT='/vendor'\n" +
-            "fi\n" +
+            "TARGET_DIR=$(dirname \"$TARGET\")\n" +
+            "[ -d \"$TARGET_DIR\" ] || exit 19\n" +
+            "TARGET_REAL_DIR=$(readlink -f \"$TARGET_DIR\" 2>/dev/null)\n" +
+            "[ -n \"$TARGET_REAL_DIR\" ] || TARGET_REAL_DIR=\"$TARGET_DIR\"\n" +
+            "MOUNT_POINT=$(awk -v path=\"$TARGET_REAL_DIR\" '\n" +
+            "  $2 == \"/\" || path == $2 || index(path, $2 \"/\") == 1 {\n" +
+            "    if (length($2) > best) { best=length($2); mount_point=$2 }\n" +
+            "  }\n" +
+            "  END { print mount_point }' /proc/mounts)\n" +
+            "[ -n \"$MOUNT_POINT\" ] || exit 19\n" +
             "if awk -v mp=\"$MOUNT_POINT\" '$2 == mp && (\",\" $4 \",\") ~ /,ro,/ { found=1 } END { exit !found }' /proc/mounts; then\n" +
             "  WAS_RO=1\n" +
             "fi\n" +
@@ -114,7 +119,7 @@ final class EchoShowBleFeatureRepair {
     }
 
     static void scheduleAutoRepair(Context context) {
-        if (!isSupportedEchoShow() || !autoRepairStarted.compareAndSet(false, true)) {
+        if (!supportsBleFeatureRepair() || !autoRepairStarted.compareAndSet(false, true)) {
             return;
         }
         Context appContext = context.getApplicationContext();
@@ -166,7 +171,7 @@ final class EchoShowBleFeatureRepair {
     }
 
     static Outcome inspect(Context context) {
-        if (!isSupportedEchoShow()) {
+        if (!supportsBleFeatureRepair()) {
             return Outcome.NOT_APPLICABLE;
         }
         PackageManager packageManager = context.getPackageManager();
@@ -230,21 +235,10 @@ final class EchoShowBleFeatureRepair {
         }
     }
 
-    private static boolean isSupportedEchoShow() {
-        return containsSupportedCodename(Build.MODEL)
-                || containsSupportedCodename(Build.BOARD)
-                || containsSupportedCodename(Build.DEVICE)
-                || containsSupportedCodename(Build.PRODUCT);
-    }
-
-    private static boolean containsSupportedCodename(String value) {
-        if (value == null) {
-            return false;
-        }
-        String normalized = value.toLowerCase(Locale.ROOT);
-        return normalized.contains("crown")
-                || normalized.contains("checkers")
-                || normalized.contains("cronos");
+    private static boolean supportsBleFeatureRepair() {
+        return EchoShowCompatibility.current().supports(
+                EchoShowCompatibility.Capability.BLE_FEATURE_REPAIR
+        );
     }
 
     private static RootCommandResult runRootCommand(String command) {
