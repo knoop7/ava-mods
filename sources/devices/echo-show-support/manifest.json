@@ -9,7 +9,15 @@
     "libs/echo-show-support.jar"
   ],
   "manager": "com.ava.mods.echoshow.EchoShowSupportManager",
-  "jar_hash": "5100202e11ace2e17b5e8adbf17271f8",
+  "jar_hash": "2550ab9f0305c930c8309f247fb76489",
+  "status_panel": [
+    {
+      "type": "text",
+      "label": "Bluetooth LE system feature",
+      "description": "Echo Show ROM capability and repair state",
+      "read": "getBluetoothLeFeatureStatus"
+    }
+  ],
   "entities": [],
-  "version": "1.1.6"
+  "version": "1.1.7"
 }

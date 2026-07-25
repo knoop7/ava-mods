@@ -24,6 +24,7 @@ public class EchoShowSupportManager {
 
     private EchoShowSupportManager(Context context) {
         this.context = context.getApplicationContext();
+        EchoShowBleFeatureRepair.scheduleAutoRepair(this.context);
     }
 
     public static EchoShowSupportManager getInstance(Context context) {
@@ -162,6 +163,11 @@ public class EchoShowSupportManager {
 
     public boolean grantOverlayPermissionIfNeeded() {
         return grantOverlayPermissionIfNeeded(context);
+    }
+
+    /** Read-only status shown in the mod diagnostics panel. */
+    public String getBluetoothLeFeatureStatus() {
+        return EchoShowBleFeatureRepair.getStatus(context);
     }
 
     /**

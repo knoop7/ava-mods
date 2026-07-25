@@ -1,4 +1,4 @@
-# Echo Show Support v1.1.5
+# Echo Show Support v1.1.7
 
 Device compatibility mod for Amazon Echo Show models (crown, checkers, cronos).
 
@@ -14,6 +14,7 @@ This mod does not expose Home Assistant entities. It provides optional manager h
 | `suppressHostBleAdvertisingDuringProxy()` | Pause Ava's own BLE service advertisement while proxy scanning |
 | `getBleProxyHandoverDelayMs()` | Allow the controller to settle before proxy scan start |
 | `recoverBluetoothProxyScanFailure(Context, int)` | Root-only Crown GATT recovery after a proxy scan failure |
+| `getBluetoothLeFeatureStatus()` | Echo Show BLE feature declaration and repair status |
 | `grantOverlayPermissionIfNeeded(Context)` | Root `appops` for overlay |
 | `sleepScreenForDark(Context)` | Screensaver **Turn off in dark** — Shizuku/root sleep |
 | `wakeScreenFromDark(Context)` | Restore screen when ambient light returns |
@@ -22,6 +23,12 @@ On rooted Crown devices, a proxy scan registration failure can indicate that And
 service did not bind. The mod performs one cooldown-limited system Bluetooth cycle and lets Ava
 rebuild the proxy scan session. The Android version and scan error code are recorded for diagnosis,
 not used as compatibility gates. The mod never opens `/dev/stpbt` or competes with the vendor HAL.
+
+When the mod manager loads on Crown, Checkers, or Cronos, it automatically checks the ROM's
+`android.hardware.bluetooth_le` declaration in the background. The mod never replaces an existing
+permission XML. When both the system feature and file are missing and root is available, it stages
+and validates the standard AOSP XML, restores the original read-only mount state, and reports that
+a device restart is required.
 
 ## Screensaver dark-off (v1.1+)
 
