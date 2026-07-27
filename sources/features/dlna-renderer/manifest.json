@@ -1,7 +1,7 @@
 {
   "id": "dlna-renderer",
   "name": "DLNA Renderer",
-  "version": "1.5.8",
+  "version": "1.5.9",
   "author": "Ava",
   "description": "Cast from your phone or tablet. Turn this device into your DLNA speaker and screen.",
   "detail_description": "Stream music and video from BubbleUPnP and other UPnP controllers. Shows up as Ava - {device name} [DLNA] on the same Wi-Fi. Optional Cinema UI with artwork; duck playback volume while you talk to the voice assistant.",
@@ -129,5 +129,5 @@
       "press": "stopPlayback"
     }
   ],
-  "jar_hash": "5f3f2e3ab5e443d099be6fce28b73f1b"
+  "jar_hash": "d02e6d8924e0290f69d7978469a6a231"
 }

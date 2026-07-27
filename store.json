@@ -5,22 +5,22 @@
     {
       "id": "airplay-receiver",
       "name": "AirPlay Receiver",
-      "version": "1.0.62",
+      "version": "1.0.63",
       "author": "Ava",
       "description": "Cast from iPhone or Mac. Turn this device into your AirPlay screen and speaker.",
       "detail_description": "Mirror the display, stream albums with artwork, or play video fullscreen. Shows up as {device name} [Airplay] on the same Wi-Fi. Ties to the voice satellite; PIN and ducking when you want them.",
       "path": "mods/features/airplay-receiver/",
-      "jar_hash": "52b653ed05d9868f2aeafb8859eb272e"
+      "jar_hash": "d5ad4f8e66b0f533d1760afe25a990fc"
     },
     {
       "id": "dlna-renderer",
       "name": "DLNA Renderer",
-      "version": "1.5.8",
+      "version": "1.5.9",
       "author": "Ava",
       "description": "Cast from your phone or tablet. Turn this device into your DLNA speaker and screen.",
       "detail_description": "Stream music and video from BubbleUPnP and other UPnP controllers. Optional Cinema UI with artwork; duck playback volume while you talk to the voice assistant.",
       "path": "mods/features/dlna-renderer/",
-      "jar_hash": "5f3f2e3ab5e443d099be6fce28b73f1b"
+      "jar_hash": "d02e6d8924e0290f69d7978469a6a231"
     },
     {
       "id": "ha-edge-tts",

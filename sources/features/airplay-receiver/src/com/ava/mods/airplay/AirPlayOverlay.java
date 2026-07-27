@@ -2786,7 +2786,7 @@ public final class AirPlayOverlay {
     /**
      * 1:1 with DLNA {@code CinemaOverlay} AUDIO hierarchy:
      * full-bleed cover (CENTER_CROP ×1.15) + vignette + bottom gradient +
-     * top {@code ‹ 返回} strip + bottom bar (title / subtitle / seek / prev-play-next).
+     * top {@code ‹ Back} strip + bottom bar (title / subtitle / seek / prev-play-next).
      */
     private FrameLayout buildCinemaAudio(int safe) {
         FrameLayout host = new FrameLayout(appContext);
@@ -3160,14 +3160,27 @@ public final class AirPlayOverlay {
 
     /**
      * Exact same back pill as DLNA {@code CinemaOverlay.buildChromeStrip}:
-     * {@code "‹ 返回"} rounded pill → {@code callback.onStop()}.
+     * {@code "‹ Back"} rounded pill → {@code callback.onStop()}.
+     * Weather-style sizing: {@code vminPx × fraction} + soft dp/sp clamps
+     * (matches Ava {@code DashboardOverlayChrome} / {@code OverlayLogoBadge}).
      */
     private TextView makeBackPill() {
+        DisplayMetrics dm = appContext.getResources().getDisplayMetrics();
+        float density = Math.max(0.75f, dm.density);
+        float scaledDensity = Math.max(0.75f, dm.scaledDensity);
+        float vminPx = Math.min(dm.widthPixels, dm.heightPixels);
+
+        // @360dp ≈ 14sp / 14·10·18dp padding — same phone landing as before.
+        float textSp = clamp((vminPx * 0.0389f) / scaledDensity, 14f, 26f);
+        int padStart = clampPxFromVmin(vminPx, 0.0389f, 12f, 24f, density);
+        int padV = clampPxFromVmin(vminPx, 0.0278f, 8f, 18f, density);
+        int padEnd = clampPxFromVmin(vminPx, 0.05f, 14f, 30f, density);
+
         TextView backPill = new TextView(appContext);
-        backPill.setText("‹ 返回");
+        backPill.setText("‹ Back");
         backPill.setTextColor(0xCCFFFFFF);
-        backPill.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f);
-        backPill.setPadding(dp(14), dp(10), dp(18), dp(10));
+        backPill.setTextSize(TypedValue.COMPLEX_UNIT_SP, textSp);
+        backPill.setPadding(padStart, padV, padEnd, padV);
         GradientDrawable pillBg = new GradientDrawable();
         pillBg.setCornerRadius(dp(999));
         pillBg.setColor(0x66121824);
@@ -3183,6 +3196,15 @@ public final class AirPlayOverlay {
             }
         });
         return backPill;
+    }
+
+    /** Weather / OverlayLogoBadge: vmin × fraction, soft dp clamps. */
+    private static int clampPxFromVmin(
+            float vminPx, float fraction, float minDp, float maxDp, float density) {
+        int raw = Math.round(vminPx * fraction);
+        int minPx = Math.round(minDp * density);
+        int maxPx = Math.round(maxDp * density);
+        return Math.max(minPx, Math.min(maxPx, raw));
     }
 
     private void applyBadgeLayout() {
@@ -3340,7 +3362,7 @@ public final class AirPlayOverlay {
     }
 
     /**
-     * Ava {@code DetailOverlayMetrics}: scale = clamp(vmin/360, 0.9, 1.28).
+     * Ava {@code DetailOverlayMetrics}: scale = clamp(vmin/360, 0.9, 1.55).
      */
     private static final class MusicMetrics {
         float titleSp;
@@ -3363,7 +3385,7 @@ public final class AirPlayOverlay {
         float vmin = Math.min(wDp, hDp);
         float vmax = Math.max(wDp, hDp);
         float aspect = vmax / Math.max(1f, vmin);
-        float scale = Math.max(0.9f, Math.min(1.28f, vmin / 360f));
+        float scale = Math.max(0.9f, Math.min(1.55f, vmin / 360f));
         float textBoost = 1f;
         if (landscape) {
             textBoost = aspect >= 1.55f ? 1.08f : 1.04f;
@@ -3371,14 +3393,14 @@ public final class AirPlayOverlay {
         float textScale = scale * textBoost;
 
         MusicMetrics m = new MusicMetrics();
-        m.titleSp = clamp(29f * textScale, 26f, 36f);
-        m.artistSp = clamp(19.5f * textScale, 16f, 24f);
+        m.titleSp = clamp(29f * textScale, 26f, 40f);
+        m.artistSp = clamp(19.5f * textScale, 16f, 28f);
         m.padHPx = dp(Math.round(Math.max(AUDIO_META_INSET_MIN_DP, 36f * scale)));
         m.titleArtistGapPx = dp(Math.round(clamp(14f * scale, 12f, 20f)));
         m.transportTopPx = dp(Math.round(clamp(34f * scale, 28f, 48f)));
-        m.playPx = dp(Math.round(clamp((landscape ? 72f : 78f) * scale, 66f, 90f)));
-        m.skipPx = dp(Math.round(clamp(50f * scale, 44f, 58f)));
-        m.skipIconPx = dp(Math.round(clamp(30f * scale, 26f, 36f)));
+        m.playPx = dp(Math.round(clamp((landscape ? 72f : 78f) * scale, 66f, 104f)));
+        m.skipPx = dp(Math.round(clamp(50f * scale, 44f, 68f)));
+        m.skipIconPx = dp(Math.round(clamp(30f * scale, 26f, 42f)));
         m.playIconPx = Math.max(dp(28), Math.round(m.playPx * 0.46f));
         m.clusterGapPx = dp(Math.round(clamp(20f * scale, 16f, 28f)));
         m.sidePadPx = dp(Math.round(clamp((landscape ? 36f : 28f) * scale, 24f, 44f)));

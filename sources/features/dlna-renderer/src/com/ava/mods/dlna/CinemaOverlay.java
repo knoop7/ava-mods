@@ -803,10 +803,19 @@ public final class CinemaOverlay {
         row.setLayoutParams(rowLp);
 
         TextView backPill = new TextView(context);
-        backPill.setText("‹ 返回");
+        backPill.setText("‹ Back");
         backPill.setTextColor(0xCCFFFFFF);
-        backPill.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
-        backPill.setPadding(dp(14), dp(10), dp(18), dp(10));
+        android.util.DisplayMetrics dm = context.getResources().getDisplayMetrics();
+        float density = Math.max(0.75f, dm.density);
+        float scaledDensity = Math.max(0.75f, dm.scaledDensity);
+        float vminPx = Math.min(dm.widthPixels, dm.heightPixels);
+        // Weather-style: vmin × fraction + soft clamps (Ava DashboardOverlayChrome).
+        float textSp = clamp((vminPx * 0.0389f) / scaledDensity, 14f, 26f);
+        int padStart = clampPxFromVmin(vminPx, 0.0389f, 12f, 24f, density);
+        int padV = clampPxFromVmin(vminPx, 0.0278f, 8f, 18f, density);
+        int padEnd = clampPxFromVmin(vminPx, 0.05f, 14f, 30f, density);
+        backPill.setTextSize(TypedValue.COMPLEX_UNIT_SP, textSp);
+        backPill.setPadding(padStart, padV, padEnd, padV);
         GradientDrawable pillBg = new GradientDrawable();
         pillBg.setCornerRadius(dp(999));
         pillBg.setColor(0x66121824);
@@ -912,20 +921,29 @@ public final class CinemaOverlay {
 
         controls.addView(createShuffleButton());
 
+        android.util.DisplayMetrics dm = context.getResources().getDisplayMetrics();
+        float density = Math.max(0.75f, dm.density);
+        float vminPx = Math.min(dm.widthPixels, dm.heightPixels);
+        // Hit targets: ~44dp @360dp phone → vmin×0.122
+        int skipHit = clampPxFromVmin(vminPx, 0.122f, 44f, 68f, density);
+        int playHit = clampPxFromVmin(vminPx, 0.122f, 44f, 68f, density);
+        int playGap = clampPxFromVmin(vminPx, 0.089f, 28f, 48f, density);
+        int sideGap = clampPxFromVmin(vminPx, 0.022f, 8f, 14f, density);
+
         View prev = createSkipButton(false);
-        LinearLayout.LayoutParams prevLp = new LinearLayout.LayoutParams(dp(44), dp(44));
-        prevLp.leftMargin = dp(8);
+        LinearLayout.LayoutParams prevLp = new LinearLayout.LayoutParams(skipHit, skipHit);
+        prevLp.leftMargin = sideGap;
         controls.addView(prev, prevLp);
 
         View play = createPlayButton();
-        LinearLayout.LayoutParams playLp = new LinearLayout.LayoutParams(dp(44), dp(44));
-        playLp.leftMargin = dp(32);
-        playLp.rightMargin = dp(32);
+        LinearLayout.LayoutParams playLp = new LinearLayout.LayoutParams(playHit, playHit);
+        playLp.leftMargin = playGap;
+        playLp.rightMargin = playGap;
         controls.addView(play, playLp);
 
         View next = createSkipButton(true);
-        LinearLayout.LayoutParams nextLp = new LinearLayout.LayoutParams(dp(44), dp(44));
-        nextLp.rightMargin = dp(8);
+        LinearLayout.LayoutParams nextLp = new LinearLayout.LayoutParams(skipHit, skipHit);
+        nextLp.rightMargin = sideGap;
         controls.addView(next, nextLp);
 
         controls.addView(createRepeatButton());
@@ -935,7 +953,8 @@ public final class CinemaOverlay {
     }
 
     private View createPlayButton() {
-        playIconView = new VectorIconView(context, GLYPH_PLAY_ARROW, PLAY_ICON_DP, ICON_ACTIVE);
+        float iconDp = dpFromVmin(PLAY_ICON_DP / 360f, PLAY_ICON_DP, 40f);
+        playIconView = new VectorIconView(context, GLYPH_PLAY_ARROW, iconDp, ICON_ACTIVE);
         View wrap = wrapControlGlyph(playIconView);
         wrap.setOnClickListener(v -> {
             onUserTouch();
@@ -1002,9 +1021,13 @@ public final class CinemaOverlay {
     }
 
     private View wrapControlGlyph(View glyph) {
+        android.util.DisplayMetrics dm = context.getResources().getDisplayMetrics();
+        float density = Math.max(0.75f, dm.density);
+        float vminPx = Math.min(dm.widthPixels, dm.heightPixels);
+        int hit = clampPxFromVmin(vminPx, 0.122f, 44f, 68f, density);
         FrameLayout wrap = new FrameLayout(context);
         wrap.setBackgroundColor(Color.TRANSPARENT);
-        wrap.setLayoutParams(new LinearLayout.LayoutParams(dp(44), dp(44)));
+        wrap.setLayoutParams(new LinearLayout.LayoutParams(hit, hit));
         wrap.addView(glyph, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT));
@@ -1012,7 +1035,8 @@ public final class CinemaOverlay {
     }
 
     private View createShuffleButton() {
-        shuffleIconView = new VectorIconView(context, GLYPH_SHUFFLE, SHUFFLE_REPEAT_ICON_DP,
+        float iconDp = dpFromVmin(SHUFFLE_REPEAT_ICON_DP / 360f, SHUFFLE_REPEAT_ICON_DP, 34f);
+        shuffleIconView = new VectorIconView(context, GLYPH_SHUFFLE, iconDp,
                 shuffleEnabled ? ICON_ACTIVE : ICON_INACTIVE);
         View wrap = wrapControlGlyph(shuffleIconView);
         wrap.setOnClickListener(v -> {
@@ -1027,8 +1051,9 @@ public final class CinemaOverlay {
     }
 
     private View createRepeatButton() {
+        float iconDp = dpFromVmin(SHUFFLE_REPEAT_ICON_DP / 360f, SHUFFLE_REPEAT_ICON_DP, 34f);
         repeatIconView = new VectorIconView(context, glyphForRepeatMode(repeatMode),
-                SHUFFLE_REPEAT_ICON_DP, tintForRepeatMode(repeatMode));
+                iconDp, tintForRepeatMode(repeatMode));
         View wrap = wrapControlGlyph(repeatIconView);
         wrap.setOnClickListener(v -> {
             onUserTouch();
@@ -1052,7 +1077,8 @@ public final class CinemaOverlay {
 
     private View createSkipButton(boolean forward) {
         Path glyph = forward ? GLYPH_SKIP_NEXT : GLYPH_SKIP_PREVIOUS;
-        VectorIconView view = new VectorIconView(context, glyph, SKIP_ICON_DP, ICON_SKIP_TINT);
+        float iconDp = dpFromVmin(SKIP_ICON_DP / 360f, SKIP_ICON_DP, 40f);
+        VectorIconView view = new VectorIconView(context, glyph, iconDp, ICON_SKIP_TINT);
         View wrap = wrapControlGlyph(view);
         wrap.setOnClickListener(v -> {
             onUserTouch();
@@ -1366,6 +1392,30 @@ public final class CinemaOverlay {
 
     private int dp(int dp) {
         return Math.round(dp * context.getResources().getDisplayMetrics().density);
+    }
+
+    /**
+     * Weather / OverlayLogoBadge: {@code vminPx × fraction}, soft dp clamps.
+     * Phone @360dp lands on the old fixed sizes; tablets grow linearly until max.
+     */
+    private static int clampPxFromVmin(
+            float vminPx, float fraction, float minDp, float maxDp, float density) {
+        int raw = Math.round(vminPx * fraction);
+        int minPx = Math.round(minDp * density);
+        int maxPx = Math.round(maxDp * density);
+        return Math.max(minPx, Math.min(maxPx, raw));
+    }
+
+    private float dpFromVmin(float fraction, float minDp, float maxDp) {
+        android.util.DisplayMetrics dm = context.getResources().getDisplayMetrics();
+        float density = Math.max(0.75f, dm.density);
+        float vminPx = Math.min(dm.widthPixels, dm.heightPixels);
+        float dpVal = (vminPx * fraction) / density;
+        return clamp(dpVal, minDp, maxDp);
+    }
+
+    private static float clamp(float v, float lo, float hi) {
+        return Math.max(lo, Math.min(hi, v));
     }
 
     private static String formatTime(long ms) {
