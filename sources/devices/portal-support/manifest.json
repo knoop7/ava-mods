@@ -1,16 +1,16 @@
 {
   "id": "portal-support",
   "name": "Facebook Portal",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "author": "Ava",
   "description": "Make Portal feel first-class with presence, volume keys, ambient sensing, and polite alerts.",
-  "detail_description": "Presence, ambient light, gestures, physical volume, sound level, screen timeout, and alert tones wired for Facebook Portal hardware so dashboards and automations feel native.",
+  "detail_description": "Presence, ambient light, gestures, physical volume, sound level, system chrome control, screen timeout, and alert tones wired for Facebook Portal hardware so dashboards and automations feel native.",
   "icon": "mdi:tablet-dashboard",
   "libs": [
     "libs/portal-support.jar"
   ],
   "manager": "com.ava.mods.portal.PortalSupportManager",
-  "jar_hash": "fde36c17ae67d77912defeb0aadf6ef4",
+  "jar_hash": "943b795b184910051233a680a49829c2",
   "permissions": [
     "android.permission.CAMERA",
     "android.permission.RECORD_AUDIO",
@@ -202,6 +202,20 @@
       "set": "setScreenTimeoutMinutes",
       "read": "getScreenTimeoutMinutes",
       "enabledWhen": "enable_screen_timeout"
+    },
+    {
+      "type": "select",
+      "id": "system_ui",
+      "name": "System Chrome",
+      "icon": "mdi:fullscreen",
+      "options": [
+        "off",
+        "status",
+        "full"
+      ],
+      "read": "getSystemUiMode",
+      "set": "setSystemUiMode",
+      "enabledWhen": "enable_system_ui"
     }
   ],
   "config": [
@@ -290,6 +304,13 @@
       "key": "enable_screen_timeout",
       "label": "Screen Timeout",
       "description": "Expose idle screen-off timer linked to presence detection",
+      "defaultValue": "false"
+    },
+    {
+      "type": "switch",
+      "key": "enable_system_ui",
+      "label": "System Chrome Control",
+      "description": "Expose immersive status-bar control in Home Assistant to hide Portal top menu chrome",
       "defaultValue": "false"
     },
     {

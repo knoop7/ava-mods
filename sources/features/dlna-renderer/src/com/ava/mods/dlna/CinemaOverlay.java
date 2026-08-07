@@ -924,11 +924,11 @@ public final class CinemaOverlay {
         android.util.DisplayMetrics dm = context.getResources().getDisplayMetrics();
         float density = Math.max(0.75f, dm.density);
         float vminPx = Math.min(dm.widthPixels, dm.heightPixels);
-        // Hit targets: ~44dp @360dp phone → vmin×0.122
-        int skipHit = clampPxFromVmin(vminPx, 0.122f, 44f, 68f, density);
-        int playHit = clampPxFromVmin(vminPx, 0.122f, 44f, 68f, density);
-        int playGap = clampPxFromVmin(vminPx, 0.089f, 28f, 48f, density);
-        int sideGap = clampPxFromVmin(vminPx, 0.022f, 8f, 14f, density);
+        // 1280×800 @160 → vmin 800: play ~112, skip ~80 (was capped at 68).
+        int skipHit = clampPxFromVmin(vminPx, 0.10f, 44f, 84f, density);
+        int playHit = clampPxFromVmin(vminPx, 0.14f, 52f, 112f, density);
+        int playGap = clampPxFromVmin(vminPx, 0.06f, 24f, 56f, density);
+        int sideGap = clampPxFromVmin(vminPx, 0.025f, 8f, 20f, density);
 
         View prev = createSkipButton(false);
         LinearLayout.LayoutParams prevLp = new LinearLayout.LayoutParams(skipHit, skipHit);
@@ -953,9 +953,9 @@ public final class CinemaOverlay {
     }
 
     private View createPlayButton() {
-        float iconDp = dpFromVmin(PLAY_ICON_DP / 360f, PLAY_ICON_DP, 40f);
+        float iconDp = dpFromVmin(PLAY_ICON_DP / 360f, PLAY_ICON_DP, 52f);
         playIconView = new VectorIconView(context, GLYPH_PLAY_ARROW, iconDp, ICON_ACTIVE);
-        View wrap = wrapControlGlyph(playIconView);
+        View wrap = wrapControlGlyph(playIconView, 0.14f, 52f, 112f);
         wrap.setOnClickListener(v -> {
             onUserTouch();
             if (callback != null) {
@@ -1021,10 +1021,14 @@ public final class CinemaOverlay {
     }
 
     private View wrapControlGlyph(View glyph) {
+        return wrapControlGlyph(glyph, 0.10f, 44f, 84f);
+    }
+
+    private View wrapControlGlyph(View glyph, float vminFraction, float minDp, float maxDp) {
         android.util.DisplayMetrics dm = context.getResources().getDisplayMetrics();
         float density = Math.max(0.75f, dm.density);
         float vminPx = Math.min(dm.widthPixels, dm.heightPixels);
-        int hit = clampPxFromVmin(vminPx, 0.122f, 44f, 68f, density);
+        int hit = clampPxFromVmin(vminPx, vminFraction, minDp, maxDp, density);
         FrameLayout wrap = new FrameLayout(context);
         wrap.setBackgroundColor(Color.TRANSPARENT);
         wrap.setLayoutParams(new LinearLayout.LayoutParams(hit, hit));
@@ -1035,10 +1039,11 @@ public final class CinemaOverlay {
     }
 
     private View createShuffleButton() {
-        float iconDp = dpFromVmin(SHUFFLE_REPEAT_ICON_DP / 360f, SHUFFLE_REPEAT_ICON_DP, 34f);
+        float iconDp = dpFromVmin(SHUFFLE_REPEAT_ICON_DP / 360f, SHUFFLE_REPEAT_ICON_DP, 42f);
         shuffleIconView = new VectorIconView(context, GLYPH_SHUFFLE, iconDp,
                 shuffleEnabled ? ICON_ACTIVE : ICON_INACTIVE);
-        View wrap = wrapControlGlyph(shuffleIconView);
+        // Aux controls slightly smaller than skip, still tablet-readable.
+        View wrap = wrapControlGlyph(shuffleIconView, 0.09f, 40f, 72f);
         wrap.setOnClickListener(v -> {
             onUserTouch();
             shuffleEnabled = !shuffleEnabled;
@@ -1051,10 +1056,10 @@ public final class CinemaOverlay {
     }
 
     private View createRepeatButton() {
-        float iconDp = dpFromVmin(SHUFFLE_REPEAT_ICON_DP / 360f, SHUFFLE_REPEAT_ICON_DP, 34f);
+        float iconDp = dpFromVmin(SHUFFLE_REPEAT_ICON_DP / 360f, SHUFFLE_REPEAT_ICON_DP, 42f);
         repeatIconView = new VectorIconView(context, glyphForRepeatMode(repeatMode),
                 iconDp, tintForRepeatMode(repeatMode));
-        View wrap = wrapControlGlyph(repeatIconView);
+        View wrap = wrapControlGlyph(repeatIconView, 0.09f, 40f, 72f);
         wrap.setOnClickListener(v -> {
             onUserTouch();
             repeatMode = repeatMode.next();
@@ -1077,9 +1082,9 @@ public final class CinemaOverlay {
 
     private View createSkipButton(boolean forward) {
         Path glyph = forward ? GLYPH_SKIP_NEXT : GLYPH_SKIP_PREVIOUS;
-        float iconDp = dpFromVmin(SKIP_ICON_DP / 360f, SKIP_ICON_DP, 40f);
+        float iconDp = dpFromVmin(SKIP_ICON_DP / 360f, SKIP_ICON_DP, 48f);
         VectorIconView view = new VectorIconView(context, glyph, iconDp, ICON_SKIP_TINT);
-        View wrap = wrapControlGlyph(view);
+        View wrap = wrapControlGlyph(view, 0.10f, 44f, 84f);
         wrap.setOnClickListener(v -> {
             onUserTouch();
             if (callback != null) {

@@ -20,7 +20,9 @@ public class PortalSupportManager implements PortalSensorBridge.Listener, Portal
     private static final String PREFS = "portal_support";
     private static final String KEY_PRESENCE_DETECTION = "presence_detection_enabled";
     private static final String KEY_SCREEN_TIMEOUT = "screen_timeout_enabled";
+    private static final String KEY_SYSTEM_UI_MODE = "system_ui_mode";
     private static final String ENTITY_PHYSICAL_VOLUME = "physical_volume";
+    private static final String ENTITY_SYSTEM_UI = "system_ui";
     private static final long SOUND_PRESENCE_HOLD_MS = 60_000L;
     private static volatile PortalSupportManager instance;
 
@@ -37,6 +39,7 @@ public class PortalSupportManager implements PortalSensorBridge.Listener, Portal
     private volatile boolean enablePhysicalVolume;
     private volatile boolean enableDoorbellAlert;
     private volatile boolean enableScreenTimeout;
+    private volatile boolean enableSystemUi;
     private volatile boolean presenceDetectionEnabled;
     private volatile boolean screenTimeoutEnabled;
     private volatile boolean enhancedPresenceEnabled;
@@ -44,6 +47,7 @@ public class PortalSupportManager implements PortalSensorBridge.Listener, Portal
     private volatile float tapThreshold = 4.0f;
     private volatile float temperatureOffset = 0.0f;
     private volatile int screenTimeoutMinutes = 5;
+    private volatile String systemUiMode = PortalSystemUiController.MODE_OFF;
 
     private PortalPresenceMonitor presenceMonitor;
     private PortalSensorBridge sensorBridge;
@@ -62,6 +66,8 @@ public class PortalSupportManager implements PortalSensorBridge.Listener, Portal
         android.content.SharedPreferences prefs = this.context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         presenceDetectionEnabled = prefs.getBoolean(KEY_PRESENCE_DETECTION, false);
         screenTimeoutEnabled = prefs.getBoolean(KEY_SCREEN_TIMEOUT, false);
+        systemUiMode = PortalSystemUiController.normalizeMode(
+                prefs.getString(KEY_SYSTEM_UI_MODE, PortalSystemUiController.MODE_OFF));
     }
 
     public static PortalSupportManager getInstance(Context context) {
@@ -136,6 +142,10 @@ public class PortalSupportManager implements PortalSensorBridge.Listener, Portal
                 enableScreenTimeout = parseBoolean(value);
                 updateScreenTimeoutSubsystem();
                 break;
+            case "enable_system_ui":
+                enableSystemUi = parseBoolean(value);
+                updateSystemUiSubsystem();
+                break;
             case "tap_tilt_sensitivity":
                 tapThreshold = parseFloat(value, 4.0f);
                 if (sensorBridge != null) {
@@ -205,6 +215,23 @@ public class PortalSupportManager implements PortalSensorBridge.Listener, Portal
         if (screenTimeoutController != null) {
             screenTimeoutController.setTimeoutMinutes(screenTimeoutMinutes);
         }
+    }
+
+    public String getSystemUiMode() {
+        return systemUiMode;
+    }
+
+    public void setSystemUiMode(String mode) {
+        systemUiMode = PortalSystemUiController.normalizeMode(mode);
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .edit()
+                .putString(KEY_SYSTEM_UI_MODE, systemUiMode)
+                .apply();
+        if (enableSystemUi) {
+            permissionHelper.ensurePermission("android.permission.WRITE_SECURE_SETTINGS");
+            PortalSystemUiController.apply(context, permissionHelper, systemUiMode);
+        }
+        notifyStateListeners(ENTITY_SYSTEM_UI, systemUiMode);
     }
 
     public float getAmbientLight() {
@@ -505,6 +532,15 @@ public class PortalSupportManager implements PortalSensorBridge.Listener, Portal
         }
     }
 
+    private void updateSystemUiSubsystem() {
+        if (!enableSystemUi) {
+            return;
+        }
+        permissionHelper.ensurePermission("android.permission.WRITE_SECURE_SETTINGS");
+        PortalSystemUiController.apply(context, permissionHelper, systemUiMode);
+        notifyStateListeners(ENTITY_SYSTEM_UI, systemUiMode);
+    }
+
     private void updateSensorSubsystem() {
         boolean needsSensors = enableAmbientLight || enableLightRgb || enableTemperature
                 || enableTapTilt || enableAccelerometer;
@@ -556,6 +592,8 @@ public class PortalSupportManager implements PortalSensorBridge.Listener, Portal
             notifySingleListener(callback, Integer.valueOf(getSoundLevel()));
         } else if (ENTITY_PHYSICAL_VOLUME.equals(entityId)) {
             notifySingleListener(callback, Float.valueOf(getPhysicalVolume()));
+        } else if (ENTITY_SYSTEM_UI.equals(entityId)) {
+            notifySingleListener(callback, getSystemUiMode());
         }
     }
 

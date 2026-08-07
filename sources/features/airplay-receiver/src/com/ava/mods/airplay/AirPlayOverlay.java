@@ -1484,6 +1484,17 @@ public final class AirPlayOverlay {
     /** Upstream VideoControlsTop + center PlayPause + VideoControlsBottom + speed sheet — 1:1 layout. */
     private FrameLayout buildVideoChrome(int safe) {
         FrameLayout host = new FrameLayout(appContext);
+        DisplayMetrics dm = appContext.getResources().getDisplayMetrics();
+        float density = Math.max(0.75f, dm.density);
+        float vminPx = Math.min(dm.widthPixels, dm.heightPixels);
+        // Toolbar / unlock: phone 48 → this 1280×800 panel ~60.
+        final int chromeHit = clampPxFromVmin(vminPx, 0.075f, 48f, 72f, density);
+        final int chromeHitDp = Math.max(48, Math.round(chromeHit / density));
+        final int chromeIconDp = Math.max(24, Math.round(chromeHitDp * 0.5f));
+        // Center play: phone 64 → tablet ~80–96.
+        final int centerPlay = clampPxFromVmin(vminPx, 0.10f, 64f, 96f, density);
+        final int centerIconDp = Math.max(48, Math.round((centerPlay / density) * 0.72f));
+        final int centerBuffer = Math.round(centerPlay * 1.12f);
 
         // Scrim stack — same language as music cinema: soft full dim + top/bottom gradients
         // so chrome stays readable over bright video (flat 30% black was washing out).
@@ -1521,11 +1532,11 @@ public final class AirPlayOverlay {
         top.setVisibility(View.GONE);
         videoTopBar = top;
 
-        // spacedBy(16.dp): IconButton(48) ArrowBack
-        View backBtn = playerIconBtn("arrow_back", new Runnable() {
+        // spacedBy: IconButton chromeHit ArrowBack
+        View backBtn = playerIconBtn("arrow_back", chromeHitDp, chromeIconDp, new Runnable() {
             @Override public void run() { callback.onStop(); }
         });
-        LinearLayout.LayoutParams backLp = new LinearLayout.LayoutParams(dp(48), dp(48));
+        LinearLayout.LayoutParams backLp = new LinearLayout.LayoutParams(chromeHit, chromeHit);
         backLp.rightMargin = dp(16);
         top.addView(backBtn, backLp);
 
@@ -1546,23 +1557,23 @@ public final class AirPlayOverlay {
         topActions.setOrientation(LinearLayout.HORIZONTAL);
         topActions.setGravity(Gravity.CENTER_VERTICAL);
 
-        View speedBtn = playerIconBtn("speed", new Runnable() {
+        View speedBtn = playerIconBtn("speed", chromeHitDp, chromeIconDp, new Runnable() {
             @Override public void run() { setVideoSpeedSheetVisible(true); }
         });
-        LinearLayout.LayoutParams actLp = new LinearLayout.LayoutParams(dp(48), dp(48));
+        LinearLayout.LayoutParams actLp = new LinearLayout.LayoutParams(chromeHit, chromeHit);
         actLp.rightMargin = dp(8);
         topActions.addView(speedBtn, actLp);
 
-        videoCopyBtn = playerIconBtn("content_copy", new Runnable() {
+        videoCopyBtn = playerIconBtn("content_copy", chromeHitDp, chromeIconDp, new Runnable() {
             @Override public void run() { callback.onCopyUrl(); }
         });
-        LinearLayout.LayoutParams copyLp = new LinearLayout.LayoutParams(dp(48), dp(48));
+        LinearLayout.LayoutParams copyLp = new LinearLayout.LayoutParams(chromeHit, chromeHit);
         copyLp.rightMargin = dp(8);
         topActions.addView(videoCopyBtn, copyLp);
 
         FrameLayout downloadWrap = new FrameLayout(appContext);
-        downloadWrap.setLayoutParams(new LinearLayout.LayoutParams(dp(48), dp(48)));
-        View downloadIcon = playerIconBtn("download", new Runnable() {
+        downloadWrap.setLayoutParams(new LinearLayout.LayoutParams(chromeHit, chromeHit));
+        View downloadIcon = playerIconBtn("download", chromeHitDp, chromeIconDp, new Runnable() {
             @Override public void run() { callback.onDownloadClick(); }
         });
         downloadWrap.addView(downloadIcon, matchParent());
@@ -1570,7 +1581,7 @@ public final class AirPlayOverlay {
         tintAccentProgress(videoDownloadSpinner);
         videoDownloadSpinner.setVisibility(View.GONE);
         downloadWrap.addView(videoDownloadSpinner,
-                new FrameLayout.LayoutParams(dp(24), dp(24), Gravity.CENTER));
+                new FrameLayout.LayoutParams(chromeIconDp, chromeIconDp, Gravity.CENTER));
         videoDownloadBtn = downloadWrap;
         topActions.addView(downloadWrap);
         top.addView(topActions);
@@ -1580,9 +1591,9 @@ public final class AirPlayOverlay {
                 FrameLayout.LayoutParams.WRAP_CONTENT,
                 Gravity.TOP));
 
-        // --- PlayPauseButton: 64dp touch, 48dp icon ---
+        // --- PlayPauseButton: vmin-scaled touch + icon ---
         FrameLayout playWrap = new FrameLayout(appContext);
-        videoPlayPauseIcon = VideoIcons.glyphView(appContext, "pause", 48);
+        videoPlayPauseIcon = VideoIcons.glyphView(appContext, "pause", centerIconDp);
         playWrap.addView(videoPlayPauseIcon, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT,
@@ -1607,16 +1618,16 @@ public final class AirPlayOverlay {
         // Hidden until chrome show + not buffering (fades in via syncVideoCenterPlayAndBuffering).
         playWrap.setAlpha(0f);
         playWrap.setVisibility(View.GONE);
-        host.addView(playWrap, new FrameLayout.LayoutParams(dp(64), dp(64), Gravity.CENTER));
+        host.addView(playWrap, new FrameLayout.LayoutParams(centerPlay, centerPlay, Gravity.CENTER));
 
         videoBuffering = new ProgressBar(appContext);
         tintAccentProgress(videoBuffering);
         videoBuffering.setVisibility(View.GONE);
         // Added after play so the ring paints above the center button when both briefly overlap.
-        host.addView(videoBuffering, new FrameLayout.LayoutParams(dp(72), dp(72), Gravity.CENTER));
+        host.addView(videoBuffering, new FrameLayout.LayoutParams(centerBuffer, centerBuffer, Gravity.CENTER));
 
         // UnlockButton: deeper black@~0.75 pill; fades with idle hide while locked.
-        videoUnlockBtn = playerIconBtn("lock", new Runnable() {
+        videoUnlockBtn = playerIconBtn("lock", chromeHitDp, chromeIconDp, new Runnable() {
             @Override public void run() {
                 mainHandler.removeCallbacks(hideUnlockAffordance);
                 setVideoControlsLocked(false);
@@ -1631,8 +1642,8 @@ public final class AirPlayOverlay {
         videoUnlockBtn.setAlpha(0f);
         videoUnlockBtn.setVisibility(View.GONE);
         FrameLayout.LayoutParams unlockLp = new FrameLayout.LayoutParams(
-                dp(48), dp(48), Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
-        unlockLp.bottomMargin = dp(48);
+                chromeHit, chromeHit, Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
+        unlockLp.bottomMargin = Math.max(chromeHit, dp(48));
         host.addView(videoUnlockBtn, unlockLp);
 
         // --- VideoControlsBottom ---
@@ -1683,17 +1694,17 @@ public final class AirPlayOverlay {
         actions.setGravity(Gravity.CENTER_VERTICAL);
         actions.setPadding(0, dp(4), 0, 0);
 
-        View lockBtn = playerIconBtn("lock_open", new Runnable() {
+        View lockBtn = playerIconBtn("lock_open", chromeHitDp, chromeIconDp, new Runnable() {
             @Override public void run() {
                 setVideoControlsLocked(true);
                 callback.onLockClick();
             }
         });
-        LinearLayout.LayoutParams lockLp = new LinearLayout.LayoutParams(dp(48), dp(48));
+        LinearLayout.LayoutParams lockLp = new LinearLayout.LayoutParams(chromeHit, chromeHit);
         lockLp.rightMargin = dp(8);
         actions.addView(lockBtn, lockLp);
 
-        FrameLayout scaleBtn = playerIconBtn(videoContentScale.iconAsset(), new Runnable() {
+        FrameLayout scaleBtn = playerIconBtn(videoContentScale.iconAsset(), chromeHitDp, chromeIconDp, new Runnable() {
             @Override public void run() {
                 videoContentScale = videoContentScale.next();
                 saveVideoContentScale(videoContentScale);
@@ -1714,22 +1725,22 @@ public final class AirPlayOverlay {
                 && scaleBtn.getChildAt(0) instanceof ImageView) {
             videoScaleIcon = (ImageView) scaleBtn.getChildAt(0);
         }
-        LinearLayout.LayoutParams scaleLp = new LinearLayout.LayoutParams(dp(48), dp(48));
+        LinearLayout.LayoutParams scaleLp = new LinearLayout.LayoutParams(chromeHit, chromeHit);
         scaleLp.rightMargin = dp(8);
         actions.addView(scaleBtn, scaleLp);
 
-        videoPipBtn = playerIconBtn("picture_in_picture_alt", new Runnable() {
+        videoPipBtn = playerIconBtn("picture_in_picture_alt", chromeHitDp, chromeIconDp, new Runnable() {
             @Override public void run() { callback.onPipClick(); }
         });
         if (!supportsPip()) videoPipBtn.setVisibility(View.GONE);
-        actions.addView(videoPipBtn, new LinearLayout.LayoutParams(dp(48), dp(48)));
+        actions.addView(videoPipBtn, new LinearLayout.LayoutParams(chromeHit, chromeHit));
 
         // Push rotate to the trailing end (bottom-right of the bar).
         View spacer = new View(appContext);
         actions.addView(spacer, new LinearLayout.LayoutParams(0, 1, 1f));
-        actions.addView(playerIconBtn("screen_rotation", new Runnable() {
+        actions.addView(playerIconBtn("screen_rotation", chromeHitDp, chromeIconDp, new Runnable() {
             @Override public void run() { callback.onRotateClick(); }
-        }), new LinearLayout.LayoutParams(dp(48), dp(48)));
+        }), new LinearLayout.LayoutParams(chromeHit, chromeHit));
         bottom.addView(actions);
 
         host.addView(bottom, new FrameLayout.LayoutParams(
@@ -2685,9 +2696,15 @@ public final class AirPlayOverlay {
         }
     }
 
-    /** Upstream Material IconButton (48×48 / 24dp glyph). */
+    /** Upstream Material IconButton — vmin-scaled on tablets (48→~60 @1280×800). */
     private FrameLayout playerIconBtn(String asset, final Runnable action) {
-        return playerIconBtn(asset, 48, 24, action);
+        DisplayMetrics dm = appContext.getResources().getDisplayMetrics();
+        float density = Math.max(0.75f, dm.density);
+        float vminPx = Math.min(dm.widthPixels, dm.heightPixels);
+        int hit = clampPxFromVmin(vminPx, 0.075f, 48f, 72f, density);
+        int hitDp = Math.max(48, Math.round(hit / density));
+        int iconDp = Math.max(24, Math.round(hitDp * 0.5f));
+        return playerIconBtn(asset, hitDp, iconDp, action);
     }
 
     private FrameLayout playerIconBtn(String asset, int touchDp, int iconDp, final Runnable action) {
@@ -3362,7 +3379,9 @@ public final class AirPlayOverlay {
     }
 
     /**
-     * Ava {@code DetailOverlayMetrics}: scale = clamp(vmin/360, 0.9, 1.55).
+     * Ava {@code DetailOverlayMetrics}: scale = clamp(vmin/360, 0.9, 1.85).
+     * 1280×800 @160 (vmin=800) lands ~1.85 → play≈120 / skip≈84 — prior 1.55/104/68
+     * still read small at arm's length on wall tablets.
      */
     private static final class MusicMetrics {
         float titleSp;
@@ -3385,7 +3404,7 @@ public final class AirPlayOverlay {
         float vmin = Math.min(wDp, hDp);
         float vmax = Math.max(wDp, hDp);
         float aspect = vmax / Math.max(1f, vmin);
-        float scale = Math.max(0.9f, Math.min(1.55f, vmin / 360f));
+        float scale = Math.max(0.9f, Math.min(1.85f, vmin / 360f));
         float textBoost = 1f;
         if (landscape) {
             textBoost = aspect >= 1.55f ? 1.08f : 1.04f;
@@ -3393,17 +3412,17 @@ public final class AirPlayOverlay {
         float textScale = scale * textBoost;
 
         MusicMetrics m = new MusicMetrics();
-        m.titleSp = clamp(29f * textScale, 26f, 40f);
-        m.artistSp = clamp(19.5f * textScale, 16f, 28f);
+        m.titleSp = clamp(29f * textScale, 26f, 42f);
+        m.artistSp = clamp(19.5f * textScale, 16f, 30f);
         m.padHPx = dp(Math.round(Math.max(AUDIO_META_INSET_MIN_DP, 36f * scale)));
-        m.titleArtistGapPx = dp(Math.round(clamp(14f * scale, 12f, 20f)));
-        m.transportTopPx = dp(Math.round(clamp(34f * scale, 28f, 48f)));
-        m.playPx = dp(Math.round(clamp((landscape ? 72f : 78f) * scale, 66f, 104f)));
-        m.skipPx = dp(Math.round(clamp(50f * scale, 44f, 68f)));
-        m.skipIconPx = dp(Math.round(clamp(30f * scale, 26f, 42f)));
-        m.playIconPx = Math.max(dp(28), Math.round(m.playPx * 0.46f));
-        m.clusterGapPx = dp(Math.round(clamp(20f * scale, 16f, 28f)));
-        m.sidePadPx = dp(Math.round(clamp((landscape ? 36f : 28f) * scale, 24f, 44f)));
+        m.titleArtistGapPx = dp(Math.round(clamp(14f * scale, 12f, 22f)));
+        m.transportTopPx = dp(Math.round(clamp(34f * scale, 28f, 52f)));
+        m.playPx = dp(Math.round(clamp((landscape ? 72f : 78f) * scale, 66f, 120f)));
+        m.skipPx = dp(Math.round(clamp(50f * scale, 44f, 84f)));
+        m.skipIconPx = dp(Math.round(clamp(30f * scale, 26f, 52f)));
+        m.playIconPx = Math.max(dp(30), Math.round(m.playPx * 0.46f));
+        m.clusterGapPx = dp(Math.round(clamp(20f * scale, 16f, 32f)));
+        m.sidePadPx = dp(Math.round(clamp((landscape ? 36f : 28f) * scale, 24f, 48f)));
         return m;
     }
 
@@ -3510,16 +3529,18 @@ public final class AirPlayOverlay {
     }
 
     private View makeCinemaSkipButton(String glyph, final Runnable action) {
-        FrameLayout btn = VideoIcons.iconButton(appContext, glyph, 50, 30, action);
+        // Placeholder sizes; applyMusicChromeLayout() resizes via MusicMetrics.
+        FrameLayout btn = VideoIcons.iconButton(appContext, glyph, 56, 34, action);
         tintGlyphButton(btn, 0xE6FFFFFF);
         bindPressScale(btn);
-        btn.setLayoutParams(new LinearLayout.LayoutParams(dp(50), dp(50)));
+        btn.setLayoutParams(new LinearLayout.LayoutParams(dp(56), dp(56)));
         return btn;
     }
 
     private View makeCinemaPlayButton(final Runnable action) {
         FrameLayout wrap = new FrameLayout(appContext);
-        int size = dp(78);
+        // Placeholder; applyMusicChromeLayout() resizes to MusicMetrics.playPx.
+        int size = dp(96);
         wrap.setLayoutParams(new LinearLayout.LayoutParams(size, size));
 
         GradientDrawable bg = new GradientDrawable();
@@ -3532,9 +3553,9 @@ public final class AirPlayOverlay {
             wrap.setElevation(dp(8));
         }
 
-        ImageView iv = VideoIcons.glyphView(appContext, "pause", 34);
+        ImageView iv = VideoIcons.glyphView(appContext, "pause", 40);
         iv.setColorFilter(0xFF111111);
-        wrap.addView(iv, new FrameLayout.LayoutParams(dp(34), dp(34), Gravity.CENTER));
+        wrap.addView(iv, new FrameLayout.LayoutParams(dp(40), dp(40), Gravity.CENTER));
         wrap.setTag(iv);
         wrap.setClickable(true);
         wrap.setFocusable(true);

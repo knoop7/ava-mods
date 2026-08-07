@@ -5,22 +5,22 @@
     {
       "id": "airplay-receiver",
       "name": "AirPlay Receiver",
-      "version": "1.0.63",
+      "version": "1.0.64",
       "author": "Ava",
       "description": "Cast from iPhone or Mac. Turn this device into your AirPlay screen and speaker.",
       "detail_description": "Mirror the display, stream albums with artwork, or play video fullscreen. Shows up as {device name} [Airplay] on the same Wi-Fi. Ties to the voice satellite; PIN and ducking when you want them.",
       "path": "mods/features/airplay-receiver/",
-      "jar_hash": "d5ad4f8e66b0f533d1760afe25a990fc"
+      "jar_hash": "acea398087807745ca77d7a4ce5bb725"
     },
     {
       "id": "dlna-renderer",
       "name": "DLNA Renderer",
-      "version": "1.5.9",
+      "version": "1.5.10",
       "author": "Ava",
       "description": "Cast from your phone or tablet. Turn this device into your DLNA speaker and screen.",
       "detail_description": "Stream music and video from BubbleUPnP and other UPnP controllers. Optional Cinema UI with artwork; duck playback volume while you talk to the voice assistant.",
       "path": "mods/features/dlna-renderer/",
-      "jar_hash": "d02e6d8924e0290f69d7978469a6a231"
+      "jar_hash": "fd8f12774914f0c9d654c57f3a23aafb"
     },
     {
       "id": "ha-edge-tts",
@@ -153,12 +153,12 @@
     {
       "id": "portal-support",
       "name": "Facebook Portal",
-      "version": "1.2.0",
+      "version": "1.3.0",
       "author": "Ava",
       "description": "Make Portal feel first-class with presence, volume keys, ambient sensing, and polite alerts.",
-      "detail_description": "Presence, ambient light, gestures, physical volume, sound level, screen timeout, and alert tones wired for Facebook Portal hardware so dashboards and automations feel native.",
+      "detail_description": "Presence, ambient light, gestures, physical volume, sound level, system chrome control, screen timeout, and alert tones wired for Facebook Portal hardware so dashboards and automations feel native.",
       "path": "mods/devices/portal-support/",
-      "jar_hash": "fde36c17ae67d77912defeb0aadf6ef4"
+      "jar_hash": "943b795b184910051233a680a49829c2"
     },
     {
       "id": "tuya-s8e-support",

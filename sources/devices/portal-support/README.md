@@ -26,6 +26,7 @@ All features are disabled by default. Enable each one in the mod settings before
 | Doorbell / Alert | button | Synthesized tones on the media stream |
 | Screen Timeout | switch | Idle screen-off timer |
 | Screen Timeout Minutes | number | 1–240 minutes; presence keeps the screen awake |
+| System Chrome | select | `off` / `status` / `full` — hides Portal top menu via `policy_control` (same as Immortal); opt-in, starts at `off` |
 | Enhanced Presence | mod setting | Sound threshold fallback when face logcat is weak (low light) |
 
 ## Permissions
@@ -63,6 +64,25 @@ Screen sleep uses Ava accessibility (`GLOBAL_ACTION_LOCK_SCREEN`) when `WRITE_SE
 ## Screen timeout
 
 When enabled, the timer sleeps the screen after the configured idle period. If presence detection (face or enhanced sound) reports occupancy, the countdown resets — same behaviour as portal-ha-bridge.
+
+## System chrome (Browser Display / kiosk)
+
+Controls Android `Settings.Global.policy_control` so the Portal top Back / Wi‑Fi chrome stays hidden — the same approach [Immortal](https://github.com/starbrightlab/immortal) uses (`immersive.status=*`). Needs `WRITE_SECURE_SETTINGS` (already granted by `provision.sh` / Shizuku).
+
+| Option | Effect |
+|--------|--------|
+| `status` | Hide status bar only |
+| `full` | Hide status + navigation bars |
+| `off` | Restore stock system chrome |
+
+Swipe from the top can still briefly reveal the bar; blocking that gesture needs device-owner Lock Task (not wired yet). Change the mode from Home Assistant:
+
+```yaml
+service: select.select_option
+data:
+  entity_id: select.<device>_portal_support_system_ui
+  option: status
+```
 
 ## Build
 

@@ -31,6 +31,27 @@ rm -rf "$BUILD_DIR"
 mkdir -p "$BUILD_DIR"
 mkdir -p libs
 
+# Prefer JDK 17/11; Java 8 javac rejects --release.
+JDK_HOME="$(/usr/libexec/java_home -v 17 2>/dev/null || /usr/libexec/java_home -v 11 2>/dev/null || true)"
+if [ -z "$JDK_HOME" ] || [ ! -x "$JDK_HOME/bin/javac" ]; then
+    for candidate in \
+        "$HOME/Library/Java/JavaVirtualMachines"/*/Contents/Home \
+        "/Applications/Android Studio.app/Contents/jbr/Contents/Home" \
+        /Library/Java/JavaVirtualMachines/*/Contents/Home; do
+        if [ -x "$candidate/bin/javac" ]; then
+            JDK_HOME="$candidate"
+            break
+        fi
+    done
+fi
+if [ -z "$JDK_HOME" ] || [ ! -x "$JDK_HOME/bin/javac" ]; then
+    echo "Error: no JDK 11+ found (needed for --release 8)"
+    exit 1
+fi
+export JAVA_HOME="$JDK_HOME"
+export PATH="$JAVA_HOME/bin:$PATH"
+echo "Using JDK: $JAVA_HOME"
+
 echo "Compiling Java sources..."
 javac --release 8 \
     -cp "$ANDROID_JAR" \
@@ -43,8 +64,6 @@ if [ $? -ne 0 ]; then
 fi
 
 echo "Converting to DEX..."
-export JAVA_HOME=$(/usr/libexec/java_home -v 17 2>/dev/null || /usr/libexec/java_home -v 11 2>/dev/null)
-export PATH="$JAVA_HOME/bin:$PATH"
 find "$BUILD_DIR" -name "*.class" -print0 | xargs -0 "$D8_TOOL" --output "$BUILD_DIR"
 
 if [ $? -ne 0 ]; then
