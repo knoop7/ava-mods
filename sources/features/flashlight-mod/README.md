@@ -1,40 +1,51 @@
 # Flashlight Mod
 
-A simple Android flashlight control module for [Ava](https://github.com/knoop7/Ava).
+Torch control for [Ava](https://github.com/knoop7/Ava), exposed to Home Assistant.
+
+## Entities
+
+| Entity | Type | Description |
+|--------|------|-------------|
+| `switch.<device>_flashlight` | switch | Turn the torch on or off, with state |
+| `button.<device>_toggle_flashlight` | button | Toggle the torch |
 
 ## Features
 
-- Detect device flashlight availability
-- Turn flashlight on/off
-- Get current flashlight state
-- Thread-safe singleton implementation
+- Turn the torch on, off, or toggle it from Home Assistant
+- **Real state**, read from the system rather than from the last command sent, so it stays correct
+  when Android turns the torch off by itself
+- Push state updates — no polling
+- Works on devices whose flash is not on the back camera
+- Turns the torch off when the mod is disabled
 
 ## Requirements
 
-- Android 5.0+ (API 21) with Camera2 API
+- Android 6.0+ (API 23) — `CameraManager.setTorchMode` is not available before that
 - Camera permission
-- Physical flashlight hardware
+- A camera reporting a flash unit
+
+## Implementation
+
+Uses `CameraManager.setTorchMode()`, which drives the flash without opening a camera session. The
+torch therefore works while nothing is capturing, and never competes with a camera stream or
+snapshot for the device.
+
+State comes from `CameraManager.TorchCallback`, so Home Assistant sees the torch going out when
+another app opens that camera or when the device overheats — not just when something asked for it.
 
 ## API
 
 ```java
 FlashlightManager manager = FlashlightManager.getInstance(context);
 
-// Check availability
 boolean hasFlash = manager.hasFlashlight();
 
-// Control
 manager.turnOn();
 manager.turnOff();
 manager.toggle();
 
-// State
 boolean isOn = manager.isOn();
 ```
-
-## Implementation
-
-Uses Camera2 API to control the rear camera flash unit. Falls back gracefully if no flashlight is available.
 
 ## Build
 

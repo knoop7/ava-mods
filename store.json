@@ -75,7 +75,7 @@
     {
       "id": "flashlight-mod",
       "name": "Flashlight",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "author": "Ava",
       "description": "Flip the torch on or off from Home Assistant. Handy light in one tap.",
       "path": "mods/features/flashlight-mod/",
