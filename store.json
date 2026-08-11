@@ -76,7 +76,7 @@
       "id": "flashlight-mod",
       "name": "Flashlight",
       "version": "1.1.1",
-      "author": "Ava",
+      "author": "gilcu2",
       "description": "Flip the torch on or off from Home Assistant. Handy light in one tap.",
       "path": "mods/features/flashlight-mod/",
       "detail_description": "Expose a torch switch in Home Assistant. Turn the camera LED on or off from automations, dashboards, or voice — useful as a night light, a closet lamp, or to light a scene before a camera snapshot. State is read from the system, so it stays correct when Android turns the torch off by itself."
