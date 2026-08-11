@@ -68,6 +68,7 @@ public class ScreenCaptureManager {
 
     /** HA button press — capture current device screen. */
     public void takeScreenshot() {
+        Log.i(TAG, "takeScreenshot pressed");
         if (!capturing.compareAndSet(false, true)) {
             Log.w(TAG, "capture already in progress");
             return;
@@ -96,12 +97,10 @@ public class ScreenCaptureManager {
         if (entityId == null || entityId.trim().isEmpty() || callback == null) {
             return false;
         }
-        CopyOnWriteArrayList<Object> list = listeners.get(entityId);
-        if (list == null) {
-            list = new CopyOnWriteArrayList<>();
-            listeners.put(entityId, list);
-        }
-        list.addIfAbsent(callback);
+        // Soft satellite restart re-registers; replace so orphaned host callbacks do not stack.
+        CopyOnWriteArrayList<Object> list = new CopyOnWriteArrayList<>();
+        list.add(callback);
+        listeners.put(entityId, list);
         if (ENTITY_SCREEN.equals(entityId) && lastJpeg != null) {
             notifyOne(callback, lastJpeg);
         } else if (ENTITY_LAST.equals(entityId) && lastCaptureIso != null && !lastCaptureIso.isEmpty()) {
@@ -112,6 +111,8 @@ public class ScreenCaptureManager {
 
     public void onDestroy() {
         listeners.clear();
+        capturing.set(false);
+        instance = null;
     }
 
     private void doCapture(boolean openSettingsIfNeeded) {
