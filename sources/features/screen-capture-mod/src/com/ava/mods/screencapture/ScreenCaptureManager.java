@@ -184,9 +184,12 @@ public class ScreenCaptureManager {
 
     private void notifyListeners(String entityId, Object value) {
         CopyOnWriteArrayList<Object> list = listeners.get(entityId);
-        if (list == null) {
+        if (list == null || list.isEmpty()) {
+            Log.w(TAG, "no listeners for " + entityId + " (value=" +
+                    (value instanceof byte[] ? ((byte[]) value).length + "B" : String.valueOf(value)) + ")");
             return;
         }
+        Log.i(TAG, "notify " + entityId + " → " + list.size() + " listener(s)");
         for (Object callback : list) {
             notifyOne(callback, value);
         }
@@ -194,16 +197,35 @@ public class ScreenCaptureManager {
 
     private void notifyOne(Object callback, Object value) {
         try {
-            Method method;
-            try {
-                method = callback.getClass().getMethod("onStateChanged", Object.class);
-            } catch (NoSuchMethodException e) {
-                method = callback.getClass().getMethod("onState", Object.class);
+            Method method = findStateCallbackMethod(callback);
+            if (method == null) {
+                Log.w(TAG, "no onStateChanged/onState on " + callback.getClass().getName());
+                return;
             }
             method.invoke(callback, value);
         } catch (Exception e) {
-            Log.w(TAG, "state callback failed: " + e.getMessage());
+            Log.w(TAG, "state callback failed: " + e.getMessage(), e);
         }
+    }
+
+    private static Method findStateCallbackMethod(Object callback) {
+        Class<?> clazz = callback.getClass();
+        for (String name : new String[]{"onStateChanged", "onState"}) {
+            try {
+                Method m = clazz.getMethod(name, Object.class);
+                m.setAccessible(true);
+                return m;
+            } catch (NoSuchMethodException ignored) {
+            }
+            for (Method m : clazz.getMethods()) {
+                if (!name.equals(m.getName()) || m.getParameterTypes().length != 1) {
+                    continue;
+                }
+                m.setAccessible(true);
+                return m;
+            }
+        }
+        return null;
     }
 
     private Class<?> loadHostClass(String className) throws ClassNotFoundException {

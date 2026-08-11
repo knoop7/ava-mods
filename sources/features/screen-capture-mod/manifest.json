@@ -1,7 +1,7 @@
 {
   "id": "screen-capture-mod",
   "name": "Screen Capture",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "author": "Ava",
   "description": "Capture this device screen into Home Assistant. One button, one camera frame.",
   "detail_description": "Take a screenshot of whatever is on the Ava device right now and expose it as a Home Assistant camera. Uses Shizuku/root screencap when available, otherwise Ava accessibility on Android 11+. Optional timestamp sensor for automations that need to know when the frame was last refreshed.",
@@ -10,7 +10,7 @@
     "libs/screen-capture.jar"
   ],
   "manager": "com.ava.mods.screencapture.ScreenCaptureManager",
-  "jar_hash": "085bce64066f737230bc91d73a5e03cd",
+  "jar_hash": "02db528aa1c5f443b3bcfd904e10e855",
   "needs_accessibility": true,
   "permissions": [],
   "optional_permissions": [
