@@ -228,8 +228,7 @@ public class PortalSupportManager implements PortalSensorBridge.Listener, Portal
                 .putString(KEY_SYSTEM_UI_MODE, systemUiMode)
                 .apply();
         if (enableSystemUi) {
-            permissionHelper.ensurePermission("android.permission.WRITE_SECURE_SETTINGS");
-            PortalSystemUiController.apply(context, permissionHelper, systemUiMode);
+            applySystemUiMode();
         }
         notifyStateListeners(ENTITY_SYSTEM_UI, systemUiMode);
     }
@@ -536,9 +535,21 @@ public class PortalSupportManager implements PortalSensorBridge.Listener, Portal
         if (!enableSystemUi) {
             return;
         }
-        permissionHelper.ensurePermission("android.permission.WRITE_SECURE_SETTINGS");
-        PortalSystemUiController.apply(context, permissionHelper, systemUiMode);
+        applySystemUiMode();
         notifyStateListeners(ENTITY_SYSTEM_UI, systemUiMode);
+    }
+
+    /**
+     * System Chrome needs WRITE_SECURE_SETTINGS (or a live privileged shell).
+     * {@link PortalPermissionHelper#ensurePermission} may prompt Shizuku here — only when
+     * this feature is used, not on every boot via grantAll.
+     */
+    private void applySystemUiMode() {
+        permissionHelper.ensurePermission("android.permission.WRITE_SECURE_SETTINGS");
+        if (!PortalSystemUiController.apply(context, permissionHelper, systemUiMode)) {
+            Log.w(TAG, "System Chrome apply failed — need WRITE_SECURE_SETTINGS via "
+                    + "provision.sh / Shizuku once; other Portal features still work");
+        }
     }
 
     private void updateSensorSubsystem() {

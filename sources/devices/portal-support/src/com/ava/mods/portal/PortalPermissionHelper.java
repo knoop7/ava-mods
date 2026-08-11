@@ -18,11 +18,23 @@ final class PortalPermissionHelper {
 
     private static volatile boolean shizukuPrompted = false;
 
-    private static final String[] GRANT_PERMISSIONS = {
-            "android.permission.WRITE_SECURE_SETTINGS",
+    /** Runtime / installable without a privileged shell. */
+    private static final String[] RUNTIME_PERMISSIONS = {
             "android.permission.RECORD_AUDIO",
-            "android.permission.CAMERA",
+            "android.permission.CAMERA"
+    };
+
+    /** One-time ADB / Shizuku / root; never required to keep the mod enabled. */
+    private static final String[] OPTIONAL_PRIVILEGED_PERMISSIONS = {
+            "android.permission.WRITE_SECURE_SETTINGS",
             "android.permission.READ_LOGS"
+    };
+
+    private static final String[] GRANT_PERMISSIONS = {
+            RUNTIME_PERMISSIONS[0],
+            RUNTIME_PERMISSIONS[1],
+            OPTIONAL_PRIVILEGED_PERMISSIONS[0],
+            OPTIONAL_PRIVILEGED_PERMISSIONS[1]
     };
 
     private static final String[] GRANT_APPOPS = {
@@ -38,26 +50,34 @@ final class PortalPermissionHelper {
         this.context = context.getApplicationContext();
     }
 
+    /**
+     * Best-effort grant used from host boot hooks. Never launches Shizuku just because
+     * optional privileged permissions are missing — that would force USB ADB on every
+     * Portal reboot. Feature paths call {@link #ensurePermission} / {@link #ensureReadLogsForPresence}
+     * when the user actually enables System Chrome or presence.
+     */
     boolean grantAll() {
         ensureHostShizukuInit();
         String pkg = context.getPackageName();
-        if (allRuntimePermissionsGranted()) {
+        if (allPermissionsGranted()) {
             ensureAppOps();
             return true;
         }
-        if (tryShizukuGrant(pkg)) {
+        if (isShizukuReady()) {
+            tryShizukuGrant(pkg);
             ensureAppOps();
-        } else if (tryRootGrant(pkg)) {
+        } else if (isRootAvailable()) {
+            tryRootGrant(pkg);
             ensureAppOps();
-        } else {
-            requestShizukuPermissionIfNeeded();
         }
-        boolean ok = allRuntimePermissionsGranted();
-        if (!ok) {
-            Log.w(TAG, "grantAll incomplete — need Shizuku/root for "
-                    + "WRITE_SECURE_SETTINGS, RECORD_AUDIO, CAMERA");
+        boolean runtimeOk = allRuntimePermissionsGranted();
+        if (!runtimeOk) {
+            Log.w(TAG, "grantAll incomplete — RECORD_AUDIO/CAMERA still missing");
+        } else if (!allOptionalPrivilegedGranted()) {
+            Log.i(TAG, "grantAll: runtime OK; optional WRITE_SECURE_SETTINGS/READ_LOGS "
+                    + "still missing — limited mode (sensors/volume/tones work)");
         }
-        return ok;
+        return runtimeOk;
     }
 
     boolean hasPermission(String permission) {
@@ -187,8 +207,26 @@ final class PortalPermissionHelper {
         }
     }
 
-    private boolean allRuntimePermissionsGranted() {
+    private boolean allPermissionsGranted() {
         for (String perm : GRANT_PERMISSIONS) {
+            if (!hasPermission(perm)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean allRuntimePermissionsGranted() {
+        for (String perm : RUNTIME_PERMISSIONS) {
+            if (!hasPermission(perm)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean allOptionalPrivilegedGranted() {
+        for (String perm : OPTIONAL_PRIVILEGED_PERMISSIONS) {
             if (!hasPermission(perm)) {
                 return false;
             }
@@ -269,7 +307,7 @@ final class PortalPermissionHelper {
                 Log.w(TAG, "Shizuku appops set failed: " + op);
             }
         }
-        return allRuntimePermissionsGranted();
+        return allPermissionsGranted();
     }
 
     private boolean tryRootGrant(String pkg) {
@@ -295,7 +333,7 @@ final class PortalPermissionHelper {
             Log.w(TAG, "root grant failed: " + e.getMessage());
             return false;
         }
-        return allRuntimePermissionsGranted();
+        return allPermissionsGranted();
     }
 
     private void requestShizukuPermissionIfNeeded() {

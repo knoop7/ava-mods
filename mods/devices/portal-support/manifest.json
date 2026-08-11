@@ -1,21 +1,23 @@
 {
   "id": "portal-support",
   "name": "Facebook Portal",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "author": "Ava",
   "description": "Make Portal feel first-class with presence, volume keys, ambient sensing, and polite alerts.",
-  "detail_description": "Presence, ambient light, gestures, physical volume, sound level, system chrome control, screen timeout, and alert tones wired for Facebook Portal hardware so dashboards and automations feel native.",
+  "detail_description": "Presence, ambient light, gestures, physical volume, sound level, system chrome control, screen timeout, and alert tones wired for Facebook Portal hardware so dashboards and automations feel native. Can enable without Shizuku; System Chrome and face presence need a one-time privileged grant.",
   "icon": "mdi:tablet-dashboard",
   "libs": [
     "libs/portal-support.jar"
   ],
   "manager": "com.ava.mods.portal.PortalSupportManager",
-  "jar_hash": "943b795b184910051233a680a49829c2",
+  "jar_hash": "2569442f36bf968eda51e5d669f62d9a",
   "permissions": [
-    "android.permission.CAMERA",
-    "android.permission.RECORD_AUDIO",
+    "android.permission.RECORD_AUDIO"
+  ],
+  "optional_permissions": [
     "android.permission.WRITE_SECURE_SETTINGS",
-    "android.permission.READ_LOGS"
+    "android.permission.READ_LOGS",
+    "android.permission.CAMERA"
   ],
   "entities": [
     {

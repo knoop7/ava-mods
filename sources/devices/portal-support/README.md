@@ -31,21 +31,30 @@ All features are disabled by default. Enable each one in the mod settings before
 
 ## Permissions
 
+The mod can be **enabled without Shizuku**. Sensors, physical volume, and alert tones work with normal app permissions. Privileged features degrade until a one-time grant:
+
+| Feature | Needs |
+|---------|--------|
+| Sensors / volume / doorbell | None beyond normal runtime grants |
+| System Chrome | `WRITE_SECURE_SETTINGS` (one-time ADB / Shizuku / `provision.sh`) — after grant, Shizuku does not need to stay running |
+| Face presence (logcat) | `READ_LOGS` (same) — or a live Shizuku/root shell as fallback |
+| Screen timeout sleep | Accessibility preferred; `WRITE_SECURE_SETTINGS` helps auto-enable it |
+
 Presence tails Meta's `PresenceManager` logcat heartbeat (same as [portal-ha-bridge](https://github.com/RoadRunner-1024/portal-ha-bridge)).
 Grant `READ_LOGS` to Ava via `./provision.sh`, Shizuku, or
 `adb shell am broadcast -a com.example.ava.ACTION_GRANT_READ_LOGS com.example.ava`,
 then **restart Ava** so the permission applies. Shizuku/root shell is a fallback when the app grant is pending.
 
-The mod auto-requests permissions at runtime through Shizuku first, then root, then falls back to manual provision.
+When Shizuku/root is already available, the mod still auto-requests grants at runtime. Boot hooks do **not** force-launch Shizuku just because optional privileges are missing.
 
-| Permission / app-op | Used for |
-|---------------------|----------|
-| `RECORD_AUDIO` | Sound level sensor |
-| `WRITE_SECURE_SETTINGS` | Screen sleep fallback |
-| `CAMERA` | Reserved for future camera features |
-| `READ_LOGS` | Portal presence — granted to Ava via ADB or Shizuku `pm grant`; in-app logcat (same as portal-ha-bridge) |
-| `WRITE_SETTINGS` (app-op) | Brightness control |
-| `SYSTEM_ALERT_WINDOW` (app-op) | Background overlay access |
+| Permission / app-op | Used for | Required to enable mod? |
+|---------------------|----------|-------------------------|
+| `RECORD_AUDIO` | Sound level sensor | Runtime (when sound features on) |
+| `CAMERA` | Reserved for future camera features | Declared only |
+| `WRITE_SECURE_SETTINGS` | System Chrome + screen sleep helpers | Optional |
+| `READ_LOGS` | Portal face presence | Optional |
+| `WRITE_SETTINGS` (app-op) | Brightness control | Optional |
+| `SYSTEM_ALERT_WINDOW` (app-op) | Background overlay access | Optional |
 
 Presence reads `logcat` in the Ava process when `READ_LOGS` is granted (portal-ha-bridge path).
 Shizuku or root shell is used only as a fallback before the grant takes effect after restart.

@@ -7,11 +7,10 @@ Torch control for [Ava](https://github.com/knoop7/Ava), exposed to Home Assistan
 | Entity | Type | Description |
 |--------|------|-------------|
 | `switch.<device>_flashlight` | switch | Turn the torch on or off, with state |
-| `button.<device>_toggle_flashlight` | button | Toggle the torch |
 
 ## Features
 
-- Turn the torch on, off, or toggle it from Home Assistant
+- Turn the torch on or off from Home Assistant
 - **Real state**, read from the system rather than from the last command sent, so it stays correct
   when Android turns the torch off by itself
 - Push state updates — no polling

@@ -62,6 +62,12 @@ my-mod/
   "libs": ["libs/mydevice.jar"],
   "manager": "com.mydevice.DeviceManager",
 
+  "permissions": ["android.permission.RECORD_AUDIO"],
+  "optional_permissions": [
+    "android.permission.WRITE_SECURE_SETTINGS",
+    "android.permission.READ_LOGS"
+  ],
+
   "entities": [
     {
       "type": "switch",
@@ -107,6 +113,10 @@ my-mod/
   ]
 }
 ```
+
+`permissions` are required for enable (runtime dialogs / privileged shell when needed).
+`optional_permissions` are best-effort privileged grants (e.g. `WRITE_SECURE_SETTINGS`, `READ_LOGS`):
+missing optional entries must not block enable — the mod should degrade those features instead.
 
 ## Entity Types
 
@@ -209,6 +219,11 @@ Actions use the format `methodName:arg1,arg2`:
 - `setPower:1` → calls `manager.setPower("1")`
 - `setOemFunc:io21` → calls `manager.setOemFunc("io21")`
 - `setRGB:255,0,0` → calls `manager.setRGB("255", "0", "0")`
+
+## Permissions
+
+- `permissions` — required for enable. Runtime permissions are requested via the system dialog; privileged ones (`WRITE_SECURE_SETTINGS`, `READ_LOGS`, …) still need Shizuku/root **or** a prior ADB grant.
+- `optional_permissions` — best-effort only. Missing entries must **not** block enable; the mod should degrade those features at runtime. Ava may still `pm grant` them when Shizuku/root is available.
 
 ## Device Compatibility Hooks
 
