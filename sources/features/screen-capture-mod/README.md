@@ -7,7 +7,7 @@ Capture the current Ava device screen and expose it to Home Assistant.
 | Key | Options | Default | Description |
 |-----|---------|---------|-------------|
 | Image size | `small` / `medium` / `original` | `small` | Longest-edge JPEG size for the HA camera (480 / 720 / full). Same rule in portrait and landscape. |
-| Last capture time | on / off | off | Optional text sensor with last capture ISO time |
+| Last capture time | on / off | — | Optional text sensor with last capture ISO time |
 
 ## Entities
 
@@ -15,7 +15,10 @@ Capture the current Ava device screen and expose it to Home Assistant.
 |--------|------|-------------|
 | Take Screenshot | button | Capture the current device screen |
 | Screen | camera | Last captured JPEG frame |
+| Image URL | text_sensor | LAN fleet URL (`/v1/screen/last.jpg?password=…`, ≤255 chars) after each capture |
 | Last Screenshot | text_sensor | ISO timestamp of the last capture (opt-in in mod settings) |
+
+Open Image URL in a browser on the same LAN (fleet agent must be running).
 
 ## Capture paths
 

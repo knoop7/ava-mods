@@ -24,9 +24,11 @@ public class ScreenCaptureManager {
     private static final String TAG = "ScreenCapture";
     private static final String ENTITY_SCREEN = "screen";
     private static final String ENTITY_LAST = "last_screenshot";
+    private static final String ENTITY_URL = "image_url";
     private static final String PREFS = "screen_capture_mod";
     private static final String KEY_LAST_AT = "last_capture_at_ms";
     private static final String KEY_IMAGE_SIZE = "image_size";
+    private static final int HA_TEXT_MAX = 255;
 
     /** Longest-edge caps (portrait + landscape). {@code 0} = no downscale. */
     private static final int SIZE_SMALL_SIDE = 480;
@@ -50,6 +52,8 @@ public class ScreenCaptureManager {
     private volatile byte[] lastJpeg;
     private volatile long lastCaptureAtMs;
     private volatile String lastCaptureIso = "";
+    /** Fleet LAN URL for the last JPEG (`GET /v1/screen/last.jpg?password=…`), ≤255 chars. */
+    private volatile String lastImageUrl = "";
 
     private ScreenCaptureManager(Context context) {
         this.context = context.getApplicationContext();
@@ -115,6 +119,10 @@ public class ScreenCaptureManager {
         return lastCaptureIso == null ? "" : lastCaptureIso;
     }
 
+    public String getLastImageUrl() {
+        return lastImageUrl == null ? "" : lastImageUrl;
+    }
+
     public boolean registerStateListener(String entityId, Object callback) {
         if (entityId == null || entityId.trim().isEmpty() || callback == null) {
             return false;
@@ -127,6 +135,8 @@ public class ScreenCaptureManager {
             notifyOne(callback, lastJpeg);
         } else if (ENTITY_LAST.equals(entityId) && lastCaptureIso != null && !lastCaptureIso.isEmpty()) {
             notifyOne(callback, lastCaptureIso);
+        } else if (ENTITY_URL.equals(entityId) && lastImageUrl != null && !lastImageUrl.isEmpty()) {
+            notifyOne(callback, lastImageUrl);
         }
         return true;
     }
@@ -150,6 +160,7 @@ public class ScreenCaptureManager {
         lastJpeg = jpeg;
         lastCaptureAtMs = now;
         lastCaptureIso = toIso(now);
+        lastImageUrl = clipHaText(invokeHostLastImageUrl());
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                 .edit()
                 .putLong(KEY_LAST_AT, now)
@@ -157,6 +168,9 @@ public class ScreenCaptureManager {
         Log.i(TAG, "captured " + jpeg.length + " bytes at " + lastCaptureIso
                 + " size=" + imageSize + " maxSide=" + maxSide);
         notifyListeners(ENTITY_SCREEN, jpeg);
+        if (lastImageUrl != null && !lastImageUrl.isEmpty()) {
+            notifyListeners(ENTITY_URL, lastImageUrl);
+        }
         if (enableLastCaptureSensor) {
             notifyListeners(ENTITY_LAST, lastCaptureIso);
         }
@@ -188,6 +202,19 @@ public class ScreenCaptureManager {
             return result != null ? String.valueOf(result) : "unknown";
         } catch (Throwable t) {
             return t.getMessage() != null ? t.getMessage() : "host_api_missing";
+        }
+    }
+
+    private String invokeHostLastImageUrl() {
+        try {
+            Class<?> clazz = loadHostClass("com.example.ava.mods.ModScreenCapture");
+            Object instance = clazz.getField("INSTANCE").get(null);
+            Method method = clazz.getMethod("lastImagePublicUrl", Context.class);
+            Object result = method.invoke(instance, context);
+            return result != null ? String.valueOf(result) : "";
+        } catch (Throwable t) {
+            Log.w(TAG, "lastImagePublicUrl unavailable: " + t.getMessage());
+            return "";
         }
     }
 
@@ -296,6 +323,17 @@ public class ScreenCaptureManager {
             return QUALITY_ORIGINAL;
         }
         return QUALITY_SMALL;
+    }
+
+    private static String clipHaText(String value) {
+        if (value == null) {
+            return "";
+        }
+        String t = value.trim();
+        if (t.length() <= HA_TEXT_MAX) {
+            return t;
+        }
+        return t.substring(0, HA_TEXT_MAX);
     }
 
     private static String toIso(long epochMs) {
