@@ -2,6 +2,13 @@
 
 Capture the current Ava device screen and expose it to Home Assistant.
 
+## Settings (mod config, not HA entities)
+
+| Key | Options | Default | Description |
+|-----|---------|---------|-------------|
+| Image size | `small` / `medium` / `original` | `small` | Longest-edge JPEG size for the HA camera (480 / 720 / full). Same rule in portrait and landscape. |
+| Last capture time | on / off | off | Optional text sensor with last capture ISO time |
+
 ## Entities
 
 | Entity | Type | Description |

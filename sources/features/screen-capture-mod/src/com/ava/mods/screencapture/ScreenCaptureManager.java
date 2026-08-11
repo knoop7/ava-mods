@@ -26,6 +26,16 @@ public class ScreenCaptureManager {
     private static final String ENTITY_LAST = "last_screenshot";
     private static final String PREFS = "screen_capture_mod";
     private static final String KEY_LAST_AT = "last_capture_at_ms";
+    private static final String KEY_IMAGE_SIZE = "image_size";
+
+    /** Longest-edge caps (portrait + landscape). {@code 0} = no downscale. */
+    private static final int SIZE_SMALL_SIDE = 480;
+    private static final int SIZE_MEDIUM_SIDE = 720;
+    private static final int SIZE_ORIGINAL_SIDE = 0;
+
+    private static final int QUALITY_SMALL = 35;
+    private static final int QUALITY_MEDIUM = 45;
+    private static final int QUALITY_ORIGINAL = 70;
 
     private static volatile ScreenCaptureManager instance;
 
@@ -35,6 +45,8 @@ public class ScreenCaptureManager {
     private final Map<String, CopyOnWriteArrayList<Object>> listeners = new ConcurrentHashMap<>();
 
     private volatile boolean enableLastCaptureSensor;
+    /** Config key {@code image_size}: small | medium | original. Not an HA entity. */
+    private volatile String imageSize = "small";
     private volatile byte[] lastJpeg;
     private volatile long lastCaptureAtMs;
     private volatile String lastCaptureIso = "";
@@ -47,6 +59,9 @@ public class ScreenCaptureManager {
             lastCaptureAtMs = stored;
             lastCaptureIso = toIso(stored);
         }
+        imageSize = normalizeImageSize(
+                this.context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                        .getString(KEY_IMAGE_SIZE, "small"));
     }
 
     public static ScreenCaptureManager getInstance(Context context) {
@@ -63,12 +78,19 @@ public class ScreenCaptureManager {
     public void applyConfig(String key, String value) {
         if ("enable_last_capture_sensor".equals(key)) {
             enableLastCaptureSensor = parseBoolean(value);
+        } else if (KEY_IMAGE_SIZE.equals(key)) {
+            imageSize = normalizeImageSize(value);
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                    .edit()
+                    .putString(KEY_IMAGE_SIZE, imageSize)
+                    .apply();
+            Log.i(TAG, "image_size=" + imageSize);
         }
     }
 
     /** HA button press — capture current device screen. */
     public void takeScreenshot() {
-        Log.i(TAG, "takeScreenshot pressed");
+        Log.i(TAG, "takeScreenshot pressed size=" + imageSize);
         if (!capturing.compareAndSet(false, true)) {
             Log.w(TAG, "capture already in progress");
             return;
@@ -117,7 +139,9 @@ public class ScreenCaptureManager {
 
     private void doCapture(boolean openSettingsIfNeeded) {
         ensureHostAccessibility(openSettingsIfNeeded);
-        byte[] jpeg = invokeHostCapture();
+        int maxSide = maxSideForSize(imageSize);
+        int quality = qualityForSize(imageSize);
+        byte[] jpeg = invokeHostCapture(maxSide, quality);
         if (jpeg == null || jpeg.length < 64) {
             Log.w(TAG, "capture failed: " + invokeHostLastError());
             return;
@@ -130,14 +154,15 @@ public class ScreenCaptureManager {
                 .edit()
                 .putLong(KEY_LAST_AT, now)
                 .apply();
-        Log.i(TAG, "captured " + jpeg.length + " bytes at " + lastCaptureIso);
+        Log.i(TAG, "captured " + jpeg.length + " bytes at " + lastCaptureIso
+                + " size=" + imageSize + " maxSide=" + maxSide);
         notifyListeners(ENTITY_SCREEN, jpeg);
         if (enableLastCaptureSensor) {
             notifyListeners(ENTITY_LAST, lastCaptureIso);
         }
     }
 
-    private byte[] invokeHostCapture() {
+    private byte[] invokeHostCapture(int maxSide, int quality) {
         try {
             Class<?> clazz = loadHostClass("com.example.ava.mods.ModScreenCapture");
             Object instance = clazz.getField("INSTANCE").get(null);
@@ -147,7 +172,7 @@ public class ScreenCaptureManager {
                     boolean.class,
                     int.class,
                     int.class);
-            Object result = method.invoke(instance, context, true, 720, 40);
+            Object result = method.invoke(instance, context, true, maxSide, quality);
             return result instanceof byte[] ? (byte[]) result : null;
         } catch (Throwable t) {
             Log.w(TAG, "ModScreenCapture.captureJpeg unavailable: " + t.getMessage());
@@ -237,6 +262,40 @@ public class ScreenCaptureManager {
             }
         }
         return Class.forName(className);
+    }
+
+    private static String normalizeImageSize(String value) {
+        if (value == null) {
+            return "small";
+        }
+        String v = value.trim().toLowerCase(Locale.US);
+        if ("medium".equals(v) || "mid".equals(v) || "中".equals(v)) {
+            return "medium";
+        }
+        if ("original".equals(v) || "full".equals(v) || "raw".equals(v) || "原始".equals(v)) {
+            return "original";
+        }
+        return "small";
+    }
+
+    private static int maxSideForSize(String size) {
+        if ("medium".equals(size)) {
+            return SIZE_MEDIUM_SIDE;
+        }
+        if ("original".equals(size)) {
+            return SIZE_ORIGINAL_SIDE;
+        }
+        return SIZE_SMALL_SIDE;
+    }
+
+    private static int qualityForSize(String size) {
+        if ("medium".equals(size)) {
+            return QUALITY_MEDIUM;
+        }
+        if ("original".equals(size)) {
+            return QUALITY_ORIGINAL;
+        }
+        return QUALITY_SMALL;
     }
 
     private static String toIso(long epochMs) {

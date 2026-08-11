@@ -1,16 +1,16 @@
 {
   "id": "screen-capture-mod",
   "name": "Screen Capture",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "author": "Ava",
   "description": "Capture this device screen into Home Assistant. One button, one camera frame.",
-  "detail_description": "Take a screenshot of whatever is on the Ava device right now and expose it as a Home Assistant camera. Uses Shizuku/root screencap when available, otherwise Ava accessibility on Android 11+. Optional timestamp sensor for automations that need to know when the frame was last refreshed.",
+  "detail_description": "Take a screenshot of whatever is on the Ava device right now and expose it as a Home Assistant camera. Uses Shizuku/root screencap when available, otherwise Ava accessibility on Android 11+. Choose Small / Medium / Original image size in mod settings (not an HA entity) so the camera frame stays light. Optional timestamp sensor for automations that need to know when the frame was last refreshed.",
   "icon": "mdi:monitor-screenshot",
   "libs": [
     "libs/screen-capture.jar"
   ],
   "manager": "com.ava.mods.screencapture.ScreenCaptureManager",
-  "jar_hash": "02db528aa1c5f443b3bcfd904e10e855",
+  "jar_hash": "276309c324fce56bc5b6fb6205be5d14",
   "needs_accessibility": true,
   "permissions": [],
   "optional_permissions": [
@@ -43,6 +43,18 @@
     }
   ],
   "config": [
+    {
+      "type": "select",
+      "key": "image_size",
+      "label": "Image size",
+      "description": "Longest edge for the JPEG sent to the HA camera (portrait and landscape). Small is default and safest for the camera entity.",
+      "defaultValue": "small",
+      "options": [
+        "small",
+        "medium",
+        "original"
+      ]
+    },
     {
       "type": "switch",
       "key": "enable_last_capture_sensor",
