@@ -1,4 +1,4 @@
-# 屏幕拍摄 (Screen Capture)
+# Screen Capture
 
 Capture the current Ava device screen and expose it to Home Assistant.
 
@@ -6,9 +6,9 @@ Capture the current Ava device screen and expose it to Home Assistant.
 
 | Entity | Type | Description |
 |--------|------|-------------|
-| 截取屏幕 | button | Capture the current device screen |
-| 屏幕画面 | camera | Last captured JPEG frame |
-| 上次截取时间 | text_sensor | ISO timestamp of the last capture (opt-in in mod settings) |
+| Take Screenshot | button | Capture the current device screen |
+| Screen | camera | Last captured JPEG frame |
+| Last Screenshot | text_sensor | ISO timestamp of the last capture (opt-in in mod settings) |
 
 ## Capture paths
 

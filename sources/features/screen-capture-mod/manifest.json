@@ -1,7 +1,7 @@
 {
   "id": "screen-capture-mod",
-  "name": "屏幕拍摄",
-  "version": "1.0.0",
+  "name": "Screen Capture",
+  "version": "1.0.1",
   "author": "Ava",
   "description": "Capture this device screen into Home Assistant. One button, one camera frame.",
   "detail_description": "Take a screenshot of whatever is on the Ava device right now and expose it as a Home Assistant camera. Uses Shizuku/root screencap when available, otherwise Ava accessibility on Android 11+. Optional timestamp sensor for automations that need to know when the frame was last refreshed.",
@@ -20,14 +20,14 @@
     {
       "type": "button",
       "id": "take_screenshot",
-      "name": "截取屏幕",
+      "name": "Take Screenshot",
       "icon": "mdi:cellphone-screenshot",
       "press": "takeScreenshot"
     },
     {
       "type": "camera",
       "id": "screen",
-      "name": "屏幕画面",
+      "name": "Screen",
       "icon": "mdi:monitor-screenshot",
       "category": "diagnostic",
       "read": "getLastJpeg"
@@ -35,7 +35,7 @@
     {
       "type": "text_sensor",
       "id": "last_screenshot",
-      "name": "上次截取时间",
+      "name": "Last Screenshot",
       "icon": "mdi:clock-outline",
       "category": "diagnostic",
       "enabledByConfig": "enable_last_capture_sensor",
@@ -46,8 +46,8 @@
     {
       "type": "switch",
       "key": "enable_last_capture_sensor",
-      "label": "上次截取时间",
-      "description": "在 Home Assistant 中暴露上次截取屏幕的时间戳，方便自动化判断画面是否最新",
+      "label": "Last capture time",
+      "description": "Expose last screenshot timestamp in Home Assistant for automations that need a fresh frame",
       "defaultValue": "false"
     }
   ]
