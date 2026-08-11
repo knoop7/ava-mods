@@ -194,6 +194,22 @@ Trigger action.
 }
 ```
 
+### camera
+
+ESPHome camera entity (JPEG) for Home Assistant. Requires a recent Ava host with mod camera support.
+
+Push frames with `registerStateListener` (`ByteArray` JPEG) or a `read` method that returns `byte[]` / a file path. For device-screen capture, call host `com.example.ava.mods.ModScreenCapture` (Shizuku/root `screencap`, then Accessibility on API 30+). Set `"needs_accessibility": true` when the mod relies on Ava accessibility so the permission manager can surface it.
+
+```json
+{
+  "type": "camera",
+  "id": "screen",
+  "name": "Screen",
+  "icon": "mdi:monitor-screenshot",
+  "read": "getLastJpeg"
+}
+```
+
 ### select
 
 Option list exposed to Home Assistant as a dropdown. Use `read` for the current value and `set` for `methodName:option`.

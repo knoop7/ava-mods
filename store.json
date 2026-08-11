@@ -82,6 +82,17 @@
       "detail_description": "Expose a torch switch in Home Assistant. Turn the camera LED on or off from automations, dashboards, or voice — useful as a night light, a closet lamp, or to light a scene before a camera snapshot. State is read from the system, so it stays correct when Android turns the torch off by itself."
     },
     {
+      "id": "screen-capture-mod",
+      "name": "屏幕拍摄",
+      "version": "1.0.0",
+      "author": "Ava",
+      "description": "Capture this device screen into Home Assistant. One button, one camera frame.",
+      "detail_description": "Take a screenshot of whatever is on the Ava device right now and expose it as a Home Assistant camera. Uses Shizuku/root screencap when available, otherwise Ava accessibility on Android 11+. Optional timestamp sensor for automations that need to know when the frame was last refreshed.",
+      "path": "mods/features/screen-capture-mod/",
+      "jar_hash": "e25f6ef8b5a67d749093251bb5c0eade",
+      "icon": "mdi:monitor-screenshot"
+    },
+    {
       "id": "camera-stream-mod",
       "name": "Camera Stream",
       "version": "1.0.3",
