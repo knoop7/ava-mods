@@ -1,7 +1,7 @@
 {
   "id": "camera-stream-mod",
   "name": "Camera Stream",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "author": "Ava",
   "description": "Forward this device camera to Frigate or an NVR. Choose MJPEG or RTSP and tune quality.",
   "detail_description": "LAN camera forwarder for Frigate / go2rtc / ffmpeg. Pick MJPEG (HTTP) or RTSP (H.264), then set FPS, resolution, JPEG quality or bitrate. For RTSP you can prefer auto / hardware / software H.264 encoding (auto tries hardware first, then falls back). No auto-start: open this mod’s settings and turn on Enable Stream (or the HA Camera Stream switch) while the voice satellite master service is running. When the master service stops, the stream always stops. Paste the Stream URL into your NVR — not a second HA camera preview.",

@@ -32,8 +32,10 @@ public final class RtspServer implements H264Encoder.NalListener {
     private final CopyOnWriteArrayList<Session> sessions = new CopyOnWriteArrayList<>();
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final AtomicInteger rtpSeq = new AtomicInteger(0);
+    private final Object lifecycleLock = new Object();
     private final int rtpSsrc = (int) (System.nanoTime() & 0x7fffffff);
 
+    private volatile boolean stopRequested;
     private ServerSocket serverSocket;
     private volatile byte[] sps;
     private volatile byte[] pps;
@@ -48,22 +50,47 @@ public final class RtspServer implements H264Encoder.NalListener {
         return running.get();
     }
 
-    public void start() {
-        if (!running.compareAndSet(false, true)) return;
-        executor.execute(this::acceptLoop);
+    /**
+     * Bind on a local socket first, then publish ownership. Calling bind/accept
+     * on the field races with {@link #stop()} and can NPE.
+     *
+     * @return true if this instance now owns a listening socket
+     */
+    public boolean start() {
+        final ServerSocket local;
+        synchronized (lifecycleLock) {
+            if (running.get()) return true;
+            stopRequested = false;
+            ServerSocket bound = bindListenSocket();
+            if (bound == null) {
+                return false;
+            }
+            if (stopRequested) {
+                closeQuietly(bound);
+                return false;
+            }
+            serverSocket = bound;
+            running.set(true);
+            local = bound;
+        }
+        Log.i(TAG, "RTSP listening on :" + config.port + "/" + config.streamPath());
+        executor.execute(() -> acceptLoop(local));
+        return true;
     }
 
     public void stop() {
-        running.set(false);
+        stopRequested = true;
+        ServerSocket socket;
+        synchronized (lifecycleLock) {
+            socket = serverSocket;
+            serverSocket = null;
+            running.set(false);
+        }
         for (Session s : sessions) {
             s.close();
         }
         sessions.clear();
-        try {
-            if (serverSocket != null) serverSocket.close();
-        } catch (IOException ignored) {
-        }
-        serverSocket = null;
+        closeQuietly(socket);
     }
 
     @Override
@@ -84,22 +111,58 @@ public final class RtspServer implements H264Encoder.NalListener {
         }
     }
 
-    private void acceptLoop() {
+    private ServerSocket bindListenSocket() {
+        ServerSocket socket = null;
         try {
-            serverSocket = new ServerSocket();
-            serverSocket.setReuseAddress(true);
-            serverSocket.bind(new InetSocketAddress("0.0.0.0", config.port));
-            Log.i(TAG, "RTSP listening on :" + config.port + "/" + config.streamPath());
-            while (running.get()) {
-                Socket socket = serverSocket.accept();
-                executor.execute(() -> handleClient(socket));
+            socket = new ServerSocket();
+            socket.setReuseAddress(true);
+            socket.bind(new InetSocketAddress("0.0.0.0", config.port));
+            return socket;
+        } catch (Exception e) {
+            closeQuietly(socket);
+            Log.e(TAG, "RTSP bind failed: " + e.getMessage());
+            return null;
+        }
+    }
+
+    private void acceptLoop(ServerSocket localSocket) {
+        try {
+            while (!stopRequested && isOwnedSocket(localSocket)) {
+                try {
+                    Socket socket = localSocket.accept();
+                    executor.execute(() -> handleClient(socket));
+                } catch (Exception e) {
+                    if (!stopRequested && isOwnedSocket(localSocket)) {
+                        Log.e(TAG, "RTSP accept failed: " + e.getMessage());
+                    }
+                }
             }
-        } catch (IOException e) {
-            if (running.get()) {
-                Log.e(TAG, "RTSP accept failed: " + e.getMessage());
+        } catch (Exception e) {
+            if (!stopRequested) {
+                Log.e(TAG, "RTSP server failed: " + e.getMessage());
             }
         } finally {
             running.set(false);
+            closeQuietly(localSocket);
+            synchronized (lifecycleLock) {
+                if (serverSocket == localSocket) {
+                    serverSocket = null;
+                }
+            }
+        }
+    }
+
+    private boolean isOwnedSocket(ServerSocket socket) {
+        synchronized (lifecycleLock) {
+            return socket != null && socket == serverSocket && !socket.isClosed();
+        }
+    }
+
+    private static void closeQuietly(ServerSocket socket) {
+        if (socket == null) return;
+        try {
+            socket.close();
+        } catch (Exception ignored) {
         }
     }
 

@@ -10,6 +10,7 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -35,6 +36,7 @@ public final class CameraStreamManager {
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private final AtomicBoolean desiredOn = new AtomicBoolean(false);
     private final AtomicBoolean pipelineOn = new AtomicBoolean(false);
+    private final AtomicBoolean restartQueued = new AtomicBoolean(false);
     private final Map<String, Object> stateListeners = new ConcurrentHashMap<>();
 
     private CameraJpegSource camera;
@@ -69,44 +71,80 @@ public final class CameraStreamManager {
             setStreamEnabled("true".equalsIgnoreCase(value));
             return;
         }
-        boolean needsRestart = pipelineOn.get();
-        switch (key) {
-            case "stream_format":
-                config.format = value.trim().toLowerCase();
-                break;
-            case "h264_encoder":
-                config.encoder = value.trim().toLowerCase();
-                break;
-            case "port":
-                config.port = clamp(parseInt(value, 8554), 1024, 65535);
-                break;
-            case "path":
-                config.path = value.trim();
-                break;
-            case "token":
-                config.token = value;
-                break;
-            case "use_front_camera":
-                config.useFrontCamera = "true".equalsIgnoreCase(value);
-                break;
-            case "fps":
-                config.fps = clamp(parseInt(value, 5), 1, 15);
-                break;
-            case "resolution":
-                config.resolution = clamp(parseInt(value, 480), 240, 720);
-                break;
-            case "jpeg_quality":
-                config.jpegQuality = clamp(parseInt(value, 75), 40, 95);
-                break;
-            case "bitrate_kbps":
-                config.bitrateKbps = clamp(parseInt(value, 800), 200, 4000);
-                break;
-            default:
-                return;
+        // Skip unchanged keys so a live pipeline is not restarted.
+        if (!applyStreamSetting(key, value)) {
+            return;
         }
         notifyUrlChanged();
-        if (needsRestart && desiredOn.get() && isMasterServiceRunning()) {
+        if (pipelineOn.get() && desiredOn.get() && isMasterServiceRunning()) {
             restartStream();
+        }
+    }
+
+    /** @return true if a live setting actually changed. */
+    private boolean applyStreamSetting(String key, String value) {
+        switch (key) {
+            case "stream_format": {
+                String next = value.trim().toLowerCase();
+                if (next.equals(config.format)) return false;
+                config.format = next;
+                return true;
+            }
+            case "h264_encoder": {
+                String next = value.trim().toLowerCase();
+                if (next.equals(config.encoder)) return false;
+                config.encoder = next;
+                return true;
+            }
+            case "port": {
+                int next = clamp(parseInt(value, 8554), 1024, 65535);
+                if (next == config.port) return false;
+                config.port = next;
+                return true;
+            }
+            case "path": {
+                String next = value.trim();
+                if (next.equals(config.path)) return false;
+                config.path = next;
+                return true;
+            }
+            case "token": {
+                if (Objects.equals(value, config.token)) return false;
+                config.token = value;
+                return true;
+            }
+            case "use_front_camera": {
+                boolean next = "true".equalsIgnoreCase(value);
+                if (next == config.useFrontCamera) return false;
+                config.useFrontCamera = next;
+                return true;
+            }
+            case "fps": {
+                int next = clamp(parseInt(value, 5), 1, 15);
+                if (next == config.fps) return false;
+                config.fps = next;
+                return true;
+            }
+            case "resolution": {
+                int next = clamp(parseInt(value, 480), 240, 720);
+                if (next == config.resolution) return false;
+                config.resolution = next;
+                return true;
+            }
+            case "jpeg_quality": {
+                int next = clamp(parseInt(value, 75), 40, 95);
+                if (next == config.jpegQuality) return false;
+                config.jpegQuality = next;
+                return true;
+            }
+            case "bitrate_kbps": {
+                int next = clamp(parseInt(value, 800), 200, 4000);
+                if (next == config.bitrateKbps) return false;
+                config.bitrateKbps = next;
+                return true;
+            }
+            default:
+                return false;
         }
     }
 
@@ -175,14 +213,21 @@ public final class CameraStreamManager {
     }
 
     public void restartStream() {
+        if (!restartQueued.compareAndSet(false, true)) {
+            return;
+        }
         executor.execute(() -> {
-            stopPipelineSync();
-            if (desiredOn.get() && isMasterServiceRunning()) {
-                startPipelineSync();
-            } else if (desiredOn.get() && !isMasterServiceRunning()) {
-                desiredOn.set(false);
-                notifyState("stream", false);
-                setLastError("Voice satellite service is not running");
+            try {
+                stopPipelineSync();
+                if (desiredOn.get() && isMasterServiceRunning()) {
+                    startPipelineSync();
+                } else if (desiredOn.get() && !isMasterServiceRunning()) {
+                    desiredOn.set(false);
+                    notifyState("stream", false);
+                    setLastError("Voice satellite service is not running");
+                }
+            } finally {
+                restartQueued.set(false);
             }
         });
     }
@@ -269,12 +314,20 @@ public final class CameraStreamManager {
                     }
                     camera.setEncoderSurface(encoder.getInputSurface());
                     rtspServer = new RtspServer(config, encoder);
+                    if (!rtspServer.start()) {
+                        setLastError("RTSP listen failed on port " + config.port);
+                        releaseAllLocked();
+                        return;
+                    }
                     camera.start();
-                    rtspServer.start();
                 } else {
                     mjpegServer = new MjpegHttpServer(config, camera);
+                    if (!mjpegServer.start()) {
+                        setLastError("MJPEG listen failed on port " + config.port);
+                        releaseAllLocked();
+                        return;
+                    }
                     camera.start();
-                    mjpegServer.start();
                 }
                 // Service may have died while we were opening the camera.
                 if (!isMasterServiceRunning()) {
