@@ -62,15 +62,7 @@ public final class CameraVisionManager {
      * values, so manifest defaults never reach us. Act on our own defaults instead.
      */
     private void autoStart() {
-        if (config.qrEnabled && qrScanner == null) {
-            qrScanner = new QrScanner();
-        }
-        if (config.faceEnabled && faceEngine == null) {
-            faceEngine = new FaceEngine(context, config.faceRange);
-        }
-        if (config.gestureEnabled && gestureEngine == null) {
-            gestureEngine = new GestureEngine(context);
-        }
+        ensureEngines();
         if (config.cameraEnabled) {
             startCameraSync();
         }
@@ -185,9 +177,7 @@ public final class CameraVisionManager {
     public void enableQr() {
         config.qrEnabled = true;
         notifyState("qr_scanning", true);
-        executor.execute(() -> {
-            if (qrScanner == null) qrScanner = new QrScanner();
-        });
+        executor.execute(this::ensureEngines);
         ensureCameraForDetection();
     }
 
@@ -199,9 +189,7 @@ public final class CameraVisionManager {
     public void enableFace() {
         config.faceEnabled = true;
         notifyState("face_detection", true);
-        executor.execute(() -> {
-            if (faceEngine == null) faceEngine = new FaceEngine(context, config.faceRange);
-        });
+        executor.execute(this::ensureEngines);
         ensureCameraForDetection();
     }
 
@@ -220,9 +208,7 @@ public final class CameraVisionManager {
     public void enableGesture() {
         config.gestureEnabled = true;
         notifyState("gesture_detection", true);
-        executor.execute(() -> {
-            if (gestureEngine == null) gestureEngine = new GestureEngine(context);
-        });
+        executor.execute(this::ensureEngines);
         ensureCameraForDetection();
     }
 
@@ -471,16 +457,24 @@ public final class CameraVisionManager {
         }
     }
 
-    /** Build engines on the detect thread if a switch is on but the model never loaded. */
+    /**
+     * Build engines on the detect thread if a switch is on but the model never loaded.
+     * A failed engine is still kept so a broken model does not rebuild every frame;
+     * its reason is published to the Vision Error sensor instead.
+     */
     private void ensureEngines() {
         if (config.qrEnabled && qrScanner == null) {
             qrScanner = new QrScanner();
         }
         if (config.faceEnabled && faceEngine == null) {
-            faceEngine = new FaceEngine(context, config.faceRange);
+            FaceEngine engine = new FaceEngine(context, config.faceRange);
+            faceEngine = engine;
+            if (!engine.isReady()) setLastError(engine.getError());
         }
         if (config.gestureEnabled && gestureEngine == null) {
-            gestureEngine = new GestureEngine(context);
+            GestureEngine engine = new GestureEngine(context);
+            gestureEngine = engine;
+            if (!engine.isReady()) setLastError(engine.getError());
         }
     }
 

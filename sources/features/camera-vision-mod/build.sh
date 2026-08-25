@@ -4,10 +4,11 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SRC_DIR="$SCRIPT_DIR/src"
 OUT_DIR="$SCRIPT_DIR/build"
-RELEASE_DIR="$SCRIPT_DIR/../../mods/features/camera-vision-mod"
+RELEASE_DIR="$SCRIPT_DIR/../../../mods/features/camera-vision-mod"
 
 ANDROID_JAR="${ANDROID_HOME:-/opt/android-sdk}/platforms/android-34/android.jar"
 TFLITE_JAR="${SCRIPT_DIR}/deps/tensorflow-lite.jar"
+TFLITE_API_JAR="${SCRIPT_DIR}/deps/tensorflow-lite-api.jar"
 ZXING_JAR="${SCRIPT_DIR}/deps/zxing-core.jar"
 
 if [ ! -f "$ANDROID_JAR" ]; then
@@ -16,50 +17,97 @@ if [ ! -f "$ANDROID_JAR" ]; then
     exit 1
 fi
 
+if [ ! -f "$ZXING_JAR" ]; then
+    echo "ERROR: zxing-core.jar missing from deps/ — QR decode would crash at runtime"
+    exit 1
+fi
+
+# d8 needs JDK 17+; the default `java` on this machine may still be 8.
+if [ -z "${JAVA_HOME:-}" ] || ! "${JAVA_HOME}/bin/java" -version 2>&1 | grep -qE '"(1[7-9]|[2-9][0-9])'; then
+    for candidate in \
+        /Library/Java/JavaVirtualMachines/temurin-24.jdk/Contents/Home \
+        "$HOME/Library/Java/JavaVirtualMachines/jbr-17.0.9/Contents/Home" \
+        "/Applications/Android Studio.app/Contents/jbr/Contents/Home"; do
+        if [ -x "$candidate/bin/java" ]; then
+            export JAVA_HOME="$candidate"
+            break
+        fi
+    done
+fi
+echo "==> JAVA_HOME=${JAVA_HOME:-<system default>}"
+
 rm -rf "$OUT_DIR"
 mkdir -p "$OUT_DIR/classes"
 
-CLASSPATH="$ANDROID_JAR"
-if [ -f "$TFLITE_JAR" ]; then
-    CLASSPATH="$CLASSPATH:$TFLITE_JAR"
-fi
-if [ -f "$ZXING_JAR" ]; then
-    CLASSPATH="$CLASSPATH:$ZXING_JAR"
-fi
+JAVAC="${JAVA_HOME:+$JAVA_HOME/bin/}javac"
+CLASSPATH="$ANDROID_JAR:$TFLITE_JAR:$TFLITE_API_JAR:$ZXING_JAR"
 
 echo "==> Compiling Java sources..."
 find "$SRC_DIR" -name "*.java" > "$OUT_DIR/sources.txt"
-javac \
+"$JAVAC" \
     -source 11 -target 11 \
     -classpath "$CLASSPATH" \
     -d "$OUT_DIR/classes" \
     @"$OUT_DIR/sources.txt"
 
-echo "==> Converting to DEX..."
+# ZXing is dexed into the mod because the host APK does not ship it. TFLite is only
+# a compile reference — the host provides those classes and its native library.
+echo "==> Converting to DEX (bundling ZXing)..."
 d8 --min-api 24 \
+    --lib "$ANDROID_JAR" \
+    --classpath "$TFLITE_JAR" \
+    --classpath "$TFLITE_API_JAR" \
     --output "$OUT_DIR" \
+    "$ZXING_JAR" \
     $(find "$OUT_DIR/classes" -name "*.class")
 
-echo "==> Packaging JAR..."
-mkdir -p "$OUT_DIR/jar"
+# Models ride inside the JAR: the host only fetches manifest "libs" entries, and
+# ModCameraStreamBridge withholds camera ownership unless every entry is a .jar.
+echo "==> Packaging JAR with bundled models..."
+mkdir -p "$OUT_DIR/jar/models"
 cp "$OUT_DIR/classes.dex" "$OUT_DIR/jar/"
-(cd "$OUT_DIR/jar" && jar cf "$OUT_DIR/camera-vision.jar" classes.dex)
+cp "$SCRIPT_DIR"/models/*.tflite "$OUT_DIR/jar/models/"
+(cd "$OUT_DIR/jar" && jar cf "$OUT_DIR/camera-vision.jar" classes.dex models)
 
 echo "==> Assembling release package..."
 rm -rf "$RELEASE_DIR"
 mkdir -p "$RELEASE_DIR/libs"
-mkdir -p "$RELEASE_DIR/models"
 
 cp "$OUT_DIR/camera-vision.jar" "$RELEASE_DIR/libs/"
 cp "$SCRIPT_DIR/manifest.json" "$RELEASE_DIR/manifest.json"
 
-echo "==> Bundling models..."
-cp "$SCRIPT_DIR/models/face_detection_full_range_sparse.tflite" "$RELEASE_DIR/models/"
-cp "$SCRIPT_DIR/models/face_detection_short_range.tflite" "$RELEASE_DIR/models/"
-cp "$SCRIPT_DIR/models/palm_detection_lite.tflite" "$RELEASE_DIR/models/"
-cp "$SCRIPT_DIR/models/hand_landmark_lite.tflite" "$RELEASE_DIR/models/"
-
 JAR_HASH=$(md5sum "$RELEASE_DIR/libs/camera-vision.jar" 2>/dev/null | cut -d' ' -f1 || md5 -q "$RELEASE_DIR/libs/camera-vision.jar" 2>/dev/null || echo "")
+
+# The JAR hash changes on every build, so sync store.json here instead of by hand.
+STORE_JSON="$SCRIPT_DIR/../../../store.json"
+python3 - "$STORE_JSON" "$SCRIPT_DIR/manifest.json" "$JAR_HASH" <<'PY'
+import json
+import re
+import sys
+
+store_path, manifest_path, jar_hash = sys.argv[1], sys.argv[2], sys.argv[3]
+version = json.load(open(manifest_path))["version"]
+text = open(store_path).read()
+
+# Patch in place rather than re-serializing, so the diff stays to two lines.
+entry = re.search(
+    r'\{[^{}]*"id":\s*"camera-vision-mod"[^{}]*\}', text, re.DOTALL)
+if not entry:
+    sys.exit("camera-vision-mod entry not found in store.json")
+
+patched = re.sub(r'("version":\s*")[^"]*(")',
+                 lambda m: m.group(1) + version + m.group(2), entry.group(0), count=1)
+patched, n = re.subn(r'("jar_hash":\s*")[^"]*(")',
+                     lambda m: m.group(1) + jar_hash + m.group(2), patched, count=1)
+if n != 1:
+    sys.exit("jar_hash key missing from camera-vision-mod entry")
+
+text = text[:entry.start()] + patched + text[entry.end():]
+json.loads(text)
+open(store_path, "w").write(text)
+print(f"==> store.json synced: version={version} jar_hash={jar_hash}")
+PY
+
 echo "==> Done. JAR hash: $JAR_HASH"
 echo "    Release: $RELEASE_DIR"
 echo ""

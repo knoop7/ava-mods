@@ -6,79 +6,113 @@ import android.util.Log;
 
 import org.tensorflow.lite.Interpreter;
 
+import java.io.File;
 import java.io.FileInputStream;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
+/**
+ * BlazeFace detector. Input size and anchor count are read from the model at load
+ * time: short-range is 128x128 with 896 anchors, full-range sparse is 192x192 with
+ * 2304, and hardcoding either one silently breaks the other.
+ */
 public final class FaceEngine {
 
     private static final String TAG = "FaceEngine";
-    private static final String MODEL_SHORT = "face_detection_short_range.tflite";
-    private static final String MODEL_SPARSE = "face_detection_full_range_sparse.tflite";
-    private static final int INPUT_SIZE = 128;
     private static final float CONFIDENCE_THRESHOLD = 0.5f;
     private static final float IOU_THRESHOLD = 0.3f;
 
     private Interpreter interpreter;
-    private final List<float[]> anchors;
-    private final int inputSize;
+    private List<float[]> anchors;
+    private int inputSize;
+    private int numAnchors;
+    private int regressorStride;
+    private String error = "";
 
     public static final class Result {
         public final int count;
-        public Result(int count) { this.count = count; }
+
+        public Result(int count) {
+            this.count = count;
+        }
     }
 
     public FaceEngine(Context context, String range) {
-        inputSize = INPUT_SIZE;
-        String modelName = "sparse".equals(range) ? MODEL_SPARSE : MODEL_SHORT;
-        anchors = generateAnchors();
+        String name = "short".equals(range) ? ModelStore.FACE_SHORT : ModelStore.FACE_SPARSE;
+        File modelFile = ModelStore.require(context, name);
+        if (modelFile == null) {
+            error = "Face model unavailable: " + name;
+            Log.e(TAG, error);
+            return;
+        }
         try {
-            java.io.File modelFile = resolveModelFile(context, modelName);
-            if (modelFile == null || !modelFile.exists()) {
-                Log.e(TAG, "Model not found: " + modelName);
-                interpreter = null;
+            Interpreter candidate = new Interpreter(map(modelFile), buildOptions());
+            int[] in = candidate.getInputTensor(0).shape();
+            int[] out = candidate.getOutputTensor(0).shape();
+            if (in.length < 3 || out.length < 3) {
+                candidate.close();
+                error = "Unexpected face model tensors";
+                Log.e(TAG, error);
                 return;
             }
-            MappedByteBuffer model = loadModelFromFile(modelFile);
-            Interpreter.Options opts = new Interpreter.Options();
-            opts.setNumThreads(2);
-            opts.setUseXNNPACK(true);
-            interpreter = new Interpreter(model, opts);
+            inputSize = in[1];
+            numAnchors = out[1];
+            regressorStride = out[2];
+            anchors = SsdAnchors.forModel(inputSize, numAnchors);
+            if (anchors == null) {
+                candidate.close();
+                error = "No anchor layout for " + inputSize + "/" + numAnchors;
+                Log.e(TAG, error);
+                return;
+            }
+            interpreter = candidate;
+            Log.i(TAG, "Face model " + name + " " + inputSize + "px anchors=" + numAnchors);
         } catch (Exception e) {
-            Log.e(TAG, "Model load failed: " + e.getMessage());
+            error = String.valueOf(e.getMessage());
+            Log.e(TAG, "Face model load failed", e);
             interpreter = null;
         }
     }
 
+    public boolean isReady() {
+        return interpreter != null;
+    }
+
+    public String getError() {
+        return error;
+    }
+
     public Result detect(Bitmap bitmap) {
-        if (interpreter == null) return new Result(0);
+        Interpreter local = interpreter;
+        if (local == null) return new Result(0);
 
         Bitmap scaled = Bitmap.createScaledBitmap(bitmap, inputSize, inputSize, true);
-        ByteBuffer input = toByteBuffer(scaled);
+        ByteBuffer input = toByteBuffer(scaled, inputSize);
         if (scaled != bitmap) scaled.recycle();
 
-        float[][][] regressors = new float[1][896][16];
-        float[][][] classifiers = new float[1][896][1];
+        float[][][] regressors = new float[1][numAnchors][regressorStride];
+        float[][][] scores = new float[1][numAnchors][1];
 
-        Object[] inputs = { input };
-        java.util.Map<Integer, Object> outputs = new java.util.HashMap<>();
+        Map<Integer, Object> outputs = new HashMap<>();
         outputs.put(0, regressors);
-        outputs.put(1, classifiers);
+        outputs.put(1, scores);
 
         try {
-            interpreter.runForMultipleInputsOutputs(inputs, outputs);
+            local.runForMultipleInputsOutputs(new Object[] { input }, outputs);
         } catch (Exception e) {
-            Log.w(TAG, "Inference error: " + e.getMessage());
+            Log.w(TAG, "Face inference error: " + e.getMessage());
             return new Result(0);
         }
 
-        List<float[]> detections = new ArrayList<>();
-        for (int i = 0; i < Math.min(896, anchors.size()); i++) {
-            float score = sigmoid(classifiers[0][i][0]);
+        List<float[]> hits = new ArrayList<>();
+        for (int i = 0; i < numAnchors; i++) {
+            float score = sigmoid(scores[0][i][0]);
             if (score < CONFIDENCE_THRESHOLD) continue;
 
             float[] anchor = anchors.get(i);
@@ -86,54 +120,38 @@ public final class FaceEngine {
             float cy = (anchor[1] + regressors[0][i][1]) / inputSize;
             float w = regressors[0][i][2] / inputSize;
             float h = regressors[0][i][3] / inputSize;
+            if (w <= 0.02f || h <= 0.02f) continue;
 
-            float left = cx - w / 2f;
-            float top = cy - h / 2f;
-            float right = cx + w / 2f;
-            float bottom = cy + h / 2f;
-
-            if (right > left && bottom > top && w > 0.02f && h > 0.02f) {
-                detections.add(new float[]{ score, left, top, right, bottom });
-            }
+            hits.add(new float[] {
+                    score, cx - w / 2f, cy - h / 2f, cx + w / 2f, cy + h / 2f
+            });
         }
 
-        List<float[]> nms = nms(detections);
-        return new Result(nms.size());
+        return new Result(nms(hits).size());
     }
 
     public void close() {
-        if (interpreter != null) {
-            interpreter.close();
-            interpreter = null;
-        }
+        Interpreter local = interpreter;
+        interpreter = null;
+        if (local != null) local.close();
     }
 
-    private List<float[]> generateAnchors() {
-        List<float[]> result = new ArrayList<>();
-        int[] strides = { 8, 16 };
-        int[] anchorCounts = { 2, 6 };
-        for (int idx = 0; idx < strides.length; idx++) {
-            int stride = strides[idx];
-            int gridSize = inputSize / stride;
-            int count = anchorCounts[idx];
-            for (int y = 0; y < gridSize; y++) {
-                for (int x = 0; x < gridSize; x++) {
-                    float cx = (x + 0.5f) * stride;
-                    float cy = (y + 0.5f) * stride;
-                    for (int n = 0; n < count; n++) {
-                        result.add(new float[]{ cx, cy });
-                    }
-                }
-            }
+    private static Interpreter.Options buildOptions() {
+        Interpreter.Options opts = new Interpreter.Options();
+        opts.setNumThreads(2);
+        try {
+            opts.setUseXNNPACK(true);
+        } catch (Throwable t) {
+            Log.w(TAG, "XNNPACK unavailable: " + t.getMessage());
         }
-        return result;
+        return opts;
     }
 
-    private ByteBuffer toByteBuffer(Bitmap bitmap) {
-        ByteBuffer buffer = ByteBuffer.allocateDirect(1 * inputSize * inputSize * 3 * 4);
+    private static ByteBuffer toByteBuffer(Bitmap bitmap, int size) {
+        ByteBuffer buffer = ByteBuffer.allocateDirect(size * size * 3 * 4);
         buffer.order(ByteOrder.nativeOrder());
-        int[] pixels = new int[inputSize * inputSize];
-        bitmap.getPixels(pixels, 0, inputSize, 0, 0, inputSize, inputSize);
+        int[] pixels = new int[size * size];
+        bitmap.getPixels(pixels, 0, size, 0, 0, size, size);
         for (int pixel : pixels) {
             buffer.putFloat(((pixel >> 16) & 0xFF) / 127.5f - 1f);
             buffer.putFloat(((pixel >> 8) & 0xFF) / 127.5f - 1f);
@@ -147,50 +165,42 @@ public final class FaceEngine {
         return 1f / (1f + (float) Math.exp(-x));
     }
 
-    private static List<float[]> nms(List<float[]> detections) {
-        if (detections.isEmpty()) return detections;
-        detections.sort((a, b) -> Float.compare(b[0], a[0]));
-        List<float[]> result = new ArrayList<>();
-        boolean[] suppressed = new boolean[detections.size()];
-        for (int i = 0; i < detections.size(); i++) {
-            if (suppressed[i]) continue;
-            result.add(detections.get(i));
-            for (int j = i + 1; j < detections.size(); j++) {
-                if (suppressed[j]) continue;
-                if (iou(detections.get(i), detections.get(j)) > IOU_THRESHOLD) {
-                    suppressed[j] = true;
+    private static List<float[]> nms(List<float[]> boxes) {
+        if (boxes.size() < 2) return boxes;
+        boxes.sort((a, b) -> Float.compare(b[0], a[0]));
+        List<float[]> kept = new ArrayList<>();
+        boolean[] dead = new boolean[boxes.size()];
+        for (int i = 0; i < boxes.size(); i++) {
+            if (dead[i]) continue;
+            kept.add(boxes.get(i));
+            for (int j = i + 1; j < boxes.size(); j++) {
+                if (!dead[j] && iou(boxes.get(i), boxes.get(j)) > IOU_THRESHOLD) {
+                    dead[j] = true;
                 }
             }
         }
-        return result;
+        return kept;
     }
 
     private static float iou(float[] a, float[] b) {
-        float interLeft = Math.max(a[1], b[1]);
-        float interTop = Math.max(a[2], b[2]);
-        float interRight = Math.min(a[3], b[3]);
-        float interBottom = Math.min(a[4], b[4]);
-        if (interRight <= interLeft || interBottom <= interTop) return 0f;
-        float interArea = (interRight - interLeft) * (interBottom - interTop);
-        float aArea = (a[3] - a[1]) * (a[4] - a[2]);
-        float bArea = (b[3] - b[1]) * (b[4] - b[2]);
-        return interArea / (aArea + bArea - interArea);
+        float left = Math.max(a[1], b[1]);
+        float top = Math.max(a[2], b[2]);
+        float right = Math.min(a[3], b[3]);
+        float bottom = Math.min(a[4], b[4]);
+        if (right <= left || bottom <= top) return 0f;
+        float inter = (right - left) * (bottom - top);
+        float areaA = (a[3] - a[1]) * (a[4] - a[2]);
+        float areaB = (b[3] - b[1]) * (b[4] - b[2]);
+        return inter / (areaA + areaB - inter);
     }
 
-    private static java.io.File resolveModelFile(Context context, String name) {
-        java.io.File modDir = new java.io.File(context.getFilesDir(), "mods/camera-vision-mod/models");
-        java.io.File f = new java.io.File(modDir, name);
-        if (f.exists()) return f;
-        java.io.File alt = new java.io.File(modDir.getParentFile(), name);
-        if (alt.exists()) return alt;
-        return f;
-    }
-
-    private static MappedByteBuffer loadModelFromFile(java.io.File file) throws Exception {
+    private static MappedByteBuffer map(File file) throws Exception {
         FileInputStream fis = new FileInputStream(file);
-        FileChannel channel = fis.getChannel();
-        MappedByteBuffer buffer = channel.map(FileChannel.MapMode.READ_ONLY, 0, file.length());
-        fis.close();
-        return buffer;
+        try {
+            FileChannel channel = fis.getChannel();
+            return channel.map(FileChannel.MapMode.READ_ONLY, 0, file.length());
+        } finally {
+            fis.close();
+        }
     }
 }
