@@ -1,0 +1,8 @@
+Dependencies required for compilation (compile-time only, not bundled at runtime):
+
+- tensorflow-lite.jar  : org.tensorflow:tensorflow-lite:2.16.1 (Maven Central)
+- zxing-core.jar       : com.google.zxing:core:3.5.3 (Maven Central)
+
+Fetch with:
+  curl -sL https://repo1.maven.org/maven2/com/google/zxing/core/3.5.3/core-3.5.3.jar -o zxing-core.jar
+  curl -sL https://repo1.maven.org/maven2/org/tensorflow/tensorflow-lite/2.16.1/tensorflow-lite-2.16.1.jar -o tensorflow-lite.jar

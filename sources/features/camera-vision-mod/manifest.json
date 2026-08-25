@@ -1,0 +1,153 @@
+{
+  "id": "camera-vision-mod",
+  "name": "Camera Vision",
+  "version": "1.0.0",
+  "author": "Ava",
+  "description": "QR code, face detection, and hand gesture recognition from the camera. All detection off by default.",
+  "detail_description": "Upgrade detection mod: BlazeFace Full Range Sparse (5m range, 30% faster), ZXing QR decode, and BlazePalm + Hand Landmark Lite gesture engine. All three features have independent switches defaulting to OFF for zero idle cost. Exposes decoded QR content, HA tag IDs, face count, person presence, and open-palm gesture to Home Assistant. Uses XNNPACK acceleration and frame-rate-separated pipelines for optimal performance on wall-mounted tablets.",
+  "icon": "mdi:eye",
+  "camera_stream": true,
+  "libs": [
+    "libs/camera-vision.jar"
+  ],
+  "models": [
+    "models/face_detection_full_range_sparse.tflite",
+    "models/face_detection_short_range.tflite",
+    "models/palm_detection_lite.tflite",
+    "models/hand_landmark_lite.tflite"
+  ],
+  "manager": "com.ava.mods.vision.CameraVisionManager",
+  "permissions": [
+    "android.permission.CAMERA"
+  ],
+  "entities": [
+    {
+      "type": "switch",
+      "id": "qr_scanning",
+      "name": "QR Scanning",
+      "icon": "mdi:qrcode-scan",
+      "on": "enableQr",
+      "off": "disableQr",
+      "read": "isQrEnabled"
+    },
+    {
+      "type": "switch",
+      "id": "face_detection",
+      "name": "Face Detection",
+      "icon": "mdi:face-recognition",
+      "on": "enableFace",
+      "off": "disableFace",
+      "read": "isFaceEnabled"
+    },
+    {
+      "type": "switch",
+      "id": "gesture_detection",
+      "name": "Gesture Detection",
+      "icon": "mdi:hand-wave",
+      "on": "enableGesture",
+      "off": "disableGesture",
+      "read": "isGestureEnabled"
+    },
+    {
+      "type": "text_sensor",
+      "id": "last_qr",
+      "name": "Last QR Code",
+      "icon": "mdi:qrcode",
+      "read": "getLastQr"
+    },
+    {
+      "type": "text_sensor",
+      "id": "ha_tag_id",
+      "name": "HA Tag ID",
+      "icon": "mdi:tag",
+      "read": "getLastTagId"
+    },
+    {
+      "type": "sensor",
+      "id": "qr_scan_count",
+      "name": "QR Scan Count",
+      "icon": "mdi:counter",
+      "unit": "",
+      "read": "getQrScanCount"
+    },
+    {
+      "type": "binary_sensor",
+      "id": "face_detected",
+      "name": "Person Detected",
+      "icon": "mdi:account",
+      "class": "occupancy",
+      "read": "hasFace"
+    },
+    {
+      "type": "sensor",
+      "id": "face_count",
+      "name": "Face Count",
+      "icon": "mdi:account-multiple",
+      "unit": "",
+      "read": "getFaceCount"
+    },
+    {
+      "type": "text_sensor",
+      "id": "gesture",
+      "name": "Gesture",
+      "icon": "mdi:hand-wave",
+      "read": "getGesture"
+    },
+    {
+      "type": "binary_sensor",
+      "id": "open_palm",
+      "name": "Open Palm",
+      "icon": "mdi:hand-back-right",
+      "class": "presence",
+      "read": "hasOpenPalm"
+    }
+  ],
+  "config": [
+    {
+      "type": "switch",
+      "key": "qr_enabled",
+      "label": "QR Detection",
+      "description": "Decode QR codes from camera frames. Exposes content and HA tag IDs.",
+      "defaultValue": "false"
+    },
+    {
+      "type": "switch",
+      "key": "face_enabled",
+      "label": "Face Detection",
+      "description": "BlazeFace Full Range Sparse: detects faces up to 5m with XNNPACK acceleration.",
+      "defaultValue": "false"
+    },
+    {
+      "type": "switch",
+      "key": "gesture_enabled",
+      "label": "Gesture Detection",
+      "description": "Palm + 21-point hand landmark: detects open palm (5 fingers) gesture.",
+      "defaultValue": "false"
+    },
+    {
+      "type": "number",
+      "key": "qr_cooldown_sec",
+      "label": "QR Cooldown (seconds)",
+      "description": "Minimum seconds between reporting the same QR code again",
+      "defaultValue": "5",
+      "min": 1,
+      "max": 60,
+      "step": 1
+    },
+    {
+      "type": "select",
+      "key": "face_range",
+      "label": "Face Model Range",
+      "description": "short = 2m selfie range, sparse = 5m back-camera range",
+      "defaultValue": "sparse",
+      "options": ["short", "sparse"]
+    },
+    {
+      "type": "switch",
+      "key": "parse_ha_tags",
+      "label": "Parse HA Tag URLs",
+      "description": "Extract tag ID from home-assistant.io/tag/ URLs",
+      "defaultValue": "true"
+    }
+  ]
+}
