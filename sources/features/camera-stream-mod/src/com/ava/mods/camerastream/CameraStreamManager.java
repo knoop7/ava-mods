@@ -120,13 +120,13 @@ public final class CameraStreamManager {
                 return true;
             }
             case "fps": {
-                int next = clamp(parseInt(value, 5), 1, 15);
+                int next = clamp(parseInt(value, 5), 1, 30);
                 if (next == config.fps) return false;
                 config.fps = next;
                 return true;
             }
             case "resolution": {
-                int next = clamp(parseInt(value, 480), 240, 720);
+                int next = clamp(parseInt(value, 480), 240, 1080);
                 if (next == config.resolution) return false;
                 config.resolution = next;
                 return true;
@@ -138,7 +138,7 @@ public final class CameraStreamManager {
                 return true;
             }
             case "bitrate_kbps": {
-                int next = clamp(parseInt(value, 800), 200, 4000);
+                int next = clamp(parseInt(value, 800), 200, 10000);
                 if (next == config.bitrateKbps) return false;
                 config.bitrateKbps = next;
                 return true;

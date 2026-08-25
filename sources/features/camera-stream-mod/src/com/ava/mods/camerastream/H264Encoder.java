@@ -79,7 +79,7 @@ public final class H264Encoder {
 
     public synchronized boolean start() {
         if (running.get()) return inputSurface != null;
-        int shortEdge = Math.max(240, Math.min(config.resolution, 720));
+        int shortEdge = Math.max(240, Math.min(config.resolution, 1080));
         // 4:3 capture size commonly available
         width = shortEdge * 4 / 3;
         height = shortEdge;
@@ -114,7 +114,7 @@ public final class H264Encoder {
                 MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface);
         format.setInteger(MediaFormat.KEY_BIT_RATE,
                 Math.max(200_000, config.bitrateKbps * 1000));
-        format.setInteger(MediaFormat.KEY_FRAME_RATE, Math.max(1, Math.min(config.fps, 15)));
+        format.setInteger(MediaFormat.KEY_FRAME_RATE, Math.max(1, Math.min(config.fps, 30)));
         format.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1);
         format.setInteger(MediaFormat.KEY_BITRATE_MODE,
                 MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_VBR);

@@ -23,8 +23,8 @@ public final class StreamConfig {
     public volatile int bitrateKbps = 800;
 
     public int frameIntervalMs() {
-        int safeFps = Math.max(1, Math.min(fps, 15));
-        return Math.max(66, 1000 / safeFps);
+        int safeFps = Math.max(1, Math.min(fps, 30));
+        return Math.max(33, 1000 / safeFps);
     }
 
     public String normalizedFormat() {
