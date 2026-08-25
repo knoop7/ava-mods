@@ -111,7 +111,7 @@
       "detail_description": "Upgrade detection mod: BlazeFace Full Range Sparse (5m range, 30% faster), ZXing QR decode, and BlazePalm + Hand Landmark Lite gesture engine. All three features have independent switches defaulting to OFF for zero idle cost. Exposes decoded QR content, HA tag IDs, face count, person presence, and open-palm gesture to Home Assistant. Uses XNNPACK acceleration and frame-rate-separated pipelines for optimal performance on wall-mounted tablets.",
       "path": "mods/features/camera-vision-mod/",
       "icon": "mdi:eye",
-      "jar_hash": "84d1728202edc074cb9731ef923b6c25"
+      "jar_hash": "ad314b0e13306e376873c2ea28cf7d21"
     },
     {
       "id": "ble-adv-proxy",
