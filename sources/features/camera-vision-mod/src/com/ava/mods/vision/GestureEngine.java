@@ -12,6 +12,7 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -35,14 +36,32 @@ public final class GestureEngine {
     private static final float HAND_SCALE = 2.6f;
     private static final float HAND_SHIFT_Y = -0.5f;
 
-    /** Index triples of tip / dip / pip per finger, thumb first. */
-    private static final int[][] FINGERS = {
-            { 4, 3, 2 },
-            { 8, 7, 6 },
-            { 12, 11, 10 },
-            { 16, 15, 14 },
-            { 20, 19, 18 }
+    private static final float HAND_PRESENCE_THRESHOLD = 0.5f;
+
+    private static final int WRIST = 0;
+    private static final int THUMB_MCP = 2;
+    private static final int THUMB_TIP = 4;
+    private static final int MIDDLE_MCP = 9;
+    private static final int PINKY_MCP = 17;
+
+    /** Tip and PIP joint of index, middle, ring and pinky. */
+    private static final int[][] FINGER_TIP_PIP = {
+            { 8, 6 },
+            { 12, 10 },
+            { 16, 14 },
+            { 20, 18 }
     };
+
+    private static final float FINGER_MARGIN = 0.15f;
+    private static final float THUMB_MARGIN = 0.20f;
+
+    /**
+     * A single bad frame must not reach Home Assistant, so a finger count is only
+     * published once it wins a majority of the recent frames.
+     */
+    private static final int VOTE_WINDOW = 5;
+    private static final int VOTE_MIN = 3;
+    private static final int NO_HAND = -1;
 
     private Interpreter palm;
     private Interpreter landmark;
@@ -53,6 +72,12 @@ public final class GestureEngine {
     private int landmarkInputSize;
     private int landmarkValues;
     private String error = "";
+
+    /** Pre-filled with NO_HAND so an empty window cannot vote itself a fist. */
+    private final int[] votes = newVoteWindow();
+    private int votePos;
+    private int stableFingers = NO_HAND;
+    private boolean loggedScalars;
 
     public static final class Result {
         public final String gesture;
@@ -120,15 +145,46 @@ public final class GestureEngine {
 
     public Result detect(Bitmap bitmap) {
         if (!isReady()) return new Result("", false, 0);
+        return stabilize(rawFingerCount(bitmap));
+    }
 
+    private int rawFingerCount(Bitmap bitmap) {
         float[] box = detectPalm(bitmap);
-        if (box == null) return new Result("none", false, 0);
+        if (box == null) return NO_HAND;
 
         float[][] points = detectLandmarks(bitmap, box);
-        if (points == null) return new Result("none", false, 0);
+        if (points == null) return NO_HAND;
 
-        int fingers = countExtendedFingers(points);
-        return new Result(gestureName(fingers), fingers == 5, fingers);
+        return countExtendedFingers(points);
+    }
+
+    /**
+     * Holds the previous verdict until a new one appears in a majority of the
+     * window, which is what stops the sensor from flickering between neighbouring
+     * counts on borderline frames.
+     */
+    private Result stabilize(int fingers) {
+        votes[votePos] = fingers;
+        votePos = (votePos + 1) % VOTE_WINDOW;
+
+        int best = NO_HAND;
+        int bestCount = 0;
+        for (int candidate = NO_HAND; candidate <= 5; candidate++) {
+            int seen = 0;
+            for (int vote : votes) {
+                if (vote == candidate) seen++;
+            }
+            if (seen > bestCount) {
+                bestCount = seen;
+                best = candidate;
+            }
+        }
+        if (bestCount >= VOTE_MIN) {
+            stableFingers = best;
+        }
+
+        if (stableFingers == NO_HAND) return new Result("none", false, 0);
+        return new Result(gestureName(stableFingers), stableFingers == 5, stableFingers);
     }
 
     private static String gestureName(int fingers) {
@@ -194,10 +250,20 @@ public final class GestureEngine {
     private float[][] detectLandmarks(Bitmap bitmap, float[] box) {
         int bw = bitmap.getWidth();
         int bh = bitmap.getHeight();
-        int x = Math.max(0, (int) (box[0] * bw));
-        int y = Math.max(0, (int) (box[1] * bh));
-        int w = Math.min((int) ((box[2] - box[0]) * bw), bw - x);
-        int h = Math.min((int) ((box[3] - box[1]) * bh), bh - y);
+
+        // The palm box is normalised against a square model input, so applying it
+        // straight to a 4:3 frame and rescaling to a square would squash the hand
+        // and skew every landmark distance. Crop a square in pixel space instead.
+        float centerX = (box[0] + box[2]) / 2f * bw;
+        float centerY = (box[1] + box[3]) / 2f * bh;
+        float sidePx = Math.max((box[2] - box[0]) * bw, (box[3] - box[1]) * bh);
+        if (sidePx < 2f) return null;
+
+        int side = Math.round(sidePx);
+        int x = Math.max(0, Math.min(Math.round(centerX - sidePx / 2f), bw - 1));
+        int y = Math.max(0, Math.min(Math.round(centerY - sidePx / 2f), bh - 1));
+        int w = Math.min(side, bw - x);
+        int h = Math.min(side, bh - y);
         if (w <= 1 || h <= 1) return null;
 
         Bitmap cropped = null;
@@ -208,10 +274,26 @@ public final class GestureEngine {
             ByteBuffer input = toByteBuffer(scaled, landmarkInputSize);
 
             float[][] raw = new float[1][landmarkValues];
+            float[][] presence = new float[1][1];
+            float[][] handedness = new float[1][1];
             Map<Integer, Object> outputs = new HashMap<>();
             outputs.put(0, raw);
+            outputs.put(1, presence);
+            outputs.put(2, handedness);
 
             landmark.runForMultipleInputsOutputs(new Object[] { input }, outputs);
+
+            // The converted model exposes both scalars as bare "Identity_N", so log
+            // them once to confirm which one is the hand flag on real hardware.
+            if (!loggedScalars) {
+                loggedScalars = true;
+                Log.i(TAG, "landmark scalars out1=" + sigmoid(presence[0][0])
+                        + " out2=" + sigmoid(handedness[0][0]));
+            }
+
+            // Without this gate the palm detector's false positives still yield a
+            // full set of landmarks, which then read as a confident random gesture.
+            if (sigmoid(presence[0][0]) < HAND_PRESENCE_THRESHOLD) return null;
 
             float[][] points = new float[LANDMARK_POINTS][3];
             for (int i = 0; i < LANDMARK_POINTS; i++) {
@@ -230,23 +312,37 @@ public final class GestureEngine {
     }
 
     /**
-     * Thumb extension is measured horizontally away from the wrist; the other four
-     * fingers count as extended when the tip sits above the middle joint.
+     * A finger counts as extended when its tip is farther from the wrist than its
+     * middle joint. Comparing distances instead of screen direction keeps the count
+     * correct when the hand is rotated or upside down. The thumb folds sideways
+     * rather than toward the wrist, so it is measured against the pinky knuckle.
+     * Both margins scale with the palm size so distance from the camera cancels out.
      */
     private int countExtendedFingers(float[][] p) {
-        int count = 0;
-        boolean leftHalf = p[0][0] < 0.5f;
-        float thumbTip = p[FINGERS[0][0]][0];
-        float thumbDip = p[FINGERS[0][1]][0];
-        boolean thumbOut = leftHalf
-                ? thumbTip > thumbDip + 0.02f
-                : thumbTip < thumbDip - 0.02f;
-        if (thumbOut) count++;
+        float palmSize = dist(p[WRIST], p[MIDDLE_MCP]);
+        if (palmSize <= 0f) return 0;
 
-        for (int f = 1; f < FINGERS.length; f++) {
-            if (p[FINGERS[f][0]][1] < p[FINGERS[f][2]][1] - 0.02f) count++;
+        int count = 0;
+        float thumbReach = dist(p[THUMB_TIP], p[PINKY_MCP]) - dist(p[THUMB_MCP], p[PINKY_MCP]);
+        if (thumbReach > palmSize * THUMB_MARGIN) count++;
+
+        for (int[] finger : FINGER_TIP_PIP) {
+            float reach = dist(p[WRIST], p[finger[0]]) - dist(p[WRIST], p[finger[1]]);
+            if (reach > palmSize * FINGER_MARGIN) count++;
         }
         return count;
+    }
+
+    private static int[] newVoteWindow() {
+        int[] window = new int[VOTE_WINDOW];
+        Arrays.fill(window, NO_HAND);
+        return window;
+    }
+
+    private static float dist(float[] a, float[] b) {
+        float dx = a[0] - b[0];
+        float dy = a[1] - b[1];
+        return (float) Math.sqrt(dx * dx + dy * dy);
     }
 
     public void close() {
