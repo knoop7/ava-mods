@@ -105,13 +105,13 @@
     {
       "id": "camera-vision-mod",
       "name": "Camera Vision",
-      "version": "1.0.0",
+      "version": "1.2.0",
       "author": "Ava",
-      "description": "QR code, face detection, and hand gesture recognition from the camera. All detection off by default.",
-      "detail_description": "Upgrade detection mod: BlazeFace Full Range Sparse (5m range, 30% faster), ZXing QR decode, and BlazePalm + Hand Landmark Lite gesture engine. All three features have independent switches defaulting to OFF for zero idle cost. Exposes decoded QR content, HA tag IDs, face count, person presence, and open-palm gesture to Home Assistant. Uses XNNPACK acceleration and frame-rate-separated pipelines for optimal performance on wall-mounted tablets.",
+      "description": "On-device camera with QR, face, and hand gesture detection. Live camera entity plus sensors in Home Assistant.",
+      "detail_description": "Owns the device camera and exposes it as a Home Assistant camera entity with selectable front/back lens, FPS, resolution, and JPEG quality. Runs BlazeFace Full Range Sparse (5m range) face detection, ZXing QR decode, and BlazePalm + Hand Landmark Lite open-palm gesture recognition - each with its own switch so you can turn any sensor off. Camera, face, and gesture default ON; QR defaults OFF. Screensaver Person Wake hooks face detection into Ava's screensaver: walk up and it dismisses, stay and it will not return, walk away and the idle countdown resumes - more reliable than the built-in brightness-difference probe it replaces.",
       "path": "mods/features/camera-vision-mod/",
       "icon": "mdi:eye",
-      "jar_hash": "ad314b0e13306e376873c2ea28cf7d21"
+      "jar_hash": "9953d706866a87e3289405e7ca2f2f02"
     },
     {
       "id": "ble-adv-proxy",

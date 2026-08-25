@@ -11,7 +11,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
 
 public final class CameraVisionManager {
 
@@ -20,16 +19,17 @@ public final class CameraVisionManager {
     private static volatile CameraVisionManager instance;
 
     private final Context context;
+    private final VisionConfig config = new VisionConfig();
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
+    private final ExecutorService detectExecutor = Executors.newSingleThreadExecutor();
     private final Map<String, Object> listeners = new ConcurrentHashMap<>();
+    private final AtomicBoolean detectBusy = new AtomicBoolean(false);
 
-    private final AtomicBoolean qrEnabled = new AtomicBoolean(false);
-    private final AtomicBoolean faceEnabled = new AtomicBoolean(false);
-    private final AtomicBoolean gestureEnabled = new AtomicBoolean(false);
-
+    private volatile VisionCamera camera;
     private volatile QrScanner qrScanner;
     private volatile FaceEngine faceEngine;
     private volatile GestureEngine gestureEngine;
+    private volatile ScreensaverBridge screensaver;
 
     private volatile String lastQr = "";
     private volatile String lastTagId = "";
@@ -38,10 +38,7 @@ public final class CameraVisionManager {
     private volatile int faceCount = 0;
     private volatile String gesture = "";
     private volatile boolean openPalm = false;
-
-    private volatile int qrCooldownSec = 5;
-    private volatile String faceRange = "sparse";
-    private volatile boolean parseHaTags = true;
+    private volatile byte[] lastJpeg;
     private volatile String lastError = "";
 
     private volatile long lastQrTime = 0;
@@ -51,11 +48,12 @@ public final class CameraVisionManager {
     private volatile long lastQrFrameTime = 0;
 
     private static final long FACE_INTERVAL_MS = 333;
-    private static final long GESTURE_INTERVAL_MS = 333;
+    private static final long GESTURE_INTERVAL_MS = 500;
     private static final long QR_INTERVAL_MS = 500;
 
     private CameraVisionManager(Context context) {
         this.context = context.getApplicationContext();
+        this.screensaver = new ScreensaverBridge(this.context.getClassLoader());
     }
 
     public static CameraVisionManager getInstance(Context context) {
@@ -71,98 +69,154 @@ public final class CameraVisionManager {
 
     public void applyConfig(String key, String value) {
         if (key == null || value == null) return;
+        boolean restartCamera = false;
         switch (key) {
+            case "camera_enabled":
+                if ("true".equalsIgnoreCase(value)) enableCamera(); else disableCamera();
+                return;
+            case "use_front_camera": {
+                boolean next = "true".equalsIgnoreCase(value);
+                if (next == config.useFrontCamera) return;
+                config.useFrontCamera = next;
+                restartCamera = true;
+                break;
+            }
+            case "fps": {
+                int next = clamp(parseInt(value, 5), 1, 30);
+                if (next == config.fps) return;
+                config.fps = next;
+                break;
+            }
+            case "resolution": {
+                int next = clamp(parseInt(value, 480), 240, 1080);
+                if (next == config.resolution) return;
+                config.resolution = next;
+                restartCamera = true;
+                break;
+            }
+            case "jpeg_quality": {
+                int next = clamp(parseInt(value, 75), 40, 95);
+                if (next == config.jpegQuality) return;
+                config.jpegQuality = next;
+                break;
+            }
             case "qr_enabled":
                 if ("true".equalsIgnoreCase(value)) enableQr(); else disableQr();
-                break;
+                return;
             case "face_enabled":
                 if ("true".equalsIgnoreCase(value)) enableFace(); else disableFace();
-                break;
+                return;
             case "gesture_enabled":
                 if ("true".equalsIgnoreCase(value)) enableGesture(); else disableGesture();
-                break;
+                return;
             case "qr_cooldown_sec":
-                try { qrCooldownSec = Math.max(1, Math.min(60, Integer.parseInt(value.trim()))); } catch (Exception ignored) {}
-                break;
-            case "face_range":
-                String prev = faceRange;
-                faceRange = "short".equalsIgnoreCase(value.trim()) ? "short" : "sparse";
-                if (!faceRange.equals(prev) && faceEnabled.get()) {
+                config.qrCooldownSec = clamp(parseInt(value, 5), 1, 60);
+                return;
+            case "face_range": {
+                String next = "short".equalsIgnoreCase(value.trim()) ? "short" : "sparse";
+                if (next.equals(config.faceRange)) return;
+                config.faceRange = next;
+                if (config.faceEnabled) {
                     executor.execute(this::reloadFaceModel);
                 }
-                break;
+                return;
+            }
             case "parse_ha_tags":
-                parseHaTags = "true".equalsIgnoreCase(value);
-                break;
+                config.parseHaTags = "true".equalsIgnoreCase(value);
+                return;
+            case "screensaver_wake": {
+                boolean next = "true".equalsIgnoreCase(value);
+                config.screensaverWake = next;
+                ScreensaverBridge bridge = screensaver;
+                if (!next && bridge != null) bridge.reset();
+                notifyState("screensaver_wake", next);
+                return;
+            }
+            default:
+                return;
         }
+        if (restartCamera && config.cameraEnabled) {
+            executor.execute(this::restartCameraSync);
+        }
+    }
+
+    public void enableCamera() {
+        if (config.cameraEnabled && camera != null && camera.isRunning()) return;
+        config.cameraEnabled = true;
+        notifyState("camera_switch", true);
+        executor.execute(this::startCameraSync);
+    }
+
+    public void disableCamera() {
+        config.cameraEnabled = false;
+        notifyState("camera_switch", false);
+        executor.execute(this::stopCameraSync);
+    }
+
+    public boolean isCameraEnabled() {
+        VisionCamera c = camera;
+        return config.cameraEnabled && c != null && c.isRunning();
     }
 
     public void enableQr() {
-        if (qrEnabled.compareAndSet(false, true)) {
-            executor.execute(() -> {
-                if (qrScanner == null) {
-                    qrScanner = new QrScanner();
-                }
-            });
-            notifyState("qr_scanning", true);
-        }
+        config.qrEnabled = true;
+        notifyState("qr_scanning", true);
+        executor.execute(() -> {
+            if (qrScanner == null) qrScanner = new QrScanner();
+        });
+        ensureCameraForDetection();
     }
 
     public void disableQr() {
-        if (qrEnabled.compareAndSet(true, false)) {
-            notifyState("qr_scanning", false);
-        }
+        config.qrEnabled = false;
+        notifyState("qr_scanning", false);
     }
 
     public void enableFace() {
-        if (faceEnabled.compareAndSet(false, true)) {
-            executor.execute(() -> {
-                if (faceEngine == null) {
-                    faceEngine = new FaceEngine(context, faceRange);
-                }
-            });
-            notifyState("face_detection", true);
-        }
+        config.faceEnabled = true;
+        notifyState("face_detection", true);
+        executor.execute(() -> {
+            if (faceEngine == null) faceEngine = new FaceEngine(context, config.faceRange);
+        });
+        ensureCameraForDetection();
     }
 
     public void disableFace() {
-        if (faceEnabled.compareAndSet(true, false)) {
-            executor.execute(() -> {
-                if (faceEngine != null) {
-                    faceEngine.close();
-                    faceEngine = null;
-                }
-            });
-            notifyState("face_detection", false);
-        }
+        config.faceEnabled = false;
+        notifyState("face_detection", false);
+        executor.execute(() -> {
+            if (faceEngine != null) {
+                faceEngine.close();
+                faceEngine = null;
+            }
+        });
+        resetFaceState();
     }
 
     public void enableGesture() {
-        if (gestureEnabled.compareAndSet(false, true)) {
-            executor.execute(() -> {
-                if (gestureEngine == null) {
-                    gestureEngine = new GestureEngine(context);
-                }
-            });
-            notifyState("gesture_detection", true);
-        }
+        config.gestureEnabled = true;
+        notifyState("gesture_detection", true);
+        executor.execute(() -> {
+            if (gestureEngine == null) gestureEngine = new GestureEngine(context);
+        });
+        ensureCameraForDetection();
     }
 
     public void disableGesture() {
-        if (gestureEnabled.compareAndSet(true, false)) {
-            executor.execute(() -> {
-                if (gestureEngine != null) {
-                    gestureEngine.close();
-                    gestureEngine = null;
-                }
-            });
-            notifyState("gesture_detection", false);
-        }
+        config.gestureEnabled = false;
+        notifyState("gesture_detection", false);
+        executor.execute(() -> {
+            if (gestureEngine != null) {
+                gestureEngine.close();
+                gestureEngine = null;
+            }
+        });
+        resetGestureState();
     }
 
-    public boolean isQrEnabled() { return qrEnabled.get(); }
-    public boolean isFaceEnabled() { return faceEnabled.get(); }
-    public boolean isGestureEnabled() { return gestureEnabled.get(); }
+    public boolean isQrEnabled() { return config.qrEnabled; }
+    public boolean isFaceEnabled() { return config.faceEnabled; }
+    public boolean isGestureEnabled() { return config.gestureEnabled; }
     public String getLastQr() { return lastQr; }
     public String getLastTagId() { return lastTagId; }
     public int getQrScanCount() { return qrScanCount; }
@@ -170,124 +224,255 @@ public final class CameraVisionManager {
     public int getFaceCount() { return faceCount; }
     public String getGesture() { return gesture; }
     public boolean hasOpenPalm() { return openPalm; }
-    public String getLastError() { return lastError; }
+    public byte[] getLastJpeg() { return lastJpeg; }
+
+    public int getFps() {
+        VisionCamera c = camera;
+        return c != null ? c.getMeasuredFps() : 0;
+    }
+
+    public void enableScreensaverWake() {
+        config.screensaverWake = true;
+        notifyState("screensaver_wake", true);
+    }
+
+    public void disableScreensaverWake() {
+        config.screensaverWake = false;
+        ScreensaverBridge bridge = screensaver;
+        if (bridge != null) bridge.reset();
+        notifyState("screensaver_wake", false);
+    }
+
+    public boolean isScreensaverWakeEnabled() {
+        return config.screensaverWake;
+    }
+
+    public int getScreensaverWakes() {
+        ScreensaverBridge bridge = screensaver;
+        return bridge != null ? bridge.getWakeCount() : 0;
+    }
+
+    public String getCameraFacing() {
+        return config.useFrontCamera ? "front" : "back";
+    }
+
+    public String getLastError() {
+        VisionCamera c = camera;
+        String camErr = c != null ? c.getLastError() : "";
+        if (camErr != null && !camErr.isEmpty()) return camErr;
+        return lastError;
+    }
 
     public void setLastError(String error) {
         lastError = error == null ? "" : error;
+        notifyState("last_error", lastError);
     }
 
     public boolean registerStateListener(String entityId, Object callback) {
         if (entityId == null || callback == null) return false;
         listeners.put(entityId, callback);
+        switch (entityId) {
+            case "camera_switch": invokeState(callback, isCameraEnabled()); break;
+            case "qr_scanning": invokeState(callback, config.qrEnabled); break;
+            case "face_detection": invokeState(callback, config.faceEnabled); break;
+            case "gesture_detection": invokeState(callback, config.gestureEnabled); break;
+            case "fps": invokeState(callback, getFps()); break;
+            case "camera_facing": invokeState(callback, getCameraFacing()); break;
+            case "screensaver_wake": invokeState(callback, config.screensaverWake); break;
+            case "screensaver_wakes": invokeState(callback, getScreensaverWakes()); break;
+            case "last_error": invokeState(callback, getLastError()); break;
+            default: break;
+        }
         return true;
     }
 
-    public byte[] onFrame(byte[] jpegData) {
-        if (jpegData == null || jpegData.length == 0) return jpegData;
-        long now = System.currentTimeMillis();
-
-        if (qrEnabled.get() && now - lastQrFrameTime >= QR_INTERVAL_MS) {
-            lastQrFrameTime = now;
-            processQr(jpegData);
+    private void ensureCameraForDetection() {
+        if (config.cameraEnabled) {
+            VisionCamera c = camera;
+            if (c == null || !c.isRunning()) {
+                executor.execute(this::startCameraSync);
+            }
         }
-
-        if (faceEnabled.get() && now - lastFaceFrameTime >= FACE_INTERVAL_MS) {
-            lastFaceFrameTime = now;
-            processFace(jpegData);
-        }
-
-        if (gestureEnabled.get() && now - lastGestureFrameTime >= GESTURE_INTERVAL_MS) {
-            lastGestureFrameTime = now;
-            processGesture(jpegData);
-        }
-
-        return jpegData;
     }
 
-    private void processQr(byte[] jpegData) {
+    private synchronized void startCameraSync() {
+        if (!config.cameraEnabled) return;
+        VisionCamera existing = camera;
+        if (existing != null && existing.isRunning()) return;
+        try {
+            VisionCamera cam = new VisionCamera(context, config);
+            cam.setFrameListener(this::onFrame);
+            cam.start();
+            camera = cam;
+            notifyState("camera_switch", true);
+            Log.i(TAG, "Vision camera started");
+        } catch (Exception e) {
+            Log.e(TAG, "startCamera failed", e);
+            setLastError(String.valueOf(e.getMessage()));
+        }
+    }
+
+    private synchronized void stopCameraSync() {
+        VisionCamera cam = camera;
+        if (cam != null) {
+            cam.setFrameListener(null);
+            cam.stop();
+            camera = null;
+        }
+        lastJpeg = null;
+        resetFaceState();
+        resetGestureState();
+        notifyState("camera_switch", false);
+        notifyState("fps", 0);
+        Log.i(TAG, "Vision camera stopped");
+    }
+
+    private synchronized void restartCameraSync() {
+        stopCameraSync();
+        if (config.cameraEnabled) {
+            startCameraSync();
+        }
+        notifyState("camera_facing", getCameraFacing());
+    }
+
+    private void onFrame(byte[] jpegData) {
+        if (jpegData == null || jpegData.length == 0) return;
+        lastJpeg = jpegData;
+        notifyState("fps", getFps());
+
+        boolean needsDetect = config.qrEnabled || config.faceEnabled || config.gestureEnabled;
+        if (!needsDetect) return;
+        if (!detectBusy.compareAndSet(false, true)) return;
+
+        detectExecutor.execute(() -> {
+            try {
+                runDetectors(jpegData);
+            } finally {
+                detectBusy.set(false);
+            }
+        });
+    }
+
+    private void runDetectors(byte[] jpegData) {
+        long now = System.currentTimeMillis();
+        boolean doQr = config.qrEnabled && now - lastQrFrameTime >= QR_INTERVAL_MS;
+        boolean doFace = config.faceEnabled && now - lastFaceFrameTime >= FACE_INTERVAL_MS;
+        boolean doGesture = config.gestureEnabled && now - lastGestureFrameTime >= GESTURE_INTERVAL_MS;
+        if (!doQr && !doFace && !doGesture) return;
+
+        Bitmap bmp = null;
+        try {
+            bmp = BitmapFactory.decodeByteArray(jpegData, 0, jpegData.length);
+            if (bmp == null) return;
+            if (doQr) {
+                lastQrFrameTime = now;
+                processQr(bmp);
+            }
+            if (doFace) {
+                lastFaceFrameTime = now;
+                processFace(bmp);
+            }
+            if (doGesture) {
+                lastGestureFrameTime = now;
+                processGesture(bmp);
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Detect error: " + e.getMessage());
+        } finally {
+            if (bmp != null) bmp.recycle();
+        }
+    }
+
+    private void processQr(Bitmap bmp) {
         QrScanner scanner = qrScanner;
         if (scanner == null) return;
-        try {
-            Bitmap bmp = BitmapFactory.decodeByteArray(jpegData, 0, jpegData.length);
-            if (bmp == null) return;
-            String result = scanner.decode(bmp);
-            bmp.recycle();
-            if (result == null || result.isEmpty()) return;
+        String result = scanner.decode(bmp);
+        if (result == null || result.isEmpty()) return;
 
-            long now = System.currentTimeMillis();
-            boolean sameTooSoon = result.equals(lastQrContent)
-                    && (now - lastQrTime < qrCooldownSec * 1000L);
-            if (sameTooSoon) return;
+        long now = System.currentTimeMillis();
+        if (result.equals(lastQrContent) && now - lastQrTime < config.qrCooldownSec * 1000L) {
+            return;
+        }
+        lastQrContent = result;
+        lastQrTime = now;
+        lastQr = result;
+        qrScanCount++;
+        notifyState("last_qr", lastQr);
+        notifyState("qr_scan_count", qrScanCount);
 
-            lastQrContent = result;
-            lastQrTime = now;
-            lastQr = result;
-            qrScanCount++;
-            notifyState("last_qr", lastQr);
-            notifyState("qr_scan_count", qrScanCount);
-
-            if (parseHaTags) {
-                String tag = extractHaTag(result);
-                if (tag != null && !tag.isEmpty()) {
-                    lastTagId = tag;
-                    notifyState("ha_tag_id", lastTagId);
-                }
+        if (config.parseHaTags) {
+            String tag = extractHaTag(result);
+            if (tag != null && !tag.isEmpty()) {
+                lastTagId = tag;
+                notifyState("ha_tag_id", lastTagId);
             }
-        } catch (Exception e) {
-            Log.w(TAG, "QR error: " + e.getMessage());
         }
     }
 
-    private void processFace(byte[] jpegData) {
+    private void processFace(Bitmap bmp) {
         FaceEngine engine = faceEngine;
         if (engine == null) return;
-        try {
-            Bitmap bmp = BitmapFactory.decodeByteArray(jpegData, 0, jpegData.length);
-            if (bmp == null) return;
-            FaceEngine.Result result = engine.detect(bmp);
-            bmp.recycle();
-
-            if (result.count != faceCount) {
-                faceCount = result.count;
-                notifyState("face_count", faceCount);
+        FaceEngine.Result result = engine.detect(bmp);
+        if (result.count != faceCount) {
+            faceCount = result.count;
+            notifyState("face_count", faceCount);
+        }
+        boolean present = result.count > 0;
+        if (present != facePresent) {
+            facePresent = present;
+            notifyState("face_detected", facePresent);
+        }
+        if (config.screensaverWake) {
+            ScreensaverBridge bridge = screensaver;
+            if (bridge != null) {
+                bridge.onPresence(present);
+                notifyState("screensaver_wakes", bridge.getWakeCount());
             }
-            boolean present = result.count > 0;
-            if (present != facePresent) {
-                facePresent = present;
-                notifyState("face_detected", facePresent);
-            }
-        } catch (Exception e) {
-            Log.w(TAG, "Face error: " + e.getMessage());
         }
     }
 
-    private void processGesture(byte[] jpegData) {
+    private void processGesture(Bitmap bmp) {
         GestureEngine engine = gestureEngine;
         if (engine == null) return;
-        try {
-            Bitmap bmp = BitmapFactory.decodeByteArray(jpegData, 0, jpegData.length);
-            if (bmp == null) return;
-            GestureEngine.Result result = engine.detect(bmp);
-            bmp.recycle();
+        GestureEngine.Result result = engine.detect(bmp);
+        if (!result.gesture.equals(gesture)) {
+            gesture = result.gesture;
+            notifyState("gesture", gesture);
+        }
+        if (result.openPalm != openPalm) {
+            openPalm = result.openPalm;
+            notifyState("open_palm", openPalm);
+        }
+    }
 
-            if (!result.gesture.equals(gesture)) {
-                gesture = result.gesture;
-                notifyState("gesture", gesture);
-            }
-            if (result.openPalm != openPalm) {
-                openPalm = result.openPalm;
-                notifyState("open_palm", openPalm);
-            }
-        } catch (Exception e) {
-            Log.w(TAG, "Gesture error: " + e.getMessage());
+    private void resetFaceState() {
+        if (faceCount != 0) {
+            faceCount = 0;
+            notifyState("face_count", 0);
+        }
+        if (facePresent) {
+            facePresent = false;
+            notifyState("face_detected", false);
+        }
+        ScreensaverBridge bridge = screensaver;
+        if (bridge != null) bridge.reset();
+    }
+
+    private void resetGestureState() {
+        if (!gesture.isEmpty()) {
+            gesture = "";
+            notifyState("gesture", "");
+        }
+        if (openPalm) {
+            openPalm = false;
+            notifyState("open_palm", false);
         }
     }
 
     private void reloadFaceModel() {
-        if (faceEngine != null) {
-            faceEngine.close();
-        }
-        faceEngine = new FaceEngine(context, faceRange);
+        FaceEngine old = faceEngine;
+        if (old != null) old.close();
+        faceEngine = new FaceEngine(context, config.faceRange);
     }
 
     private String extractHaTag(String url) {
@@ -311,20 +496,39 @@ public final class CameraVisionManager {
 
     private void notifyState(String entityId, Object value) {
         Object cb = listeners.get(entityId);
-        if (cb == null) return;
+        if (cb != null) invokeState(cb, value);
+    }
+
+    private static void invokeState(Object callback, Object value) {
         try {
-            Method m = cb.getClass().getMethod("onStateChanged", Object.class);
-            m.invoke(cb, value);
-        } catch (Exception ignored) {}
+            Method m = callback.getClass().getMethod("onStateChanged", Object.class);
+            m.invoke(callback, value);
+        } catch (Exception ignored) {
+        }
+    }
+
+    private static int parseInt(String value, int def) {
+        try {
+            return Integer.parseInt(value.trim());
+        } catch (Exception e) {
+            return def;
+        }
+    }
+
+    private static int clamp(int v, int min, int max) {
+        return Math.max(min, Math.min(max, v));
     }
 
     public void onDestroy() {
-        qrEnabled.set(false);
-        faceEnabled.set(false);
-        gestureEnabled.set(false);
+        config.qrEnabled = false;
+        config.faceEnabled = false;
+        config.gestureEnabled = false;
+        config.cameraEnabled = false;
+        stopCameraSync();
         if (faceEngine != null) { faceEngine.close(); faceEngine = null; }
         if (gestureEngine != null) { gestureEngine.close(); gestureEngine = null; }
         qrScanner = null;
         listeners.clear();
+        Log.i(TAG, "onDestroy — camera and engines released");
     }
 }

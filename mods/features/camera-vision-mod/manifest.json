@@ -1,12 +1,11 @@
 {
   "id": "camera-vision-mod",
   "name": "Camera Vision",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "author": "Ava",
-  "description": "QR code, face detection, and hand gesture recognition from the camera. All detection off by default.",
-  "detail_description": "Upgrade detection mod: BlazeFace Full Range Sparse (5m range, 30% faster), ZXing QR decode, and BlazePalm + Hand Landmark Lite gesture engine. All three features have independent switches defaulting to OFF for zero idle cost. Exposes decoded QR content, HA tag IDs, face count, person presence, and open-palm gesture to Home Assistant. Uses XNNPACK acceleration and frame-rate-separated pipelines for optimal performance on wall-mounted tablets.",
+  "description": "On-device camera with QR, face, and hand gesture detection. Live camera entity plus sensors in Home Assistant.",
+  "detail_description": "Owns the device camera and exposes it as a Home Assistant camera entity with selectable front/back lens, FPS, resolution, and JPEG quality. Runs BlazeFace Full Range Sparse (5m range) face detection, ZXing QR decode, and BlazePalm + Hand Landmark Lite open-palm gesture recognition — each with its own switch so you can turn any sensor off. Camera, face, and gesture default ON; QR defaults OFF. Screensaver Person Wake hooks face detection into Ava's screensaver: walk up and it dismisses, stay and it will not return, walk away and the idle countdown resumes — more reliable than the built-in brightness-difference probe it replaces. Detection runs on a separate thread from capture so the live view stays smooth, and models use XNNPACK acceleration.",
   "icon": "mdi:eye",
-  "camera_stream": true,
   "libs": [
     "libs/camera-vision.jar"
   ],
@@ -17,18 +16,27 @@
     "models/hand_landmark_lite.tflite"
   ],
   "manager": "com.ava.mods.vision.CameraVisionManager",
+  "camera_stream": true,
   "permissions": [
+    "camera",
     "android.permission.CAMERA"
   ],
   "entities": [
     {
+      "type": "camera",
+      "id": "vision_camera",
+      "name": "Vision Camera",
+      "icon": "mdi:cctv",
+      "read": "getLastJpeg"
+    },
+    {
       "type": "switch",
-      "id": "qr_scanning",
-      "name": "QR Scanning",
-      "icon": "mdi:qrcode-scan",
-      "on": "enableQr",
-      "off": "disableQr",
-      "read": "isQrEnabled"
+      "id": "camera_switch",
+      "name": "Vision Camera",
+      "icon": "mdi:video",
+      "on": "enableCamera",
+      "off": "disableCamera",
+      "read": "isCameraEnabled"
     },
     {
       "type": "switch",
@@ -47,6 +55,55 @@
       "on": "enableGesture",
       "off": "disableGesture",
       "read": "isGestureEnabled"
+    },
+    {
+      "type": "switch",
+      "id": "qr_scanning",
+      "name": "QR Scanning",
+      "icon": "mdi:qrcode-scan",
+      "on": "enableQr",
+      "off": "disableQr",
+      "read": "isQrEnabled"
+    },
+    {
+      "type": "switch",
+      "id": "screensaver_wake",
+      "name": "Screensaver Person Wake",
+      "icon": "mdi:motion-sensor",
+      "on": "enableScreensaverWake",
+      "off": "disableScreensaverWake",
+      "read": "isScreensaverWakeEnabled"
+    },
+    {
+      "type": "binary_sensor",
+      "id": "face_detected",
+      "name": "Person Detected",
+      "icon": "mdi:account",
+      "class": "occupancy",
+      "read": "hasFace"
+    },
+    {
+      "type": "sensor",
+      "id": "face_count",
+      "name": "Face Count",
+      "icon": "mdi:account-multiple",
+      "unit": "",
+      "read": "getFaceCount"
+    },
+    {
+      "type": "binary_sensor",
+      "id": "open_palm",
+      "name": "Open Palm",
+      "icon": "mdi:hand-back-right",
+      "class": "presence",
+      "read": "hasOpenPalm"
+    },
+    {
+      "type": "text_sensor",
+      "id": "gesture",
+      "name": "Gesture",
+      "icon": "mdi:hand-wave",
+      "read": "getGesture"
     },
     {
       "type": "text_sensor",
@@ -68,41 +125,134 @@
       "name": "QR Scan Count",
       "icon": "mdi:counter",
       "unit": "",
+      "category": "diagnostic",
       "read": "getQrScanCount"
     },
     {
-      "type": "binary_sensor",
-      "id": "face_detected",
-      "name": "Person Detected",
-      "icon": "mdi:account",
-      "class": "occupancy",
-      "read": "hasFace"
+      "type": "sensor",
+      "id": "fps",
+      "name": "Camera FPS",
+      "icon": "mdi:speedometer",
+      "unit": "fps",
+      "category": "diagnostic",
+      "read": "getFps"
     },
     {
       "type": "sensor",
-      "id": "face_count",
-      "name": "Face Count",
-      "icon": "mdi:account-multiple",
+      "id": "screensaver_wakes",
+      "name": "Screensaver Wakes",
+      "icon": "mdi:sleep-off",
       "unit": "",
-      "read": "getFaceCount"
+      "category": "diagnostic",
+      "read": "getScreensaverWakes"
     },
     {
       "type": "text_sensor",
-      "id": "gesture",
-      "name": "Gesture",
-      "icon": "mdi:hand-wave",
-      "read": "getGesture"
+      "id": "camera_facing",
+      "name": "Camera Lens",
+      "icon": "mdi:camera-flip",
+      "category": "diagnostic",
+      "read": "getCameraFacing"
     },
     {
-      "type": "binary_sensor",
-      "id": "open_palm",
-      "name": "Open Palm",
-      "icon": "mdi:hand-back-right",
-      "class": "presence",
-      "read": "hasOpenPalm"
+      "type": "text_sensor",
+      "id": "last_error",
+      "name": "Vision Error",
+      "icon": "mdi:alert-circle-outline",
+      "category": "diagnostic",
+      "read": "getLastError"
     }
   ],
   "config": [
+    {
+      "type": "switch",
+      "key": "camera_enabled",
+      "label": "Enable Camera",
+      "description": "Open the device camera and publish frames to the Home Assistant camera entity.",
+      "defaultValue": "true"
+    },
+    {
+      "type": "switch",
+      "key": "use_front_camera",
+      "label": "Use Front Camera",
+      "description": "On = front/selfie lens, Off = rear lens. Restarts the camera when changed.",
+      "defaultValue": "true"
+    },
+    {
+      "type": "select",
+      "key": "fps",
+      "label": "Frame Rate",
+      "description": "Capture FPS. 5 is plenty for detection; higher costs CPU and heat on wall panels.",
+      "defaultValue": "5",
+      "options": [
+        "1",
+        "2",
+        "3",
+        "5",
+        "8",
+        "10",
+        "15",
+        "20",
+        "25",
+        "30"
+      ]
+    },
+    {
+      "type": "select",
+      "key": "resolution",
+      "label": "Resolution (short edge)",
+      "description": "240-720 safe for all devices. 1080 needs capable hardware. Restarts the camera.",
+      "defaultValue": "480",
+      "options": [
+        "240",
+        "360",
+        "480",
+        "720",
+        "1080"
+      ]
+    },
+    {
+      "type": "number",
+      "key": "jpeg_quality",
+      "label": "JPEG Quality",
+      "description": "Image quality for the camera entity. Higher looks better but uses more bandwidth.",
+      "defaultValue": "75",
+      "min": 40,
+      "max": 95,
+      "step": 5
+    },
+    {
+      "type": "switch",
+      "key": "face_enabled",
+      "label": "Face Detection",
+      "description": "BlazeFace Full Range Sparse: detects faces up to 5m with XNNPACK acceleration.",
+      "defaultValue": "true"
+    },
+    {
+      "type": "select",
+      "key": "face_range",
+      "label": "Face Model Range",
+      "description": "short = 2m selfie range, sparse = 5m full range",
+      "defaultValue": "sparse",
+      "options": [
+        "short",
+        "sparse"
+      ]
+    },
+    {
+      "type": "switch",
+      "key": "screensaver_wake",
+      "label": "Screensaver Person Wake",
+      "description": "Dismiss the screensaver when a face is detected and keep it away while someone is present. Replaces Ava's built-in person-wake with real face detection. Needs Face Detection on.",
+      "defaultValue": "true"
+    },
+    {
+      "type": "switch",
+      "key": "gesture_enabled",
+      "label": "Gesture Detection",
+      "description": "Palm + 21-point hand landmark: reports open palm and finger count.",
+      "defaultValue": "true"
+    },
     {
       "type": "switch",
       "key": "qr_enabled",
@@ -111,36 +261,14 @@
       "defaultValue": "false"
     },
     {
-      "type": "switch",
-      "key": "face_enabled",
-      "label": "Face Detection",
-      "description": "BlazeFace Full Range Sparse: detects faces up to 5m with XNNPACK acceleration.",
-      "defaultValue": "false"
-    },
-    {
-      "type": "switch",
-      "key": "gesture_enabled",
-      "label": "Gesture Detection",
-      "description": "Palm + 21-point hand landmark: detects open palm (5 fingers) gesture.",
-      "defaultValue": "false"
-    },
-    {
       "type": "number",
       "key": "qr_cooldown_sec",
       "label": "QR Cooldown (seconds)",
-      "description": "Minimum seconds between reporting the same QR code again",
+      "description": "Minimum seconds before reporting the same QR code again",
       "defaultValue": "5",
       "min": 1,
       "max": 60,
       "step": 1
-    },
-    {
-      "type": "select",
-      "key": "face_range",
-      "label": "Face Model Range",
-      "description": "short = 2m selfie range, sparse = 5m back-camera range",
-      "defaultValue": "sparse",
-      "options": ["short", "sparse"]
     },
     {
       "type": "switch",
