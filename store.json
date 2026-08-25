@@ -95,12 +95,22 @@
     {
       "id": "camera-stream-mod",
       "name": "Camera Stream",
-      "version": "1.0.3",
+      "version": "1.1.0",
       "author": "Ava",
       "description": "Forward this device camera to Frigate or an NVR. Choose MJPEG or RTSP and tune quality.",
-      "detail_description": "LAN forwarder for Frigate / go2rtc / ffmpeg. Pick MJPEG or RTSP (H.264), tune FPS and resolution. RTSP can prefer auto / hardware / software H.264 encoding. No auto-start — only streams while the voice satellite master service is running and you turn the stream switch on.",
+      "detail_description": "LAN forwarder for Frigate / go2rtc / ffmpeg. Pick MJPEG or RTSP (H.264), tune FPS up to 30 and resolution up to 1080p. RTSP can prefer auto / hardware / software H.264 encoding. No auto-start — only streams while the voice satellite master service is running and you turn the stream switch on.",
       "path": "mods/features/camera-stream-mod/",
       "icon": "mdi:cctv"
+    },
+    {
+      "id": "camera-vision-mod",
+      "name": "Camera Vision",
+      "version": "1.0.0",
+      "author": "Ava",
+      "description": "QR code, face detection, and hand gesture recognition from the camera. All detection off by default.",
+      "detail_description": "Upgrade detection mod: BlazeFace Full Range Sparse (5m range, 30% faster), ZXing QR decode, and BlazePalm + Hand Landmark Lite gesture engine. All three features have independent switches defaulting to OFF for zero idle cost. Exposes decoded QR content, HA tag IDs, face count, person presence, and open-palm gesture to Home Assistant. Uses XNNPACK acceleration and frame-rate-separated pipelines for optimal performance on wall-mounted tablets.",
+      "path": "mods/features/camera-vision-mod/",
+      "icon": "mdi:eye"
     },
     {
       "id": "ble-adv-proxy",
