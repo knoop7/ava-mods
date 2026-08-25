@@ -54,6 +54,30 @@ public final class CameraVisionManager {
     private CameraVisionManager(Context context) {
         this.context = context.getApplicationContext();
         this.screensaver = new ScreensaverBridge(this.context.getClassLoader());
+        executor.execute(this::autoStart);
+    }
+
+    /**
+     * The host skips applyConfig entirely when a fresh install has no stored config
+     * values, so manifest defaults never reach us. Act on our own defaults instead.
+     */
+    private void autoStart() {
+        if (config.qrEnabled && qrScanner == null) {
+            qrScanner = new QrScanner();
+        }
+        if (config.faceEnabled && faceEngine == null) {
+            faceEngine = new FaceEngine(context, config.faceRange);
+        }
+        if (config.gestureEnabled && gestureEngine == null) {
+            gestureEngine = new GestureEngine(context);
+        }
+        if (config.cameraEnabled) {
+            startCameraSync();
+        }
+        Log.i(TAG, "autoStart camera=" + config.cameraEnabled
+                + " face=" + config.faceEnabled
+                + " gesture=" + config.gestureEnabled
+                + " qr=" + config.qrEnabled);
     }
 
     public static CameraVisionManager getInstance(Context context) {
@@ -360,6 +384,8 @@ public final class CameraVisionManager {
         boolean doGesture = config.gestureEnabled && now - lastGestureFrameTime >= GESTURE_INTERVAL_MS;
         if (!doQr && !doFace && !doGesture) return;
 
+        ensureEngines();
+
         Bitmap bmp = null;
         try {
             bmp = BitmapFactory.decodeByteArray(jpegData, 0, jpegData.length);
@@ -442,6 +468,19 @@ public final class CameraVisionManager {
         if (result.openPalm != openPalm) {
             openPalm = result.openPalm;
             notifyState("open_palm", openPalm);
+        }
+    }
+
+    /** Build engines on the detect thread if a switch is on but the model never loaded. */
+    private void ensureEngines() {
+        if (config.qrEnabled && qrScanner == null) {
+            qrScanner = new QrScanner();
+        }
+        if (config.faceEnabled && faceEngine == null) {
+            faceEngine = new FaceEngine(context, config.faceRange);
+        }
+        if (config.gestureEnabled && gestureEngine == null) {
+            gestureEngine = new GestureEngine(context);
         }
     }
 

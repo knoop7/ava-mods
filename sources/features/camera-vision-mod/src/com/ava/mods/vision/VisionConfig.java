@@ -8,7 +8,7 @@ public final class VisionConfig {
     public volatile int resolution = 480;
     public volatile int jpegQuality = 75;
 
-    public volatile boolean qrEnabled = false;
+    public volatile boolean qrEnabled = true;
     public volatile boolean faceEnabled = true;
     public volatile boolean gestureEnabled = true;
 
