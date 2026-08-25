@@ -10,7 +10,7 @@ import com.google.zxing.RGBLuminanceSource;
 import com.google.zxing.Result;
 import com.google.zxing.common.HybridBinarizer;
 
-import java.util.Arrays;
+import java.util.Collections;
 import java.util.EnumMap;
 import java.util.Map;
 
@@ -18,14 +18,16 @@ public final class QrScanner {
 
     private final MultiFormatReader reader;
 
+    /**
+     * QR only. Face, gesture and QR all share one detection thread, and running
+     * TRY_HARDER across Data Matrix and Aztec as well cost more than the whole
+     * face pass while decoding nothing Home Assistant tags actually use.
+     */
     public QrScanner() {
         reader = new MultiFormatReader();
         Map<DecodeHintType, Object> hints = new EnumMap<>(DecodeHintType.class);
-        hints.put(DecodeHintType.POSSIBLE_FORMATS, Arrays.asList(
-                BarcodeFormat.QR_CODE,
-                BarcodeFormat.DATA_MATRIX,
-                BarcodeFormat.AZTEC
-        ));
+        hints.put(DecodeHintType.POSSIBLE_FORMATS,
+                Collections.singletonList(BarcodeFormat.QR_CODE));
         hints.put(DecodeHintType.TRY_HARDER, Boolean.TRUE);
         reader.setHints(hints);
     }

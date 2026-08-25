@@ -12,7 +12,6 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -73,10 +72,8 @@ public final class GestureEngine {
     private int landmarkValues;
     private String error = "";
 
-    /** Pre-filled with NO_HAND so an empty window cannot vote itself a fist. */
-    private final int[] votes = newVoteWindow();
-    private int votePos;
-    private int stableFingers = NO_HAND;
+    /** Starts at NO_HAND so an empty window cannot vote itself a fist. */
+    private final MajorityVote votes = new MajorityVote(VOTE_WINDOW, VOTE_MIN, NO_HAND, 5);
     private boolean loggedScalars;
 
     public static final class Result {
@@ -158,33 +155,10 @@ public final class GestureEngine {
         return countExtendedFingers(points);
     }
 
-    /**
-     * Holds the previous verdict until a new one appears in a majority of the
-     * window, which is what stops the sensor from flickering between neighbouring
-     * counts on borderline frames.
-     */
     private Result stabilize(int fingers) {
-        votes[votePos] = fingers;
-        votePos = (votePos + 1) % VOTE_WINDOW;
-
-        int best = NO_HAND;
-        int bestCount = 0;
-        for (int candidate = NO_HAND; candidate <= 5; candidate++) {
-            int seen = 0;
-            for (int vote : votes) {
-                if (vote == candidate) seen++;
-            }
-            if (seen > bestCount) {
-                bestCount = seen;
-                best = candidate;
-            }
-        }
-        if (bestCount >= VOTE_MIN) {
-            stableFingers = best;
-        }
-
-        if (stableFingers == NO_HAND) return new Result("none", false, 0);
-        return new Result(gestureName(stableFingers), stableFingers == 5, stableFingers);
+        int stable = votes.offer(fingers);
+        if (stable == NO_HAND) return new Result("none", false, 0);
+        return new Result(gestureName(stable), stable == 5, stable);
     }
 
     private static String gestureName(int fingers) {
@@ -331,12 +305,6 @@ public final class GestureEngine {
             if (reach > palmSize * FINGER_MARGIN) count++;
         }
         return count;
-    }
-
-    private static int[] newVoteWindow() {
-        int[] window = new int[VOTE_WINDOW];
-        Arrays.fill(window, NO_HAND);
-        return window;
     }
 
     private static float dist(float[] a, float[] b) {

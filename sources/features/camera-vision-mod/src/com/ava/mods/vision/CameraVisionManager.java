@@ -429,7 +429,7 @@ public final class CameraVisionManager {
             faceCount = result.count;
             notifyState("face_count", faceCount);
         }
-        boolean present = result.count > 0;
+        boolean present = result.present;
         if (present != facePresent) {
             facePresent = present;
             notifyState("face_detected", facePresent);

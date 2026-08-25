@@ -2,6 +2,10 @@ package com.ava.mods.vision;
 
 import android.content.Context;
 import android.graphics.Bitmap;
+import android.graphics.Canvas;
+import android.graphics.Color;
+import android.graphics.Paint;
+import android.graphics.RectF;
 import android.util.Log;
 
 import org.tensorflow.lite.Interpreter;
@@ -25,8 +29,22 @@ import java.util.Map;
 public final class FaceEngine {
 
     private static final String TAG = "FaceEngine";
-    private static final float CONFIDENCE_THRESHOLD = 0.5f;
+    private static final float CONFIDENCE_THRESHOLD = 0.6f;
     private static final float IOU_THRESHOLD = 0.3f;
+
+    private static final int VOTE_WINDOW = 5;
+    private static final int VOTE_MIN = 3;
+    private static final int MAX_VOTED_FACES = 8;
+
+    /**
+     * Presence is deliberately asymmetric because it drives the screensaver: react
+     * quickly when somebody walks up, but require a longer run of empty frames
+     * before declaring the room empty so a brief head turn does not blank the screen.
+     */
+    private static final int FRAMES_TO_APPEAR = 2;
+    private static final int FRAMES_TO_VANISH = 5;
+
+    private static final Paint FILTER = new Paint(Paint.FILTER_BITMAP_FLAG);
 
     private Interpreter interpreter;
     private List<float[]> anchors;
@@ -35,11 +53,21 @@ public final class FaceEngine {
     private int regressorStride;
     private String error = "";
 
+    private final MajorityVote votes = new MajorityVote(VOTE_WINDOW, VOTE_MIN, 0, MAX_VOTED_FACES);
+    private int appearStreak;
+    private int vanishStreak;
+    private boolean present;
+
+    private Bitmap inputFrame;
+    private Canvas inputCanvas;
+
     public static final class Result {
         public final int count;
+        public final boolean present;
 
-        public Result(int count) {
+        public Result(int count, boolean present) {
             this.count = count;
+            this.present = present;
         }
     }
 
@@ -90,11 +118,9 @@ public final class FaceEngine {
 
     public Result detect(Bitmap bitmap) {
         Interpreter local = interpreter;
-        if (local == null) return new Result(0);
+        if (local == null) return new Result(0, false);
 
-        Bitmap scaled = Bitmap.createScaledBitmap(bitmap, inputSize, inputSize, true);
-        ByteBuffer input = toByteBuffer(scaled, inputSize);
-        if (scaled != bitmap) scaled.recycle();
+        ByteBuffer input = toByteBuffer(letterbox(bitmap), inputSize);
 
         float[][][] regressors = new float[1][numAnchors][regressorStride];
         float[][][] scores = new float[1][numAnchors][1];
@@ -107,7 +133,7 @@ public final class FaceEngine {
             local.runForMultipleInputsOutputs(new Object[] { input }, outputs);
         } catch (Exception e) {
             Log.w(TAG, "Face inference error: " + e.getMessage());
-            return new Result(0);
+            return currentResult(stableCount());
         }
 
         List<float[]> hits = new ArrayList<>();
@@ -127,13 +153,68 @@ public final class FaceEngine {
             });
         }
 
-        return new Result(nms(hits).size());
+        return stabilize(nms(hits).size());
+    }
+
+    private Result stabilize(int rawCount) {
+        if (rawCount > 0) {
+            appearStreak++;
+            vanishStreak = 0;
+            if (appearStreak >= FRAMES_TO_APPEAR) present = true;
+        } else {
+            vanishStreak++;
+            appearStreak = 0;
+            if (vanishStreak >= FRAMES_TO_VANISH) present = false;
+        }
+
+        int voted = votes.offer(Math.min(rawCount, MAX_VOTED_FACES));
+        return currentResult(voted);
+    }
+
+    /**
+     * Presence needs fewer frames than the count vote, so clamp the two together to
+     * avoid briefly reporting a detected person alongside a face count of zero.
+     */
+    private Result currentResult(int voted) {
+        if (!present) return new Result(0, false);
+        return new Result(Math.max(voted, 1), true);
+    }
+
+    private int stableCount() {
+        return votes.stable();
+    }
+
+    /**
+     * Scales the frame into a square, padding rather than stretching. BlazeFace is
+     * trained on square letterboxed input, so squashing a 4:3 frame widens every
+     * face and measurably cuts detection range. Only the face count leaves this
+     * class, so the padding never has to be mapped back out.
+     */
+    private Bitmap letterbox(Bitmap src) {
+        if (inputFrame == null) {
+            inputFrame = Bitmap.createBitmap(inputSize, inputSize, Bitmap.Config.ARGB_8888);
+            inputCanvas = new Canvas(inputFrame);
+        }
+        inputCanvas.drawColor(Color.BLACK);
+        float scale = Math.min(
+                (float) inputSize / src.getWidth(),
+                (float) inputSize / src.getHeight());
+        float w = src.getWidth() * scale;
+        float h = src.getHeight() * scale;
+        float left = (inputSize - w) / 2f;
+        float top = (inputSize - h) / 2f;
+        inputCanvas.drawBitmap(src, null, new RectF(left, top, left + w, top + h), FILTER);
+        return inputFrame;
     }
 
     public void close() {
         Interpreter local = interpreter;
         interpreter = null;
         if (local != null) local.close();
+        Bitmap frame = inputFrame;
+        inputFrame = null;
+        inputCanvas = null;
+        if (frame != null) frame.recycle();
     }
 
     private static Interpreter.Options buildOptions() {
