@@ -110,6 +110,15 @@ public final class CameraVisionManager {
                 restartCamera = true;
                 break;
             }
+            case "frame_rotation": {
+                int next = "auto".equalsIgnoreCase(value.trim())
+                        ? -1
+                        : ((parseInt(value, 0) % 360) + 360) % 360;
+                if (next == config.frameRotation) return;
+                config.frameRotation = next;
+                restartCamera = true;
+                break;
+            }
             case "jpeg_quality": {
                 int next = clamp(parseInt(value, 75), 40, 95);
                 if (next == config.jpegQuality) return;

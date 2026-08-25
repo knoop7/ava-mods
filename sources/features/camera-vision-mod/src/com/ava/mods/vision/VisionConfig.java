@@ -8,6 +8,9 @@ public final class VisionConfig {
     public volatile int resolution = 480;
     public volatile int jpegQuality = 75;
 
+    /** Clockwise degrees to straighten frames, or -1 to derive it from the sensor. */
+    public volatile int frameRotation = -1;
+
     public volatile boolean qrEnabled = true;
     public volatile boolean faceEnabled = true;
     public volatile boolean gestureEnabled = true;

@@ -12,12 +12,14 @@ import android.hardware.camera2.CameraDevice;
 import android.hardware.camera2.CameraManager;
 import android.hardware.camera2.CaptureRequest;
 import android.hardware.camera2.params.StreamConfigurationMap;
+import android.hardware.display.DisplayManager;
 import android.media.Image;
 import android.media.ImageReader;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.util.Log;
 import android.util.Size;
+import android.view.Display;
 import android.view.Surface;
 
 import java.io.ByteArrayOutputStream;
@@ -51,6 +53,8 @@ public final class VisionCamera {
     private long fpsWindowStart;
     private int fpsWindowCount;
     private byte[] nv21Scratch;
+    private byte[] rotatedScratch;
+    private volatile int frameRotation;
 
     public VisionCamera(Context context, VisionConfig config) {
         this.context = context.getApplicationContext();
@@ -112,6 +116,7 @@ public final class VisionCamera {
             }
             latestJpeg.set(null);
             nv21Scratch = null;
+            rotatedScratch = null;
             measuredFps = 0;
         }
     }
@@ -137,6 +142,11 @@ public final class VisionCamera {
                 Log.e(TAG, lastError);
                 return;
             }
+            frameRotation = resolveFrameRotation(manager.getCameraCharacteristics(cameraId));
+            Log.i(TAG, "Frame rotation " + frameRotation + " deg ("
+                    + (config.frameRotation >= 0 ? "manual" : "auto from sensor") + ", "
+                    + (config.useFrontCamera ? "front" : "back") + ")");
+
             Size captureSize = pickYuvSize(manager, cameraId, config.safeResolution());
             imageReader = ImageReader.newInstance(
                     captureSize.getWidth(),
@@ -257,8 +267,24 @@ public final class VisionCamera {
         if (!imageToNv21(image, nv21Scratch)) {
             return null;
         }
+
+        byte[] frame = nv21Scratch;
+        int rotation = frameRotation;
+        if (rotation != 0) {
+            if (rotatedScratch == null || rotatedScratch.length < needed) {
+                rotatedScratch = new byte[needed];
+            }
+            rotateNv21(nv21Scratch, rotatedScratch, width, height, rotation);
+            frame = rotatedScratch;
+            if (rotation != 180) {
+                int swap = width;
+                width = height;
+                height = swap;
+            }
+        }
+
         ByteArrayOutputStream out = new ByteArrayOutputStream(needed / 2);
-        YuvImage yuv = new YuvImage(nv21Scratch, ImageFormat.NV21, width, height, null);
+        YuvImage yuv = new YuvImage(frame, ImageFormat.NV21, width, height, null);
         if (!yuv.compressToJpeg(new Rect(0, 0, width, height), quality, out)) {
             return null;
         }
@@ -330,6 +356,97 @@ public final class VisionCamera {
                 imageReader = null;
             }
         } catch (Exception ignored) {
+        }
+    }
+
+    /**
+     * Rotates NV21 in place of a decode/re-encode round trip, so the JPEG that
+     * reaches both Home Assistant and the detectors is already upright.
+     * Chroma is copied as VU pairs because NV21 interleaves it at half resolution.
+     */
+    private static void rotateNv21(byte[] src, byte[] dst, int width, int height, int degrees) {
+        int ySize = width * height;
+        int pos = 0;
+
+        switch (degrees) {
+            case 90:
+                for (int x = 0; x < width; x++) {
+                    for (int y = height - 1; y >= 0; y--) {
+                        dst[pos++] = src[y * width + x];
+                    }
+                }
+                pos = ySize;
+                for (int x = 0; x < width; x += 2) {
+                    for (int y = height / 2 - 1; y >= 0; y--) {
+                        int uv = ySize + y * width + x;
+                        dst[pos++] = src[uv];
+                        dst[pos++] = src[uv + 1];
+                    }
+                }
+                return;
+            case 270:
+                for (int x = width - 1; x >= 0; x--) {
+                    for (int y = 0; y < height; y++) {
+                        dst[pos++] = src[y * width + x];
+                    }
+                }
+                pos = ySize;
+                for (int x = width - 2; x >= 0; x -= 2) {
+                    for (int y = 0; y < height / 2; y++) {
+                        int uv = ySize + y * width + x;
+                        dst[pos++] = src[uv];
+                        dst[pos++] = src[uv + 1];
+                    }
+                }
+                return;
+            case 180:
+                for (int i = ySize - 1; i >= 0; i--) {
+                    dst[pos++] = src[i];
+                }
+                pos = ySize;
+                for (int i = ySize + ySize / 2 - 2; i >= ySize; i -= 2) {
+                    dst[pos++] = src[i];
+                    dst[pos++] = src[i + 1];
+                }
+                return;
+            default:
+                System.arraycopy(src, 0, dst, 0, ySize + ySize / 2);
+        }
+    }
+
+    /**
+     * SENSOR_ORIENTATION is the clockwise rotation needed to make the sensor image
+     * upright while the device sits in its native orientation, so it is the base
+     * correction. Front and back differ in sign against the current display
+     * rotation because the front sensor image is mirrored.
+     */
+    private int resolveFrameRotation(CameraCharacteristics characteristics) {
+        int override = config.frameRotation;
+        if (override >= 0) {
+            return override % 360;
+        }
+        Integer sensor = characteristics.get(CameraCharacteristics.SENSOR_ORIENTATION);
+        if (sensor == null) return 0;
+        int display = displayRotationDegrees();
+        int facing = config.useFrontCamera ? 1 : -1;
+        return ((sensor + facing * display) % 360 + 360) % 360;
+    }
+
+    private int displayRotationDegrees() {
+        try {
+            DisplayManager displays =
+                    (DisplayManager) context.getSystemService(Context.DISPLAY_SERVICE);
+            if (displays == null) return 0;
+            Display display = displays.getDisplay(Display.DEFAULT_DISPLAY);
+            if (display == null) return 0;
+            switch (display.getRotation()) {
+                case Surface.ROTATION_90: return 90;
+                case Surface.ROTATION_180: return 180;
+                case Surface.ROTATION_270: return 270;
+                default: return 0;
+            }
+        } catch (Exception e) {
+            return 0;
         }
     }
 
