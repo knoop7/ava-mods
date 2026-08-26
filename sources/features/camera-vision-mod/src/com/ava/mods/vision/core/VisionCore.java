@@ -30,6 +30,7 @@ public final class VisionCore implements VisionApi {
     private final ExecutorService detectExecutor = Executors.newSingleThreadExecutor();
     private final Map<String, Object> listeners = new ConcurrentHashMap<>();
     private final AtomicBoolean detectBusy = new AtomicBoolean(false);
+    private final AtomicBoolean restartQueued = new AtomicBoolean(false);
 
     private volatile VisionCamera camera;
     private volatile QrScanner qrScanner;
@@ -168,8 +169,14 @@ public final class VisionCore implements VisionApi {
             default:
                 return;
         }
-        if (restartCamera && config.cameraEnabled) {
-            executor.execute(this::restartCameraSync);
+        // Entity registration replays every stored config value at startup; the
+        // camera keys used to queue one restart each, and those overlapping
+        // open/close cycles are what raced the camera into its stuck state.
+        if (restartCamera && config.cameraEnabled && restartQueued.compareAndSet(false, true)) {
+            executor.execute(() -> {
+                restartQueued.set(false);
+                restartCameraSync();
+            });
         }
     }
 
@@ -359,7 +366,11 @@ public final class VisionCore implements VisionApi {
     }
 
     private synchronized void restartCameraSync() {
-        stopCameraSync();
+        // Nothing to cycle when the camera never started; a stop would only
+        // flap the switch entity off and on for Home Assistant.
+        if (camera != null) {
+            stopCameraSync();
+        }
         if (config.cameraEnabled) {
             startCameraSync();
         }

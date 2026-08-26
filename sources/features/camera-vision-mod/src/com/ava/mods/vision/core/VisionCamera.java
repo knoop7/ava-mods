@@ -35,13 +35,25 @@ public final class VisionCamera {
     }
 
     private static final String TAG = "VisionCamera";
+    private static final int MAX_RETRIES = 5;
+    private static final long RETRY_DELAY_MS = 1200;
+
+    /**
+     * One camera thread for the app's lifetime, shared across instances. The old
+     * per-instance thread died in stop(), and any onError/onDisconnected the
+     * framework delivered afterwards was dropped by the dead looper — the
+     * CameraDevice was never closed, the camera service kept the stale client,
+     * and every following open got evicted. That is why the camera only came
+     * back after toggling the switch until the timing happened to align.
+     */
+    private static HandlerThread sharedThread;
+    private static Handler sharedHandler;
 
     private final Context context;
     private final VisionConfig config;
     private final AtomicReference<byte[]> latestJpeg = new AtomicReference<>();
     private final Object lock = new Object();
 
-    private HandlerThread cameraThread;
     private Handler cameraHandler;
     private CameraDevice cameraDevice;
     private CameraCaptureSession captureSession;
@@ -57,6 +69,16 @@ public final class VisionCamera {
     private byte[] rotatedScratch;
     private volatile int frameRotation;
     private volatile Range<Integer>[] aeFpsRanges;
+    private int retryCount;
+
+    private static synchronized Handler sharedCameraHandler() {
+        if (sharedThread == null || !sharedThread.isAlive()) {
+            sharedThread = new HandlerThread("ava-vision-camera");
+            sharedThread.start();
+            sharedHandler = new Handler(sharedThread.getLooper());
+        }
+        return sharedHandler;
+    }
 
     public VisionCamera(Context context, VisionConfig config) {
         this.context = context.getApplicationContext();
@@ -89,33 +111,24 @@ public final class VisionCamera {
             if (running) return;
             running = true;
             lastError = "";
+            retryCount = 0;
             fpsWindowStart = System.currentTimeMillis();
             fpsWindowCount = 0;
-            cameraThread = new HandlerThread("ava-vision-camera");
-            cameraThread.start();
-            cameraHandler = new Handler(cameraThread.getLooper());
+            cameraHandler = sharedCameraHandler();
             cameraHandler.post(this::openCamera);
         }
     }
 
+    /**
+     * Closes synchronously on the caller's thread — CameraDevice.close is
+     * thread-safe — instead of posting to a thread that is about to die. A
+     * device still mid-open is handled by the state callbacks, which see
+     * running == false and close whatever the framework hands them.
+     */
     public void stop() {
         synchronized (lock) {
             running = false;
-            if (cameraHandler != null) {
-                cameraHandler.post(this::closeCameraLocked);
-            } else {
-                closeCameraLocked();
-            }
-            if (cameraThread != null) {
-                cameraThread.quitSafely();
-                try {
-                    cameraThread.join(1500);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                }
-                cameraThread = null;
-                cameraHandler = null;
-            }
+            closeCameraLocked();
             latestJpeg.set(null);
             nv21Scratch = null;
             rotatedScratch = null;
@@ -123,9 +136,17 @@ public final class VisionCamera {
         }
     }
 
-    public void restart() {
-        stop();
-        start();
+    /** Retries transient failures (eviction, HAL hiccups) instead of going silent. */
+    private void scheduleRetry(String why) {
+        if (!running) return;
+        if (retryCount >= MAX_RETRIES) {
+            lastError = why + " (gave up after " + MAX_RETRIES + " retries)";
+            Log.e(TAG, lastError);
+            return;
+        }
+        retryCount++;
+        Log.w(TAG, why + " — retrying " + retryCount + "/" + MAX_RETRIES);
+        cameraHandler.postDelayed(this::openCamera, RETRY_DELAY_MS);
     }
 
     @SuppressLint("MissingPermission")
@@ -136,6 +157,11 @@ public final class VisionCamera {
             lastError = "CameraManager unavailable";
             Log.e(TAG, lastError);
             return;
+        }
+        // A retry after a half-completed open must not stack a second reader
+        // or device on top of the first.
+        synchronized (lock) {
+            closeCameraLocked();
         }
         try {
             String cameraId = pickCameraId(manager, config.useFrontCamera);
@@ -187,7 +213,16 @@ public final class VisionCamera {
             manager.openCamera(cameraId, new CameraDevice.StateCallback() {
                 @Override
                 public void onOpened(CameraDevice camera) {
-                    cameraDevice = camera;
+                    synchronized (lock) {
+                        if (!running) {
+                            // stop() won the race while the open was in flight;
+                            // without this close the device leaks and blocks
+                            // every open until the process dies.
+                            camera.close();
+                            return;
+                        }
+                        cameraDevice = camera;
+                    }
                     createSession();
                 }
 
@@ -195,14 +230,24 @@ public final class VisionCamera {
                 public void onDisconnected(CameraDevice camera) {
                     lastError = "Camera disconnected";
                     Log.w(TAG, lastError);
-                    closeCameraLocked();
+                    // The docs require closing the passed device here; the field
+                    // may still be null when this fires before onOpened.
+                    camera.close();
+                    synchronized (lock) {
+                        if (cameraDevice == camera) cameraDevice = null;
+                    }
+                    scheduleRetry(lastError);
                 }
 
                 @Override
                 public void onError(CameraDevice camera, int error) {
                     lastError = "Camera error " + error;
                     Log.e(TAG, lastError);
-                    closeCameraLocked();
+                    camera.close();
+                    synchronized (lock) {
+                        if (cameraDevice == camera) cameraDevice = null;
+                    }
+                    scheduleRetry(lastError);
                 }
             }, cameraHandler);
         } catch (SecurityException e) {
@@ -211,6 +256,7 @@ public final class VisionCamera {
         } catch (Exception e) {
             lastError = String.valueOf(e.getMessage());
             Log.e(TAG, "openCamera failed", e);
+            scheduleRetry("Open failed: " + e.getMessage());
         }
     }
 
@@ -239,6 +285,7 @@ public final class VisionCamera {
                                     builder.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, fpsRange);
                                 }
                                 session.setRepeatingRequest(builder.build(), null, cameraHandler);
+                                retryCount = 0;
                                 Log.i(TAG, "Vision camera started "
                                         + (config.useFrontCamera ? "front" : "back")
                                         + " @" + config.fps + "fps, AE range "
@@ -246,6 +293,7 @@ public final class VisionCamera {
                             } catch (CameraAccessException e) {
                                 lastError = "setRepeatingRequest failed";
                                 Log.e(TAG, lastError, e);
+                                scheduleRetry(lastError);
                             }
                         }
 
@@ -253,11 +301,13 @@ public final class VisionCamera {
                         public void onConfigureFailed(CameraCaptureSession session) {
                             lastError = "Capture session configure failed";
                             Log.e(TAG, lastError);
+                            scheduleRetry(lastError);
                         }
                     }, cameraHandler);
         } catch (Exception e) {
             lastError = String.valueOf(e.getMessage());
             Log.e(TAG, "createSession failed", e);
+            scheduleRetry(lastError);
         }
     }
 
