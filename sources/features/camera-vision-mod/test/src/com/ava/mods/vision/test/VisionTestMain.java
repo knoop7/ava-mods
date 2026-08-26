@@ -1,5 +1,6 @@
 package com.ava.mods.vision.test;
 
+import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
@@ -43,6 +44,7 @@ public final class VisionTestMain {
         long start = System.currentTimeMillis();
 
         testChildFirstLoader();
+        testDualLoaderJniLoad();
         testQrRoundTrip();
         testSmallQr();
         testFace("sparse");
@@ -88,6 +90,36 @@ public final class VisionTestMain {
                     "child=" + childTflite.getClassLoader());
         } catch (Throwable t) {
             fail("loader: crashed", t);
+        }
+    }
+
+    /**
+     * The host rebuilds the mod classloader on registry changes, so successive
+     * ChildFirstLoader generations must each be able to bind the TFLite JNI
+     * library. ART allows one .so file per classloader, hence the uniquely
+     * named per-generation copies in TfLiteRuntime — this guards that fix.
+     */
+    private static void testDualLoaderJniLoad() {
+        try {
+            File jar = new File(BASE, "test.jar");
+            ClassLoader parent = VisionTestMain.class.getClassLoader();
+            for (int gen = 1; gen <= 2; gen++) {
+                File cache = new File(BASE, "dex-cache-gen" + gen);
+                cache.mkdirs();
+                ChildFirstLoader child = new ChildFirstLoader(
+                        jar.getAbsolutePath(), cache.getAbsolutePath(), parent);
+                Class<?> store = child.loadClass("com.ava.mods.vision.core.ModelStore");
+                store.getMethod("setBaseDir", File.class).invoke(null, BASE);
+                Class<?> faceCls = child.loadClass("com.ava.mods.vision.core.FaceEngine");
+                Object engine = faceCls.getConstructor(Context.class, String.class)
+                        .newInstance(null, "short");
+                boolean ready = (Boolean) faceCls.getMethod("isReady").invoke(engine);
+                String err = (String) faceCls.getMethod("getError").invoke(engine);
+                faceCls.getMethod("close").invoke(engine);
+                check("jni gen" + gen + ": TFLite binds in fresh loader", ready, err);
+            }
+        } catch (Throwable t) {
+            fail("jni dual-loader: crashed", t);
         }
     }
 

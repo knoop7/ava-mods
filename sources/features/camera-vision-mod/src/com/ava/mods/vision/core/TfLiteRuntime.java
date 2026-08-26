@@ -37,7 +37,13 @@ final class TfLiteRuntime {
             return false;
         }
         try {
-            File dest = new File(ModelStore.dir(context), abi + "-" + LIB_NAME);
+            // The host rebuilds the mod classloader on registry changes, and ART
+            // refuses to bind one .so file path to a second classloader ("already
+            // opened by ClassLoader"). Each loader generation therefore extracts
+            // its own uniquely named copy; older copies are unlinked afterwards,
+            // which is safe on Linux even while a previous loader still maps them.
+            File dir = ModelStore.dir(context);
+            File dest = new File(dir, abi + "-" + System.nanoTime() + "-" + LIB_NAME);
             File so = ModelStore.extract(context, "jni/" + abi + "/" + LIB_NAME, dest);
             if (so == null) {
                 error = "TFLite JNI extraction failed for " + abi;
@@ -46,12 +52,24 @@ final class TfLiteRuntime {
             }
             System.load(so.getAbsolutePath());
             loaded = true;
-            Log.i(TAG, "Loaded bundled TFLite JNI (" + abi + ")");
+            deleteStaleCopies(dir, abi, dest.getName());
+            Log.i(TAG, "Loaded bundled TFLite JNI (" + abi + ") from " + so.getName());
             return true;
         } catch (Throwable t) {
             error = "TFLite JNI load failed: " + t.getMessage();
             Log.e(TAG, error, t);
             return false;
+        }
+    }
+
+    private static void deleteStaleCopies(File dir, String abi, String keep) {
+        File[] files = dir.listFiles();
+        if (files == null) return;
+        for (File f : files) {
+            String name = f.getName();
+            if (name.startsWith(abi) && name.endsWith(LIB_NAME) && !name.equals(keep)) {
+                f.delete();
+            }
         }
     }
 
