@@ -1,4 +1,4 @@
-package com.ava.mods.vision;
+package com.ava.mods.vision.core;
 
 public final class VisionConfig {
 

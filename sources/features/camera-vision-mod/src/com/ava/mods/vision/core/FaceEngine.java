@@ -1,4 +1,4 @@
-package com.ava.mods.vision;
+package com.ava.mods.vision.core;
 
 import android.content.Context;
 import android.graphics.Bitmap;
@@ -61,6 +61,17 @@ public final class FaceEngine {
     private Bitmap inputFrame;
     private Canvas inputCanvas;
 
+    /**
+     * Allocated once: a fresh direct ByteBuffer plus fresh output arrays per frame
+     * (~600KB combined) made every detection pay allocation and GC cost, which
+     * showed up as user-visible recognition lag.
+     */
+    private ByteBuffer inputBuffer;
+    private int[] pixelScratch;
+    private float[][][] regressors;
+    private float[][][] scores;
+    private final Map<Integer, Object> outputs = new HashMap<>();
+
     public static final class Result {
         public final int count;
         public final boolean present;
@@ -72,6 +83,10 @@ public final class FaceEngine {
     }
 
     public FaceEngine(Context context, String range) {
+        if (!TfLiteRuntime.ensureLoaded(context)) {
+            error = TfLiteRuntime.getError();
+            return;
+        }
         String name = "short".equals(range) ? ModelStore.FACE_SHORT : ModelStore.FACE_SPARSE;
         File modelFile = ModelStore.require(context, name);
         if (modelFile == null) {
@@ -99,6 +114,13 @@ public final class FaceEngine {
                 Log.e(TAG, error);
                 return;
             }
+            inputBuffer = ByteBuffer.allocateDirect(inputSize * inputSize * 3 * 4)
+                    .order(ByteOrder.nativeOrder());
+            pixelScratch = new int[inputSize * inputSize];
+            regressors = new float[1][numAnchors][regressorStride];
+            scores = new float[1][numAnchors][1];
+            outputs.put(0, regressors);
+            outputs.put(1, scores);
             interpreter = candidate;
             Log.i(TAG, "Face model " + name + " " + inputSize + "px anchors=" + numAnchors);
         } catch (Exception e) {
@@ -120,14 +142,7 @@ public final class FaceEngine {
         Interpreter local = interpreter;
         if (local == null) return new Result(0, false);
 
-        ByteBuffer input = toByteBuffer(letterbox(bitmap), inputSize);
-
-        float[][][] regressors = new float[1][numAnchors][regressorStride];
-        float[][][] scores = new float[1][numAnchors][1];
-
-        Map<Integer, Object> outputs = new HashMap<>();
-        outputs.put(0, regressors);
-        outputs.put(1, scores);
+        ByteBuffer input = fillInput(letterbox(bitmap));
 
         try {
             local.runForMultipleInputsOutputs(new Object[] { input }, outputs);
@@ -217,9 +232,13 @@ public final class FaceEngine {
         if (frame != null) frame.recycle();
     }
 
+    /**
+     * Four threads instead of two: inference runs in short bursts a few times a
+     * second, so the extra cores cut per-frame latency without a sustained load.
+     */
     private static Interpreter.Options buildOptions() {
         Interpreter.Options opts = new Interpreter.Options();
-        opts.setNumThreads(2);
+        opts.setNumThreads(4);
         try {
             opts.setUseXNNPACK(true);
         } catch (Throwable t) {
@@ -228,11 +247,11 @@ public final class FaceEngine {
         return opts;
     }
 
-    private static ByteBuffer toByteBuffer(Bitmap bitmap, int size) {
-        ByteBuffer buffer = ByteBuffer.allocateDirect(size * size * 3 * 4);
-        buffer.order(ByteOrder.nativeOrder());
-        int[] pixels = new int[size * size];
-        bitmap.getPixels(pixels, 0, size, 0, 0, size, size);
+    private ByteBuffer fillInput(Bitmap bitmap) {
+        ByteBuffer buffer = inputBuffer;
+        buffer.clear();
+        int[] pixels = pixelScratch;
+        bitmap.getPixels(pixels, 0, inputSize, 0, 0, inputSize, inputSize);
         for (int pixel : pixels) {
             buffer.putFloat(((pixel >> 16) & 0xFF) / 127.5f - 1f);
             buffer.putFloat(((pixel >> 8) & 0xFF) / 127.5f - 1f);

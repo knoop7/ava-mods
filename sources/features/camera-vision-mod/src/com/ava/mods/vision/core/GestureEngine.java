@@ -1,7 +1,11 @@
-package com.ava.mods.vision;
+package com.ava.mods.vision.core;
 
 import android.content.Context;
 import android.graphics.Bitmap;
+import android.graphics.Canvas;
+import android.graphics.Paint;
+import android.graphics.Rect;
+import android.graphics.RectF;
 import android.util.Log;
 
 import org.tensorflow.lite.Interpreter;
@@ -76,6 +80,34 @@ public final class GestureEngine {
     private final MajorityVote votes = new MajorityVote(VOTE_WINDOW, VOTE_MIN, NO_HAND, 5);
     private boolean loggedScalars;
 
+    /**
+     * Allocated once: both stages previously created a scaled Bitmap, a direct
+     * ByteBuffer (~450-600KB) and fresh output arrays on every frame, and that
+     * allocation plus GC cost was a real share of the per-recognition latency.
+     */
+    private Bitmap palmFrame;
+    private Canvas palmCanvas;
+    private RectF palmDst;
+    private ByteBuffer palmInput;
+    private int[] palmPixels;
+    private float[][][] palmBoxes;
+    private float[][][] palmScores;
+    private final Map<Integer, Object> palmOutputs = new HashMap<>();
+
+    private Bitmap landmarkFrame;
+    private Canvas landmarkCanvas;
+    private RectF landmarkDst;
+    private ByteBuffer landmarkInput;
+    private int[] landmarkPixels;
+    private float[][] landmarkRaw;
+    private float[][] landmarkPresence;
+    private float[][] landmarkHandedness;
+    private final Map<Integer, Object> landmarkOutputs = new HashMap<>();
+    private float[][] landmarkPoints;
+    private final Rect cropSrc = new Rect();
+
+    private static final Paint FILTER = new Paint(Paint.FILTER_BITMAP_FLAG);
+
     public static final class Result {
         public final String gesture;
         public final boolean openPalm;
@@ -89,6 +121,10 @@ public final class GestureEngine {
     }
 
     public GestureEngine(Context context) {
+        if (!TfLiteRuntime.ensureLoaded(context)) {
+            error = TfLiteRuntime.getError();
+            return;
+        }
         File palmFile = ModelStore.require(context, ModelStore.PALM);
         File landmarkFile = ModelStore.require(context, ModelStore.HAND);
         if (palmFile == null || landmarkFile == null) {
@@ -123,6 +159,33 @@ public final class GestureEngine {
                 close();
                 return;
             }
+
+            palmFrame = Bitmap.createBitmap(palmInputSize, palmInputSize, Bitmap.Config.ARGB_8888);
+            palmCanvas = new Canvas(palmFrame);
+            palmDst = new RectF(0, 0, palmInputSize, palmInputSize);
+            palmInput = ByteBuffer.allocateDirect(palmInputSize * palmInputSize * 3 * 4)
+                    .order(ByteOrder.nativeOrder());
+            palmPixels = new int[palmInputSize * palmInputSize];
+            palmBoxes = new float[1][palmAnchorCount][palmStride];
+            palmScores = new float[1][palmAnchorCount][1];
+            palmOutputs.put(0, palmBoxes);
+            palmOutputs.put(1, palmScores);
+
+            landmarkFrame = Bitmap.createBitmap(
+                    landmarkInputSize, landmarkInputSize, Bitmap.Config.ARGB_8888);
+            landmarkCanvas = new Canvas(landmarkFrame);
+            landmarkDst = new RectF(0, 0, landmarkInputSize, landmarkInputSize);
+            landmarkInput = ByteBuffer.allocateDirect(landmarkInputSize * landmarkInputSize * 3 * 4)
+                    .order(ByteOrder.nativeOrder());
+            landmarkPixels = new int[landmarkInputSize * landmarkInputSize];
+            landmarkRaw = new float[1][landmarkValues];
+            landmarkPresence = new float[1][1];
+            landmarkHandedness = new float[1][1];
+            landmarkOutputs.put(0, landmarkRaw);
+            landmarkOutputs.put(1, landmarkPresence);
+            landmarkOutputs.put(2, landmarkHandedness);
+            landmarkPoints = new float[LANDMARK_POINTS][3];
+
             Log.i(TAG, "Hand models palm=" + palmInputSize + "px/" + palmAnchorCount
                     + " landmark=" + landmarkInputSize + "px/" + landmarkValues);
         } catch (Exception e) {
@@ -174,19 +237,11 @@ public final class GestureEngine {
     }
 
     private float[] detectPalm(Bitmap bitmap) {
-        Bitmap scaled = Bitmap.createScaledBitmap(bitmap, palmInputSize, palmInputSize, true);
-        ByteBuffer input = toByteBuffer(scaled, palmInputSize);
-        if (scaled != bitmap) scaled.recycle();
-
-        float[][][] boxes = new float[1][palmAnchorCount][palmStride];
-        float[][][] scores = new float[1][palmAnchorCount][1];
-
-        Map<Integer, Object> outputs = new HashMap<>();
-        outputs.put(0, boxes);
-        outputs.put(1, scores);
+        palmCanvas.drawBitmap(bitmap, null, palmDst, FILTER);
+        fillBuffer(palmInput, palmFrame, palmPixels, palmInputSize);
 
         try {
-            palm.runForMultipleInputsOutputs(new Object[] { input }, outputs);
+            palm.runForMultipleInputsOutputs(new Object[] { palmInput }, palmOutputs);
         } catch (Exception e) {
             Log.w(TAG, "Palm inference error: " + e.getMessage());
             return null;
@@ -195,7 +250,7 @@ public final class GestureEngine {
         int best = -1;
         float bestScore = PALM_THRESHOLD;
         for (int i = 0; i < palmAnchorCount; i++) {
-            float s = sigmoid(scores[0][i][0]);
+            float s = sigmoid(palmScores[0][i][0]);
             if (s > bestScore) {
                 bestScore = s;
                 best = i;
@@ -204,10 +259,10 @@ public final class GestureEngine {
         if (best < 0) return null;
 
         float[] anchor = palmAnchorCenters.get(best);
-        float cx = (anchor[0] + boxes[0][best][0]) / palmInputSize;
-        float cy = (anchor[1] + boxes[0][best][1]) / palmInputSize;
-        float w = boxes[0][best][2] / palmInputSize;
-        float h = boxes[0][best][3] / palmInputSize;
+        float cx = (anchor[0] + palmBoxes[0][best][0]) / palmInputSize;
+        float cy = (anchor[1] + palmBoxes[0][best][1]) / palmInputSize;
+        float w = palmBoxes[0][best][2] / palmInputSize;
+        float h = palmBoxes[0][best][3] / palmInputSize;
         if (w <= 0f || h <= 0f) return null;
 
         cy += h * HAND_SHIFT_Y;
@@ -240,48 +295,37 @@ public final class GestureEngine {
         int h = Math.min(side, bh - y);
         if (w <= 1 || h <= 1) return null;
 
-        Bitmap cropped = null;
-        Bitmap scaled = null;
         try {
-            cropped = Bitmap.createBitmap(bitmap, x, y, w, h);
-            scaled = Bitmap.createScaledBitmap(cropped, landmarkInputSize, landmarkInputSize, true);
-            ByteBuffer input = toByteBuffer(scaled, landmarkInputSize);
+            cropSrc.set(x, y, x + w, y + h);
+            landmarkCanvas.drawBitmap(bitmap, cropSrc, landmarkDst, FILTER);
+            fillBuffer(landmarkInput, landmarkFrame, landmarkPixels, landmarkInputSize);
 
-            float[][] raw = new float[1][landmarkValues];
-            float[][] presence = new float[1][1];
-            float[][] handedness = new float[1][1];
-            Map<Integer, Object> outputs = new HashMap<>();
-            outputs.put(0, raw);
-            outputs.put(1, presence);
-            outputs.put(2, handedness);
+            landmark.runForMultipleInputsOutputs(new Object[] { landmarkInput }, landmarkOutputs);
 
-            landmark.runForMultipleInputsOutputs(new Object[] { input }, outputs);
-
-            // The converted model exposes both scalars as bare "Identity_N", so log
-            // them once to confirm which one is the hand flag on real hardware.
+            // The model already applies sigmoid: on-device the raw value for a real
+            // hand reads ~0.98. Wrapping it in another sigmoid would squeeze [0,1]
+            // into [0.5,0.73] and let almost any positive score through the gate.
+            float handScore = probability(landmarkPresence[0][0]);
             if (!loggedScalars) {
                 loggedScalars = true;
-                Log.i(TAG, "landmark scalars out1=" + sigmoid(presence[0][0])
-                        + " out2=" + sigmoid(handedness[0][0]));
+                Log.i(TAG, "landmark scalars presence=" + handScore
+                        + " handedness=" + probability(landmarkHandedness[0][0]));
             }
 
             // Without this gate the palm detector's false positives still yield a
             // full set of landmarks, which then read as a confident random gesture.
-            if (sigmoid(presence[0][0]) < HAND_PRESENCE_THRESHOLD) return null;
+            if (handScore < HAND_PRESENCE_THRESHOLD) return null;
 
-            float[][] points = new float[LANDMARK_POINTS][3];
+            float[][] points = landmarkPoints;
             for (int i = 0; i < LANDMARK_POINTS; i++) {
-                points[i][0] = raw[0][i * 3] / landmarkInputSize;
-                points[i][1] = raw[0][i * 3 + 1] / landmarkInputSize;
-                points[i][2] = raw[0][i * 3 + 2];
+                points[i][0] = landmarkRaw[0][i * 3] / landmarkInputSize;
+                points[i][1] = landmarkRaw[0][i * 3 + 1] / landmarkInputSize;
+                points[i][2] = landmarkRaw[0][i * 3 + 2];
             }
             return points;
         } catch (Exception e) {
             Log.w(TAG, "Landmark inference error: " + e.getMessage());
             return null;
-        } finally {
-            if (scaled != null && scaled != bitmap) scaled.recycle();
-            if (cropped != null && cropped != bitmap) cropped.recycle();
         }
     }
 
@@ -320,11 +364,19 @@ public final class GestureEngine {
         landmark = null;
         if (p != null) p.close();
         if (l != null) l.close();
+        Bitmap pf = palmFrame;
+        Bitmap lf = landmarkFrame;
+        palmFrame = null;
+        landmarkFrame = null;
+        palmCanvas = null;
+        landmarkCanvas = null;
+        if (pf != null) pf.recycle();
+        if (lf != null) lf.recycle();
     }
 
     private static Interpreter.Options buildOptions() {
         Interpreter.Options opts = new Interpreter.Options();
-        opts.setNumThreads(2);
+        opts.setNumThreads(4);
         try {
             opts.setUseXNNPACK(true);
         } catch (Throwable t) {
@@ -337,22 +389,29 @@ public final class GestureEngine {
         return Math.max(0f, Math.min(1f, v));
     }
 
-    private static ByteBuffer toByteBuffer(Bitmap bitmap, int size) {
-        ByteBuffer buffer = ByteBuffer.allocateDirect(size * size * 3 * 4);
-        buffer.order(ByteOrder.nativeOrder());
-        int[] pixels = new int[size * size];
+    /**
+     * MediaPipe's hand graph feeds both the palm detector and the landmark model
+     * pixels in [0,1] — unlike BlazeFace, which takes [-1,1]. Feeding [-1,1] here
+     * collapses every palm score below the threshold and no hand is ever found.
+     */
+    private static void fillBuffer(ByteBuffer buffer, Bitmap bitmap, int[] pixels, int size) {
+        buffer.clear();
         bitmap.getPixels(pixels, 0, size, 0, 0, size, size);
         for (int pixel : pixels) {
-            buffer.putFloat(((pixel >> 16) & 0xFF) / 127.5f - 1f);
-            buffer.putFloat(((pixel >> 8) & 0xFF) / 127.5f - 1f);
-            buffer.putFloat((pixel & 0xFF) / 127.5f - 1f);
+            buffer.putFloat(((pixel >> 16) & 0xFF) / 255f);
+            buffer.putFloat(((pixel >> 8) & 0xFF) / 255f);
+            buffer.putFloat((pixel & 0xFF) / 255f);
         }
         buffer.rewind();
-        return buffer;
     }
 
     private static float sigmoid(float x) {
         return 1f / (1f + (float) Math.exp(-x));
+    }
+
+    /** Accepts either a probability or a logit, for robustness across model conversions. */
+    private static float probability(float x) {
+        return (x >= 0f && x <= 1f) ? x : sigmoid(x);
     }
 
     private static MappedByteBuffer map(File file) throws Exception {

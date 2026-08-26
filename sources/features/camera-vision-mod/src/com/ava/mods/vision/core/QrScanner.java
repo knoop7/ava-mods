@@ -1,4 +1,4 @@
-package com.ava.mods.vision;
+package com.ava.mods.vision.core;
 
 import android.graphics.Bitmap;
 
@@ -17,7 +17,15 @@ import java.util.Map;
 
 public final class QrScanner {
 
+    /**
+     * Decode at native resolution up to this width. The old 640 cap silently
+     * downscaled higher-resolution frames, throwing away exactly the detail a
+     * user raising the resolution setting was trying to gain for distant codes.
+     */
+    private static final int MAX_DECODE_WIDTH = 1280;
+
     private final MultiFormatReader reader;
+    private int[] pixelScratch = new int[0];
 
     /**
      * QR only. Face, gesture and QR all share one detection thread, and running
@@ -40,14 +48,17 @@ public final class QrScanner {
         int scaledW = width;
         int scaledH = height;
         Bitmap scaled = bitmap;
-        if (width > 640) {
-            float ratio = 640f / width;
-            scaledW = 640;
+        if (width > MAX_DECODE_WIDTH) {
+            float ratio = (float) MAX_DECODE_WIDTH / width;
+            scaledW = MAX_DECODE_WIDTH;
             scaledH = (int) (height * ratio);
             scaled = Bitmap.createScaledBitmap(bitmap, scaledW, scaledH, false);
         }
 
-        int[] pixels = new int[scaledW * scaledH];
+        if (pixelScratch.length < scaledW * scaledH) {
+            pixelScratch = new int[scaledW * scaledH];
+        }
+        int[] pixels = pixelScratch;
         scaled.getPixels(pixels, 0, scaledW, 0, 0, scaledW, scaledH);
         if (scaled != bitmap) scaled.recycle();
 

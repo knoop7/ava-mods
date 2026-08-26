@@ -50,24 +50,28 @@ find "$SRC_DIR" -name "*.java" > "$OUT_DIR/sources.txt"
     -d "$OUT_DIR/classes" \
     @"$OUT_DIR/sources.txt"
 
-# ZXing is dexed into the mod because the host APK does not ship it. TFLite is only
-# a compile reference — the host provides those classes and its native library.
-echo "==> Converting to DEX (bundling ZXing)..."
+# ZXing and the full TFLite runtime are dexed into the mod. The host also carries
+# TFLite, but R8 renames most of it, and the loader in ChildFirstLoader.java keeps
+# the two copies apart at runtime.
+echo "==> Converting to DEX (bundling ZXing + TFLite)..."
 d8 --min-api 24 \
     --lib "$ANDROID_JAR" \
-    --classpath "$TFLITE_JAR" \
-    --classpath "$TFLITE_API_JAR" \
     --output "$OUT_DIR" \
     "$ZXING_JAR" \
+    "$TFLITE_JAR" \
+    "$TFLITE_API_JAR" \
     $(find "$OUT_DIR/classes" -name "*.class")
 
-# Models ride inside the JAR: the host only fetches manifest "libs" entries, and
-# ModCameraStreamBridge withholds camera ownership unless every entry is a .jar.
-echo "==> Packaging JAR with bundled models..."
-mkdir -p "$OUT_DIR/jar/models"
+# Models and the TFLite JNI library ride inside the JAR: the host only fetches
+# manifest "libs" entries, and ModCameraStreamBridge withholds camera ownership
+# unless every entry is a .jar. ModelStore extracts them on first use.
+echo "==> Packaging JAR with bundled models and JNI libs..."
+mkdir -p "$OUT_DIR/jar/models" "$OUT_DIR/jar/jni/arm64-v8a" "$OUT_DIR/jar/jni/armeabi-v7a"
 cp "$OUT_DIR/classes.dex" "$OUT_DIR/jar/"
 cp "$SCRIPT_DIR"/models/*.tflite "$OUT_DIR/jar/models/"
-(cd "$OUT_DIR/jar" && jar cf "$OUT_DIR/camera-vision.jar" classes.dex models)
+cp "$SCRIPT_DIR/deps/jni/arm64-v8a/libtensorflowlite_jni.so" "$OUT_DIR/jar/jni/arm64-v8a/"
+cp "$SCRIPT_DIR/deps/jni/armeabi-v7a/libtensorflowlite_jni.so" "$OUT_DIR/jar/jni/armeabi-v7a/"
+(cd "$OUT_DIR/jar" && jar cf "$OUT_DIR/camera-vision.jar" classes.dex models jni)
 
 echo "==> Assembling release package..."
 rm -rf "$RELEASE_DIR"

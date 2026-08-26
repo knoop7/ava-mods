@@ -1,4 +1,4 @@
-package com.ava.mods.vision;
+package com.ava.mods.vision.core;
 
 import android.annotation.SuppressLint;
 import android.content.Context;

@@ -1,8 +1,17 @@
-Dependencies required for compilation (compile-time only, not bundled at runtime):
+Dependencies bundled into camera-vision.jar at build time:
 
-- tensorflow-lite.jar  : org.tensorflow:tensorflow-lite:2.16.1 (Maven Central)
-- zxing-core.jar       : com.google.zxing:core:3.5.3 (Maven Central)
+- tensorflow-lite.jar      : org.tensorflow:tensorflow-lite:2.16.1 classes.jar (from the AAR)
+- tensorflow-lite-api.jar  : org.tensorflow:tensorflow-lite-api:2.16.1 classes.jar (from the AAR)
+- zxing-core.jar           : com.google.zxing:core:3.5.3 (Maven Central)
+- jni/<abi>/libtensorflowlite_jni.so : JNI libs from the tensorflow-lite 2.16.1 AAR
+
+The host app also ships TFLite, but R8 renames its Java API, so the mod carries
+its own complete copy (classes dexed in, .so extracted at runtime) and loads it
+through a child-first classloader. Nothing here is resolved from the host.
 
 Fetch with:
   curl -sL https://repo1.maven.org/maven2/com/google/zxing/core/3.5.3/core-3.5.3.jar -o zxing-core.jar
-  curl -sL https://repo1.maven.org/maven2/org/tensorflow/tensorflow-lite/2.16.1/tensorflow-lite-2.16.1.jar -o tensorflow-lite.jar
+  curl -sL https://repo1.maven.org/maven2/org/tensorflow/tensorflow-lite/2.16.1/tensorflow-lite-2.16.1.aar -o /tmp/tflite.aar
+    then unzip classes.jar -> tensorflow-lite.jar and jni/{arm64-v8a,armeabi-v7a}/libtensorflowlite_jni.so -> jni/
+  curl -sL https://repo1.maven.org/maven2/org/tensorflow/tensorflow-lite-api/2.16.1/tensorflow-lite-api-2.16.1.aar -o /tmp/tflite-api.aar
+    then unzip classes.jar -> tensorflow-lite-api.jar
