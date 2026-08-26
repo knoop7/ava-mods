@@ -16,7 +16,7 @@ public final class VisionConfig {
     public volatile boolean gestureEnabled = true;
 
     public volatile int qrCooldownSec = 5;
-    public volatile String faceRange = "sparse";
+    public volatile String faceRange = "yunet";
     public volatile boolean parseHaTags = true;
     public volatile boolean screensaverWake = true;
 

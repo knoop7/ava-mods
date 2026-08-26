@@ -15,3 +15,13 @@ Fetch with:
     then unzip classes.jar -> tensorflow-lite.jar and jni/{arm64-v8a,armeabi-v7a}/libtensorflowlite_jni.so -> jni/
   curl -sL https://repo1.maven.org/maven2/org/tensorflow/tensorflow-lite-api/2.16.1/tensorflow-lite-api-2.16.1.aar -o /tmp/tflite-api.aar
     then unzip classes.jar -> tensorflow-lite-api.jar
+
+Bundled models (models/*.tflite, packed into the JAR by build.sh):
+
+- yunet_face_detection_320.tflite : YuNet face detector (Apache-2.0 / BSD upstream).
+  Source: yunet_n_320_320.onnx from github.com/ShiqiYu/libfacedetection.train
+  (master), converted with onnx2tf 1.28.8 -> float32 NHWC. Input [1,320,320,3]
+  BGR 0-255 unnormalized; 12 outputs = cls/obj/bbox/kps per stride {8,16,32}.
+- face_detection_full_range_sparse.tflite, face_detection_short_range.tflite :
+  MediaPipe BlazeFace (Apache-2.0), legacy backends behind the face_range select.
+- palm_detection_lite.tflite, hand_landmark_lite.tflite : MediaPipe (Apache-2.0).

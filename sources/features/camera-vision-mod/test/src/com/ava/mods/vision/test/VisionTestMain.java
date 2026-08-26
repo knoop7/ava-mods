@@ -11,10 +11,13 @@ import android.graphics.RectF;
 import com.ava.mods.vision.ChildFirstLoader;
 import com.ava.mods.vision.api.VisionApi;
 import com.ava.mods.vision.core.AdaptiveQuality;
+import com.ava.mods.vision.core.FaceBackend;
 import com.ava.mods.vision.core.FaceEngine;
+import com.ava.mods.vision.core.FaceResult;
 import com.ava.mods.vision.core.GestureEngine;
 import com.ava.mods.vision.core.ModelStore;
 import com.ava.mods.vision.core.QrScanner;
+import com.ava.mods.vision.core.YuNetEngine;
 
 import com.google.zxing.BarcodeFormat;
 import com.google.zxing.common.BitMatrix;
@@ -49,6 +52,7 @@ public final class VisionTestMain {
         testAdaptiveQuality();
         testQrRoundTrip();
         testSmallQr();
+        testFace("yunet");
         testFace("sparse");
         testFace("short");
         testFarFace();
@@ -239,17 +243,21 @@ public final class VisionTestMain {
         }
     }
 
+    private static FaceBackend newFace(String range) {
+        return "yunet".equals(range) ? new YuNetEngine(null) : new FaceEngine(null, range);
+    }
+
     private static void testFace(String range) {
-        FaceEngine engine = null;
+        FaceBackend engine = null;
         try {
-            engine = new FaceEngine(null, range);
+            engine = newFace(range);
             if (!check("face[" + range + "]: engine ready", engine.isReady(), engine.getError())) {
                 return;
             }
 
             Bitmap portrait = load("face.jpg");
             if (portrait == null) return;
-            FaceEngine.Result result = null;
+            FaceResult result = null;
             long t0 = System.currentTimeMillis();
             for (int i = 0; i < SETTLE_FRAMES; i++) {
                 result = engine.detect(portrait);
@@ -324,28 +332,43 @@ public final class VisionTestMain {
         }
     }
 
-    /** Same portrait scaled down mimics a person standing further from the camera. */
+    /**
+     * The same portrait scaled down mimics a person standing further away. YuNet
+     * must hold detection well past where BlazeFace goes blind — that gap is the
+     * whole reason it ships as the default backend.
+     */
     private static void testFarFace() {
-        FaceEngine engine = null;
+        Bitmap portrait = load("face.jpg");
+        if (portrait == null) return;
         try {
-            engine = new FaceEngine(null, "sparse");
-            if (!check("face far: engine ready", engine.isReady(), engine.getError())) return;
+            FaceBackend yunet = newFace("yunet");
+            if (check("face far[yunet]: engine ready", yunet.isReady(), yunet.getError())) {
+                check("face far[yunet]: detected at 33%",
+                        freshDetectScaled("yunet", portrait, 0.33f).present, "missed at 33%");
+                check("face far[yunet]: detected at 20%",
+                        freshDetectScaled("yunet", portrait, 0.20f).present, "missed at 20%");
+                FaceResult tiny = freshDetectScaled("yunet", portrait, 0.12f);
+                System.out.println("INFO  face far[yunet]: detected at 12%=" + tiny.present);
+            }
+            yunet.close();
 
-            Bitmap portrait = load("face.jpg");
-            if (portrait == null) return;
-
-            check("face far: half-size face detected",
-                    detectFaceScaled(engine, portrait, 0.5f).present, "not detected at 50%");
-            engine.close();
-
-            engine = new FaceEngine(null, "sparse");
-            FaceEngine.Result third = detectFaceScaled(engine, portrait, 0.33f);
-            System.out.println("INFO  face far: third-size face detected=" + third.present);
-            portrait.recycle();
+            FaceResult sparseThird = freshDetectScaled("sparse", portrait, 0.33f);
+            System.out.println("INFO  face far[sparse]: detected at 33%=" + sparseThird.present
+                    + " (BlazeFace reference)");
         } catch (Throwable t) {
             fail("face far: crashed", t);
         } finally {
-            if (engine != null) engine.close();
+            portrait.recycle();
+        }
+    }
+
+    /** A fresh engine per scale so hysteresis from one scale cannot leak into the next. */
+    private static FaceResult freshDetectScaled(String range, Bitmap src, float scale) {
+        FaceBackend engine = newFace(range);
+        try {
+            return detectFaceScaled(engine, src, scale);
+        } finally {
+            engine.close();
         }
     }
 
@@ -365,14 +388,16 @@ public final class VisionTestMain {
             check("cross: portrait yields no gesture", "none".equals(g.gesture),
                     "gesture=" + g.gesture + " fingers=" + g.fingerCount);
 
-            FaceEngine face = new FaceEngine(null, "sparse");
-            FaceEngine.Result f = null;
-            for (int i = 0; i < SETTLE_FRAMES; i++) {
-                f = face.detect(palm);
+            for (String range : new String[] {"yunet", "sparse"}) {
+                FaceBackend face = newFace(range);
+                FaceResult f = null;
+                for (int i = 0; i < SETTLE_FRAMES; i++) {
+                    f = face.detect(palm);
+                }
+                face.close();
+                check("cross: palm yields no face [" + range + "]", !f.present,
+                        "present=" + f.present + " count=" + f.count);
             }
-            face.close();
-            check("cross: palm yields no face", !f.present,
-                    "present=" + f.present + " count=" + f.count);
 
             portrait.recycle();
             palm.recycle();
@@ -381,7 +406,7 @@ public final class VisionTestMain {
         }
     }
 
-    private static FaceEngine.Result detectFaceScaled(FaceEngine engine, Bitmap src, float scale) {
+    private static FaceResult detectFaceScaled(FaceBackend engine, Bitmap src, float scale) {
         Bitmap frame = solid(640, 480, Color.DKGRAY);
         Canvas canvas = new Canvas(frame);
         float w = 640 * scale;
@@ -390,7 +415,7 @@ public final class VisionTestMain {
         float top = (480 - h) / 2f;
         canvas.drawBitmap(src, null, new RectF(left, top, left + w, top + h),
                 new Paint(Paint.FILTER_BITMAP_FLAG));
-        FaceEngine.Result result = null;
+        FaceResult result = null;
         for (int i = 0; i < SETTLE_FRAMES; i++) {
             result = engine.detect(frame);
         }

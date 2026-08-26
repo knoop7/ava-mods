@@ -35,7 +35,7 @@ public final class VisionCore implements VisionApi {
 
     private volatile VisionCamera camera;
     private volatile QrScanner qrScanner;
-    private volatile FaceEngine faceEngine;
+    private volatile FaceBackend faceEngine;
     private volatile GestureEngine gestureEngine;
     private volatile ScreensaverBridge screensaver;
 
@@ -169,7 +169,10 @@ public final class VisionCore implements VisionApi {
                 config.qrCooldownSec = clamp(parseInt(value, 5), 1, 60);
                 return;
             case "face_range": {
-                String next = "short".equalsIgnoreCase(value.trim()) ? "short" : "sparse";
+                String trimmed = value.trim().toLowerCase();
+                String next = ("short".equals(trimmed) || "sparse".equals(trimmed))
+                        ? trimmed
+                        : "yunet";
                 if (next.equals(config.faceRange)) return;
                 config.faceRange = next;
                 if (config.faceEnabled) {
@@ -573,9 +576,9 @@ public final class VisionCore implements VisionApi {
     }
 
     private void processFace(Bitmap bmp) {
-        FaceEngine engine = faceEngine;
+        FaceBackend engine = faceEngine;
         if (engine == null) return;
-        FaceEngine.Result result = engine.detect(bmp);
+        FaceResult result = engine.detect(bmp);
         if (result.count != faceCount) {
             faceCount = result.count;
             notifyState("face_count", faceCount);
@@ -629,7 +632,7 @@ public final class VisionCore implements VisionApi {
         }
         if (config.faceEnabled && faceEngine == null && !faceEngineFailed) {
             try {
-                FaceEngine engine = new FaceEngine(context, config.faceRange);
+                FaceBackend engine = newFaceBackend();
                 faceEngine = engine;
                 if (!engine.isReady()) setLastError(engine.getError());
             } catch (Throwable t) {
@@ -676,9 +679,17 @@ public final class VisionCore implements VisionApi {
     }
 
     private void reloadFaceModel() {
-        FaceEngine old = faceEngine;
+        FaceBackend old = faceEngine;
         if (old != null) old.close();
-        faceEngine = new FaceEngine(context, config.faceRange);
+        faceEngine = newFaceBackend();
+    }
+
+    private FaceBackend newFaceBackend() {
+        String range = config.faceRange;
+        if ("short".equals(range) || "sparse".equals(range)) {
+            return new FaceEngine(context, range);
+        }
+        return new YuNetEngine(context);
     }
 
     private String extractHaTag(String url) {

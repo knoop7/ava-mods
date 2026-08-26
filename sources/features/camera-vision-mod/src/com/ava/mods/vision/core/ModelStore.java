@@ -26,6 +26,7 @@ public final class ModelStore {
 
     static final String FACE_SPARSE = "face_detection_full_range_sparse.tflite";
     static final String FACE_SHORT = "face_detection_short_range.tflite";
+    static final String FACE_YUNET = "yunet_face_detection_320.tflite";
     static final String PALM = "palm_detection_lite.tflite";
     static final String HAND = "hand_landmark_lite.tflite";
 

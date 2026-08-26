@@ -26,23 +26,11 @@ import java.util.Map;
  * time: short-range is 128x128 with 896 anchors, full-range sparse is 192x192 with
  * 2304, and hardcoding either one silently breaks the other.
  */
-public final class FaceEngine {
+public final class FaceEngine implements FaceBackend {
 
     private static final String TAG = "FaceEngine";
     private static final float CONFIDENCE_THRESHOLD = 0.6f;
     private static final float IOU_THRESHOLD = 0.3f;
-
-    private static final int VOTE_WINDOW = 5;
-    private static final int VOTE_MIN = 3;
-    private static final int MAX_VOTED_FACES = 8;
-
-    /**
-     * Presence is deliberately asymmetric because it drives the screensaver: react
-     * quickly when somebody walks up, but require a longer run of empty frames
-     * before declaring the room empty so a brief head turn does not blank the screen.
-     */
-    private static final int FRAMES_TO_APPEAR = 2;
-    private static final int FRAMES_TO_VANISH = 5;
 
     private static final Paint FILTER = new Paint(Paint.FILTER_BITMAP_FLAG);
 
@@ -53,10 +41,7 @@ public final class FaceEngine {
     private int regressorStride;
     private String error = "";
 
-    private final MajorityVote votes = new MajorityVote(VOTE_WINDOW, VOTE_MIN, 0, MAX_VOTED_FACES);
-    private int appearStreak;
-    private int vanishStreak;
-    private boolean present;
+    private final FaceStabilizer stabilizer = new FaceStabilizer();
 
     private Bitmap inputFrame;
     private Canvas inputCanvas;
@@ -71,16 +56,6 @@ public final class FaceEngine {
     private float[][][] regressors;
     private float[][][] scores;
     private final Map<Integer, Object> outputs = new HashMap<>();
-
-    public static final class Result {
-        public final int count;
-        public final boolean present;
-
-        public Result(int count, boolean present) {
-            this.count = count;
-            this.present = present;
-        }
-    }
 
     public FaceEngine(Context context, String range) {
         if (!TfLiteRuntime.ensureLoaded(context)) {
@@ -130,17 +105,20 @@ public final class FaceEngine {
         }
     }
 
+    @Override
     public boolean isReady() {
         return interpreter != null;
     }
 
+    @Override
     public String getError() {
         return error;
     }
 
-    public Result detect(Bitmap bitmap) {
+    @Override
+    public FaceResult detect(Bitmap bitmap) {
         Interpreter local = interpreter;
-        if (local == null) return new Result(0, false);
+        if (local == null) return new FaceResult(0, false);
 
         ByteBuffer input = fillInput(letterbox(bitmap));
 
@@ -148,7 +126,7 @@ public final class FaceEngine {
             local.runForMultipleInputsOutputs(new Object[] { input }, outputs);
         } catch (Exception e) {
             Log.w(TAG, "Face inference error: " + e.getMessage());
-            return currentResult(stableCount());
+            return stabilizer.current();
         }
 
         List<float[]> hits = new ArrayList<>();
@@ -168,35 +146,7 @@ public final class FaceEngine {
             });
         }
 
-        return stabilize(nms(hits).size());
-    }
-
-    private Result stabilize(int rawCount) {
-        if (rawCount > 0) {
-            appearStreak++;
-            vanishStreak = 0;
-            if (appearStreak >= FRAMES_TO_APPEAR) present = true;
-        } else {
-            vanishStreak++;
-            appearStreak = 0;
-            if (vanishStreak >= FRAMES_TO_VANISH) present = false;
-        }
-
-        int voted = votes.offer(Math.min(rawCount, MAX_VOTED_FACES));
-        return currentResult(voted);
-    }
-
-    /**
-     * Presence needs fewer frames than the count vote, so clamp the two together to
-     * avoid briefly reporting a detected person alongside a face count of zero.
-     */
-    private Result currentResult(int voted) {
-        if (!present) return new Result(0, false);
-        return new Result(Math.max(voted, 1), true);
-    }
-
-    private int stableCount() {
-        return votes.stable();
+        return stabilizer.offer(nms(hits).size());
     }
 
     /**
@@ -222,6 +172,7 @@ public final class FaceEngine {
         return inputFrame;
     }
 
+    @Override
     public void close() {
         Interpreter local = interpreter;
         interpreter = null;
