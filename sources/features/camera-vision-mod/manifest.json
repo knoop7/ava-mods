@@ -1,7 +1,7 @@
 {
   "id": "camera-vision-mod",
   "name": "Camera Vision",
-  "version": "1.8.0",
+  "version": "1.8.1",
   "author": "Ava",
   "description": "On-device camera with QR, face, and hand gesture detection. Live camera entity plus sensors in Home Assistant.",
   "detail_description": "Owns the device camera and exposes it as a Home Assistant camera entity with selectable front/back lens, FPS, resolution, and JPEG quality. Runs YuNet face detection (recognises faces down to ~10px, far beyond BlazeFace, with legacy BlazeFace models still selectable), ZXing QR decode, and BlazePalm + Hand Landmark Lite open-palm gesture recognition. Every sensor is ON out of the box and each has its own switch in Home Assistant and in mod settings, so you can turn off anything you do not want. Screensaver Person Wake hooks face detection into Ava's screensaver: walk up and it dismisses, stay and it will not return, walk away and the idle countdown resumes — more reliable than the built-in brightness-difference probe it replaces. Detection runs on a separate thread from capture so the live view stays smooth, and models use XNNPACK acceleration. The stream heals itself: a dead stream is detected and reopened automatically, a camera that keeps failing falls back to the next available lens (and returns when the preferred one recovers), and Adaptive Quality drops resolution one step while the stream stutters then climbs back once it is stable — all visible on the Stream Health sensor.",

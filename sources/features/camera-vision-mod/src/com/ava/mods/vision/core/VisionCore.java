@@ -12,6 +12,9 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -23,6 +26,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public final class VisionCore implements VisionApi {
 
     private static final String TAG = "VisionCore";
+    private static final String GENERATION_KEY = "ava.mods.camera-vision.generation";
+    private static final long FENCE_CHECK_INTERVAL_MS = 2000;
 
     private final Context context;
     private final VisionConfig config = new VisionConfig();
@@ -31,7 +36,11 @@ public final class VisionCore implements VisionApi {
     private final Map<String, Object> listeners = new ConcurrentHashMap<>();
     private final AtomicBoolean detectBusy = new AtomicBoolean(false);
     private final AtomicBoolean restartQueued = new AtomicBoolean(false);
+    private final AtomicBoolean destroyed = new AtomicBoolean(false);
     private final AdaptiveQuality adaptive = new AdaptiveQuality();
+    private final GenerationFence fence = new GenerationFence(GENERATION_KEY);
+    private final ScheduledExecutorService fenceWatcher =
+            Executors.newSingleThreadScheduledExecutor();
 
     private volatile VisionCamera camera;
     private volatile QrScanner qrScanner;
@@ -77,6 +86,29 @@ public final class VisionCore implements VisionApi {
         this.context = context.getApplicationContext();
         this.screensaver = new ScreensaverBridge(this.context.getClassLoader());
         executor.execute(this::autoStart);
+        // The host hot-reloads mods in place (store update, satellite restart) and
+        // its teardown call on the old instance is best-effort. Constructing this
+        // core claimed the generation fence above, which dethrones any prior
+        // instance; the watcher below is how *this* instance notices when it is
+        // dethroned in turn, so it releases the camera instead of fighting the
+        // replacement for it.
+        fenceWatcher.scheduleWithFixedDelay(this::checkFence,
+                FENCE_CHECK_INTERVAL_MS, FENCE_CHECK_INTERVAL_MS, TimeUnit.MILLISECONDS);
+    }
+
+    private void checkFence() {
+        if (destroyed.get() || fence.isCurrent()) return;
+        Log.w(TAG, "Superseded by a newer mod generation — releasing camera and engines");
+        onDestroy();
+    }
+
+    /** Host calls can straggle in after teardown; they must not throw out of a dead executor. */
+    private void runOnExecutor(Runnable task) {
+        if (destroyed.get()) return;
+        try {
+            executor.execute(task);
+        } catch (RejectedExecutionException ignored) {
+        }
     }
 
     /**
@@ -176,7 +208,7 @@ public final class VisionCore implements VisionApi {
                 if (next.equals(config.faceRange)) return;
                 config.faceRange = next;
                 if (config.faceEnabled) {
-                    executor.execute(this::reloadFaceModel);
+                    runOnExecutor(this::reloadFaceModel);
                 }
                 return;
             }
@@ -206,7 +238,7 @@ public final class VisionCore implements VisionApi {
      */
     private void queueCameraRestart() {
         if (config.cameraEnabled && restartQueued.compareAndSet(false, true)) {
-            executor.execute(() -> {
+            runOnExecutor(() -> {
                 restartQueued.set(false);
                 restartCameraSync();
             });
@@ -217,13 +249,13 @@ public final class VisionCore implements VisionApi {
         if (config.cameraEnabled && camera != null && camera.isRunning()) return;
         config.cameraEnabled = true;
         notifyState("camera_switch", true);
-        executor.execute(this::startCameraSync);
+        runOnExecutor(this::startCameraSync);
     }
 
     public void disableCamera() {
         config.cameraEnabled = false;
         notifyState("camera_switch", false);
-        executor.execute(this::stopCameraSync);
+        runOnExecutor(this::stopCameraSync);
     }
 
     public boolean isCameraEnabled() {
@@ -235,7 +267,7 @@ public final class VisionCore implements VisionApi {
         config.qrEnabled = true;
         qrEngineFailed = false;
         notifyState("qr_scanning", true);
-        executor.execute(this::ensureEngines);
+        runOnExecutor(this::ensureEngines);
         ensureCameraForDetection();
     }
 
@@ -248,14 +280,14 @@ public final class VisionCore implements VisionApi {
         config.faceEnabled = true;
         faceEngineFailed = false;
         notifyState("face_detection", true);
-        executor.execute(this::ensureEngines);
+        runOnExecutor(this::ensureEngines);
         ensureCameraForDetection();
     }
 
     public void disableFace() {
         config.faceEnabled = false;
         notifyState("face_detection", false);
-        executor.execute(() -> {
+        runOnExecutor(() -> {
             if (faceEngine != null) {
                 faceEngine.close();
                 faceEngine = null;
@@ -268,14 +300,14 @@ public final class VisionCore implements VisionApi {
         config.gestureEnabled = true;
         gestureEngineFailed = false;
         notifyState("gesture_detection", true);
-        executor.execute(this::ensureEngines);
+        runOnExecutor(this::ensureEngines);
         ensureCameraForDetection();
     }
 
     public void disableGesture() {
         config.gestureEnabled = false;
         notifyState("gesture_detection", false);
-        executor.execute(() -> {
+        runOnExecutor(() -> {
             if (gestureEngine != null) {
                 gestureEngine.close();
                 gestureEngine = null;
@@ -366,7 +398,7 @@ public final class VisionCore implements VisionApi {
         if (config.cameraEnabled) {
             VisionCamera c = camera;
             if (c == null || !c.isRunning()) {
-                executor.execute(this::startCameraSync);
+                runOnExecutor(this::startCameraSync);
             }
         }
     }
@@ -443,16 +475,21 @@ public final class VisionCore implements VisionApi {
         if (!needsDetect) return;
         if (!detectBusy.compareAndSet(false, true)) return;
 
-        detectExecutor.execute(() -> {
-            try {
-                runDetectors(jpegData);
-            } catch (Throwable t) {
-                Log.e(TAG, "Detector crash", t);
-                setLastError("Detector crash: " + t.getMessage());
-            } finally {
-                detectBusy.set(false);
-            }
-        });
+        try {
+            detectExecutor.execute(() -> {
+                try {
+                    runDetectors(jpegData);
+                } catch (Throwable t) {
+                    Log.e(TAG, "Detector crash", t);
+                    setLastError("Detector crash: " + t.getMessage());
+                } finally {
+                    detectBusy.set(false);
+                }
+            });
+        } catch (RejectedExecutionException e) {
+            // An in-flight frame can land during teardown after the executor closed.
+            detectBusy.set(false);
+        }
     }
 
     /**
@@ -736,7 +773,15 @@ public final class VisionCore implements VisionApi {
         return Math.max(min, Math.min(max, v));
     }
 
+    /**
+     * Full generation teardown, reached from the host's destroy call or from the
+     * fence watcher when a newer generation has taken over. Idempotent because
+     * both can race. Everything with a thread is stopped — a leftover executor or
+     * the shared camera HandlerThread would pin this whole classloader generation
+     * in memory on every hot reload.
+     */
     public void onDestroy() {
+        if (!destroyed.compareAndSet(false, true)) return;
         config.qrEnabled = false;
         config.faceEnabled = false;
         config.gestureEnabled = false;
@@ -746,6 +791,13 @@ public final class VisionCore implements VisionApi {
         if (gestureEngine != null) { gestureEngine.close(); gestureEngine = null; }
         qrScanner = null;
         listeners.clear();
-        Log.i(TAG, "onDestroy — camera and engines released");
+        ScreensaverBridge bridge = screensaver;
+        if (bridge != null) bridge.reset();
+        fenceWatcher.shutdownNow();
+        executor.shutdown();
+        detectExecutor.shutdown();
+        VisionCamera.quitSharedThread();
+        fence.releaseIfCurrent();
+        Log.i(TAG, "onDestroy — camera, engines and threads released");
     }
 }

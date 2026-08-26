@@ -14,6 +14,7 @@ import com.ava.mods.vision.core.AdaptiveQuality;
 import com.ava.mods.vision.core.FaceBackend;
 import com.ava.mods.vision.core.FaceEngine;
 import com.ava.mods.vision.core.FaceResult;
+import com.ava.mods.vision.core.GenerationFence;
 import com.ava.mods.vision.core.GestureEngine;
 import com.ava.mods.vision.core.ModelStore;
 import com.ava.mods.vision.core.QrScanner;
@@ -50,6 +51,7 @@ public final class VisionTestMain {
         testChildFirstLoader();
         testDualLoaderJniLoad();
         testAdaptiveQuality();
+        testGenerationFence();
         testQrRoundTrip();
         testSmallQr();
         testFace("yunet");
@@ -240,6 +242,32 @@ public final class VisionTestMain {
             check("qr: no false positive on blank", none == null, "decoded=" + none);
         } catch (Throwable t) {
             fail("qr: crashed", t);
+        }
+    }
+
+    /**
+     * The self-reload protocol for host hot reloads: a new generation claims the
+     * process-wide fence on construction, the dethroned one must see itself as
+     * stale, and releases must never clobber a newer claim.
+     */
+    private static void testGenerationFence() {
+        try {
+            String key = "ava.mods.camera-vision.test-fence";
+            GenerationFence first = new GenerationFence(key);
+            check("fence: first claim is current", first.isCurrent(), "claim missing");
+
+            GenerationFence second = new GenerationFence(key);
+            check("fence: new claim dethrones old", second.isCurrent() && !first.isCurrent(),
+                    "first=" + first.isCurrent() + " second=" + second.isCurrent());
+
+            first.releaseIfCurrent();
+            check("fence: stale release keeps owner", second.isCurrent(), "owner lost claim");
+
+            second.releaseIfCurrent();
+            check("fence: owner release clears claim", System.getProperty(key) == null,
+                    "property=" + System.getProperty(key));
+        } catch (Throwable t) {
+            fail("fence: crashed", t);
         }
     }
 

@@ -104,6 +104,20 @@ public final class VisionCamera {
         return sharedHandler;
     }
 
+    /**
+     * Final teardown for this classloader generation. The statics are
+     * per-classloader, so a superseding generation never shares this thread —
+     * without this quit every hot reload leaks one live HandlerThread, which
+     * also pins its whole classloader in memory. sharedCameraHandler() lazily
+     * recreates the thread if this generation is somehow started again.
+     */
+    static synchronized void quitSharedThread() {
+        HandlerThread t = sharedThread;
+        sharedThread = null;
+        sharedHandler = null;
+        if (t != null) t.quitSafely();
+    }
+
     public VisionCamera(Context context, VisionConfig config) {
         this.context = context.getApplicationContext();
         this.config = config;
