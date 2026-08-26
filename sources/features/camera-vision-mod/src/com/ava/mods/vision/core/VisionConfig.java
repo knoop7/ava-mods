@@ -20,13 +20,20 @@ public final class VisionConfig {
     public volatile boolean parseHaTags = true;
     public volatile boolean screensaverWake = true;
 
+    public volatile boolean adaptiveQuality = true;
+
+    /** Cap imposed by AdaptiveQuality while the stream stutters; 0 follows the user setting. */
+    public volatile int adaptiveResolution = 0;
+
     public int frameIntervalMs() {
         int safeFps = Math.max(1, Math.min(fps, 30));
         return Math.max(33, 1000 / safeFps);
     }
 
     public int safeResolution() {
-        return Math.max(240, Math.min(resolution, 1080));
+        int base = Math.max(240, Math.min(resolution, 1080));
+        int cap = adaptiveResolution;
+        return cap > 0 && cap < base ? cap : base;
     }
 
     public int safeQuality() {

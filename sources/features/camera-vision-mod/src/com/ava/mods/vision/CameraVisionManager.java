@@ -173,6 +173,10 @@ public final class CameraVisionManager {
         return core != null ? core.getCameraFacing() : "";
     }
 
+    public String getStreamHealth() {
+        return core != null ? core.getStreamHealth() : "off";
+    }
+
     public String getLastError() {
         return core != null ? core.getLastError() : initError;
     }

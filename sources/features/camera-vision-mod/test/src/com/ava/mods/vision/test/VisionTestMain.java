@@ -10,6 +10,7 @@ import android.graphics.RectF;
 
 import com.ava.mods.vision.ChildFirstLoader;
 import com.ava.mods.vision.api.VisionApi;
+import com.ava.mods.vision.core.AdaptiveQuality;
 import com.ava.mods.vision.core.FaceEngine;
 import com.ava.mods.vision.core.GestureEngine;
 import com.ava.mods.vision.core.ModelStore;
@@ -45,6 +46,7 @@ public final class VisionTestMain {
 
         testChildFirstLoader();
         testDualLoaderJniLoad();
+        testAdaptiveQuality();
         testQrRoundTrip();
         testSmallQr();
         testFace("sparse");
@@ -120,6 +122,97 @@ public final class VisionTestMain {
             }
         } catch (Throwable t) {
             fail("jni dual-loader: crashed", t);
+        }
+    }
+
+    /**
+     * Walks the stutter ladder end to end with a simulated clock: sustained low
+     * FPS steps 720p down to 480p, a stable stream needs the full observation
+     * window before climbing back, a stutter right after the climb re-degrades
+     * and doubles the next window, and the 240p floor never steps below itself.
+     */
+    private static void testAdaptiveQuality() {
+        try {
+            AdaptiveQuality aq = new AdaptiveQuality();
+            long t = 100_000;
+            int user = 720;
+
+            check("adaptive: starts at user resolution",
+                    aq.appliedResolution(user) == 720 && !aq.isDegraded(),
+                    "applied=" + aq.appliedResolution(user));
+
+            AdaptiveQuality.Action a1 = aq.onFpsSample(2, 10, user, t);
+            t += 2000;
+            AdaptiveQuality.Action a2 = aq.onFpsSample(2, 10, user, t);
+            t += 2000;
+            AdaptiveQuality.Action a3 = aq.onFpsSample(2, 10, user, t);
+            check("adaptive: degrades on 3rd bad sample, not sooner",
+                    a1 == AdaptiveQuality.Action.NONE
+                            && a2 == AdaptiveQuality.Action.NONE
+                            && a3 == AdaptiveQuality.Action.STEP_DOWN,
+                    a1 + "," + a2 + "," + a3);
+            check("adaptive: 720 degrades to 480",
+                    aq.appliedResolution(user) == 480 && aq.isDegraded(),
+                    "applied=" + aq.appliedResolution(user));
+
+            int stepUpAtSample = -1;
+            for (int i = 1; i <= 20; i++) {
+                t += 2000;
+                if (aq.onFpsSample(10, 10, user, t) == AdaptiveQuality.Action.STEP_UP) {
+                    stepUpAtSample = i;
+                    break;
+                }
+            }
+            check("adaptive: recovers after 15 good samples", stepUpAtSample == 15,
+                    "stepUpAtSample=" + stepUpAtSample);
+            check("adaptive: back at user resolution",
+                    aq.appliedResolution(user) == 720 && !aq.isDegraded(),
+                    "applied=" + aq.appliedResolution(user));
+
+            // Stutter right after the climb: flap detected, window doubles.
+            t += 12_000;
+            for (int i = 0; i < 3; i++) {
+                t += 2000;
+                aq.onFpsSample(2, 10, user, t);
+            }
+            check("adaptive: flap re-degrades", aq.isDegraded(),
+                    "applied=" + aq.appliedResolution(user));
+            stepUpAtSample = -1;
+            for (int i = 1; i <= 60; i++) {
+                t += 2000;
+                if (aq.onFpsSample(10, 10, user, t) == AdaptiveQuality.Action.STEP_UP) {
+                    stepUpAtSample = i;
+                    break;
+                }
+            }
+            check("adaptive: doubled window after flap (30 samples)", stepUpAtSample == 30,
+                    "stepUpAtSample=" + stepUpAtSample);
+
+            AdaptiveQuality floor = new AdaptiveQuality();
+            long ft = 500_000;
+            boolean stepped = false;
+            for (int i = 0; i < 10; i++) {
+                ft += 2000;
+                if (floor.onFpsSample(1, 10, 240, ft) != AdaptiveQuality.Action.NONE) {
+                    stepped = true;
+                }
+            }
+            check("adaptive: 240p floor never steps down", !stepped && floor.appliedResolution(240) == 240,
+                    "applied=" + floor.appliedResolution(240));
+
+            AdaptiveQuality off = new AdaptiveQuality();
+            off.setEnabled(false);
+            boolean acted = false;
+            long ot = 900_000;
+            for (int i = 0; i < 6; i++) {
+                ot += 2000;
+                if (off.onFpsSample(1, 10, 720, ot) != AdaptiveQuality.Action.NONE) {
+                    acted = true;
+                }
+            }
+            check("adaptive: disabled switch never acts", !acted, "acted=" + acted);
+        } catch (Throwable t) {
+            fail("adaptive: crashed", t);
         }
     }
 

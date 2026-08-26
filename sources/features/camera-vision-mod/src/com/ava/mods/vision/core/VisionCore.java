@@ -31,6 +31,7 @@ public final class VisionCore implements VisionApi {
     private final Map<String, Object> listeners = new ConcurrentHashMap<>();
     private final AtomicBoolean detectBusy = new AtomicBoolean(false);
     private final AtomicBoolean restartQueued = new AtomicBoolean(false);
+    private final AdaptiveQuality adaptive = new AdaptiveQuality();
 
     private volatile VisionCamera camera;
     private volatile QrScanner qrScanner;
@@ -51,6 +52,10 @@ public final class VisionCore implements VisionApi {
     private volatile boolean qrEngineFailed;
     private volatile boolean faceEngineFailed;
     private volatile boolean gestureEngineFailed;
+    private volatile String cameraHealth = "off";
+    private volatile String streamHealth = "off";
+    private volatile long adaptiveSampleHoldUntil;
+    private volatile long lastAdaptiveSampleMs;
 
     private volatile long lastQrTime = 0;
     private volatile String lastQrContent = "";
@@ -116,8 +121,25 @@ public final class VisionCore implements VisionApi {
                 int next = clamp(parseInt(value, 480), 240, 1080);
                 if (next == config.resolution) return;
                 config.resolution = next;
+                // A new user baseline invalidates whatever ladder position the
+                // stutter logic had reached under the old one.
+                adaptive.reset();
+                config.adaptiveResolution = 0;
                 restartCamera = true;
                 break;
+            }
+            case "adaptive_quality": {
+                boolean next = "true".equalsIgnoreCase(value);
+                if (next == config.adaptiveQuality) return;
+                config.adaptiveQuality = next;
+                adaptive.setEnabled(next);
+                if (!next && config.adaptiveResolution != 0) {
+                    config.adaptiveResolution = 0;
+                    restartCamera = true;
+                    break;
+                }
+                publishStreamHealth();
+                return;
             }
             case "frame_rotation": {
                 int next = "auto".equalsIgnoreCase(value.trim())
@@ -169,10 +191,18 @@ public final class VisionCore implements VisionApi {
             default:
                 return;
         }
-        // Entity registration replays every stored config value at startup; the
-        // camera keys used to queue one restart each, and those overlapping
-        // open/close cycles are what raced the camera into its stuck state.
-        if (restartCamera && config.cameraEnabled && restartQueued.compareAndSet(false, true)) {
+        if (restartCamera) {
+            queueCameraRestart();
+        }
+    }
+
+    /**
+     * Entity registration replays every stored config value at startup; the
+     * camera keys used to queue one restart each, and those overlapping
+     * open/close cycles are what raced the camera into its stuck state.
+     */
+    private void queueCameraRestart() {
+        if (config.cameraEnabled && restartQueued.compareAndSet(false, true)) {
             executor.execute(() -> {
                 restartQueued.set(false);
                 restartCameraSync();
@@ -290,6 +320,11 @@ public final class VisionCore implements VisionApi {
     }
 
     public String getCameraFacing() {
+        VisionCamera c = camera;
+        if (c != null) {
+            String actual = c.getActiveFacing();
+            if (actual != null && !actual.isEmpty()) return actual;
+        }
         return config.useFrontCamera ? "front" : "back";
     }
 
@@ -315,6 +350,7 @@ public final class VisionCore implements VisionApi {
             case "gesture_detection": invokeState(callback, config.gestureEnabled); break;
             case "fps": invokeState(callback, getFps()); break;
             case "camera_facing": invokeState(callback, getCameraFacing()); break;
+            case "stream_health": invokeState(callback, streamHealth); break;
             case "screensaver_wake": invokeState(callback, config.screensaverWake); break;
             case "screensaver_wakes": invokeState(callback, getScreensaverWakes()); break;
             case "last_error": invokeState(callback, getLastError()); break;
@@ -339,8 +375,14 @@ public final class VisionCore implements VisionApi {
         try {
             VisionCamera cam = new VisionCamera(context, config);
             cam.setFrameListener(this::onFrame);
+            cam.setHealthListener(this::onCameraHealth);
             cam.start();
             camera = cam;
+            cameraHealth = "starting";
+            // Measured FPS is meaningless during warm-up; sampling it would
+            // read as stutter and degrade a perfectly healthy stream.
+            adaptiveSampleHoldUntil = System.currentTimeMillis() + 10_000;
+            publishStreamHealth();
             notifyState("camera_switch", true);
             Log.i(TAG, "Vision camera started");
         } catch (Exception e) {
@@ -353,12 +395,15 @@ public final class VisionCore implements VisionApi {
         VisionCamera cam = camera;
         if (cam != null) {
             cam.setFrameListener(null);
+            cam.setHealthListener(null);
             cam.stop();
             camera = null;
         }
         lastJpeg = null;
         resetFaceState();
         resetGestureState();
+        cameraHealth = "off";
+        publishStreamHealth();
         notifyState("camera_switch", false);
         lastNotifiedFps = 0;
         notifyState("fps", 0);
@@ -389,6 +434,8 @@ public final class VisionCore implements VisionApi {
             notifyState("fps", fps);
         }
 
+        sampleAdaptiveQuality(fps);
+
         boolean needsDetect = config.qrEnabled || config.faceEnabled || config.gestureEnabled;
         if (!needsDetect) return;
         if (!detectBusy.compareAndSet(false, true)) return;
@@ -403,6 +450,68 @@ public final class VisionCore implements VisionApi {
                 detectBusy.set(false);
             }
         });
+    }
+
+    /**
+     * One sample per FPS window feeds the stutter ladder: sustained delivery
+     * under half the target steps the resolution down a notch, and a stable
+     * stream climbs back toward the configured quality. The camera restart this
+     * causes is debounced through the same path as config changes.
+     */
+    private void sampleAdaptiveQuality(int measuredFps) {
+        if (!config.adaptiveQuality) return;
+        long now = System.currentTimeMillis();
+        if (now < adaptiveSampleHoldUntil || now - lastAdaptiveSampleMs < 2000) return;
+        lastAdaptiveSampleMs = now;
+
+        AdaptiveQuality.Action action =
+                adaptive.onFpsSample(measuredFps, config.fps, config.resolution, now);
+        switch (action) {
+            case NONE:
+                return;
+            case STEP_DOWN:
+            case STEP_UP:
+                config.adaptiveResolution = adaptive.isDegraded()
+                        ? adaptive.appliedResolution(config.resolution)
+                        : 0;
+                Log.i(TAG, "Adaptive quality " + action + " -> "
+                        + config.safeResolution() + "p (measured " + measuredFps
+                        + "/" + config.fps + " fps)");
+                publishStreamHealth();
+                queueCameraRestart();
+                return;
+            default:
+                throw new IllegalStateException("Unhandled action " + action);
+        }
+    }
+
+    private void onCameraHealth(String state) {
+        cameraHealth = state == null ? "" : state;
+        publishStreamHealth();
+        // A rescue can land on a different lens than the one configured.
+        notifyState("camera_facing", getCameraFacing());
+    }
+
+    private void publishStreamHealth() {
+        String next;
+        if (!config.cameraEnabled) {
+            next = "off";
+        } else if (!"ok".equals(cameraHealth)) {
+            next = cameraHealth;
+        } else if (adaptive.isDegraded()) {
+            next = "degraded_" + config.safeResolution() + "p";
+        } else {
+            next = "ok";
+        }
+        if (!next.equals(streamHealth)) {
+            streamHealth = next;
+            notifyState("stream_health", next);
+            Log.i(TAG, "Stream health: " + next);
+        }
+    }
+
+    public String getStreamHealth() {
+        return streamHealth;
     }
 
     private void runDetectors(byte[] jpegData) {

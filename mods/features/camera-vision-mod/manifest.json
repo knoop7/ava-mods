@@ -1,10 +1,10 @@
 {
   "id": "camera-vision-mod",
   "name": "Camera Vision",
-  "version": "1.6.3",
+  "version": "1.7.0",
   "author": "Ava",
   "description": "On-device camera with QR, face, and hand gesture detection. Live camera entity plus sensors in Home Assistant.",
-  "detail_description": "Owns the device camera and exposes it as a Home Assistant camera entity with selectable front/back lens, FPS, resolution, and JPEG quality. Runs BlazeFace Full Range Sparse (5m range) face detection, ZXing QR decode, and BlazePalm + Hand Landmark Lite open-palm gesture recognition. Every sensor is ON out of the box and each has its own switch in Home Assistant and in mod settings, so you can turn off anything you do not want. Screensaver Person Wake hooks face detection into Ava's screensaver: walk up and it dismisses, stay and it will not return, walk away and the idle countdown resumes — more reliable than the built-in brightness-difference probe it replaces. Detection runs on a separate thread from capture so the live view stays smooth, and models use XNNPACK acceleration.",
+  "detail_description": "Owns the device camera and exposes it as a Home Assistant camera entity with selectable front/back lens, FPS, resolution, and JPEG quality. Runs BlazeFace Full Range Sparse (5m range) face detection, ZXing QR decode, and BlazePalm + Hand Landmark Lite open-palm gesture recognition. Every sensor is ON out of the box and each has its own switch in Home Assistant and in mod settings, so you can turn off anything you do not want. Screensaver Person Wake hooks face detection into Ava's screensaver: walk up and it dismisses, stay and it will not return, walk away and the idle countdown resumes — more reliable than the built-in brightness-difference probe it replaces. Detection runs on a separate thread from capture so the live view stays smooth, and models use XNNPACK acceleration. The stream heals itself: a dead stream is detected and reopened automatically, a camera that keeps failing falls back to the next available lens (and returns when the preferred one recovers), and Adaptive Quality drops resolution one step while the stream stutters then climbs back once it is stable — all visible on the Stream Health sensor.",
   "icon": "mdi:eye",
   "libs": [
     "libs/camera-vision.jar"
@@ -148,6 +148,14 @@
       "icon": "mdi:camera-flip",
       "category": "diagnostic",
       "read": "getCameraFacing"
+    },
+    {
+      "type": "text_sensor",
+      "id": "stream_health",
+      "name": "Stream Health",
+      "icon": "mdi:heart-pulse",
+      "category": "diagnostic",
+      "read": "getStreamHealth"
     }
   ],
   "config": [
@@ -211,6 +219,13 @@
         "180",
         "270"
       ]
+    },
+    {
+      "type": "switch",
+      "key": "adaptive_quality",
+      "label": "Adaptive Quality",
+      "description": "Drop resolution one step while the stream stutters and climb back once it is stable. Dead streams are restarted automatically and a failing camera falls back to the next available lens either way.",
+      "defaultValue": "true"
     },
     {
       "type": "number",

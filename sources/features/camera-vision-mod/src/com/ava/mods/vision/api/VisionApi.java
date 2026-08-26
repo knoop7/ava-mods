@@ -62,6 +62,8 @@ public interface VisionApi {
 
     String getCameraFacing();
 
+    String getStreamHealth();
+
     String getLastError();
 
     void setLastError(String error);
