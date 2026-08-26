@@ -18,6 +18,7 @@ import android.media.ImageReader;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.util.Log;
+import android.util.Range;
 import android.util.Size;
 import android.view.Display;
 import android.view.Surface;
@@ -55,6 +56,7 @@ public final class VisionCamera {
     private byte[] nv21Scratch;
     private byte[] rotatedScratch;
     private volatile int frameRotation;
+    private volatile Range<Integer>[] aeFpsRanges;
 
     public VisionCamera(Context context, VisionConfig config) {
         this.context = context.getApplicationContext();
@@ -142,7 +144,10 @@ public final class VisionCamera {
                 Log.e(TAG, lastError);
                 return;
             }
-            frameRotation = resolveFrameRotation(manager.getCameraCharacteristics(cameraId));
+            CameraCharacteristics characteristics = manager.getCameraCharacteristics(cameraId);
+            frameRotation = resolveFrameRotation(characteristics);
+            aeFpsRanges = characteristics.get(
+                    CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES);
             Log.i(TAG, "Frame rotation " + frameRotation + " deg ("
                     + (config.frameRotation >= 0 ? "manual" : "auto from sensor") + ", "
                     + (config.useFrontCamera ? "front" : "back") + ")");
@@ -225,10 +230,19 @@ public final class VisionCamera {
                                 builder.addTarget(yuvSurface);
                                 builder.set(CaptureRequest.CONTROL_AF_MODE,
                                         CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE);
+                                // Without an AE target range the HAL produces frames
+                                // at full sensor rate and the software throttle only
+                                // discards them after they were already captured,
+                                // converted and delivered — pure wasted CPU.
+                                Range<Integer> fpsRange = pickFpsRange(aeFpsRanges, config.fps);
+                                if (fpsRange != null) {
+                                    builder.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, fpsRange);
+                                }
                                 session.setRepeatingRequest(builder.build(), null, cameraHandler);
                                 Log.i(TAG, "Vision camera started "
                                         + (config.useFrontCamera ? "front" : "back")
-                                        + " @" + config.fps + "fps");
+                                        + " @" + config.fps + "fps, AE range "
+                                        + (fpsRange != null ? fpsRange : "default"));
                             } catch (CameraAccessException e) {
                                 lastError = "setRepeatingRequest failed";
                                 Log.e(TAG, lastError, e);
@@ -448,6 +462,29 @@ public final class VisionCamera {
         } catch (Exception e) {
             return 0;
         }
+    }
+
+    /**
+     * Prefers the range with the smallest upper bound that still reaches the
+     * configured rate, so a 5 fps request lands on something like [7,7] or [15,15]
+     * instead of letting the sensor free-run at 30. When nothing reaches the
+     * target, the closest range from below wins.
+     */
+    private static Range<Integer> pickFpsRange(Range<Integer>[] ranges, int target) {
+        if (ranges == null || ranges.length == 0) return null;
+        Range<Integer> best = null;
+        int bestScore = Integer.MAX_VALUE;
+        for (Range<Integer> range : ranges) {
+            int upper = range.getUpper();
+            int score = upper >= target
+                    ? (upper - target) * 100 + range.getLower()
+                    : 100000 + (target - upper) * 100;
+            if (score < bestScore) {
+                bestScore = score;
+                best = range;
+            }
+        }
+        return best;
     }
 
     private static String pickCameraId(CameraManager manager, boolean front)

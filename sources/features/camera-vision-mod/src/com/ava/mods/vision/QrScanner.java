@@ -6,6 +6,7 @@ import com.google.zxing.BarcodeFormat;
 import com.google.zxing.BinaryBitmap;
 import com.google.zxing.DecodeHintType;
 import com.google.zxing.MultiFormatReader;
+import com.google.zxing.NotFoundException;
 import com.google.zxing.RGBLuminanceSource;
 import com.google.zxing.Result;
 import com.google.zxing.common.HybridBinarizer;
@@ -56,7 +57,7 @@ public final class QrScanner {
         try {
             Result result = reader.decodeWithState(binary);
             return result != null ? result.getText() : null;
-        } catch (Exception e) {
+        } catch (NotFoundException e) {
             return null;
         } finally {
             reader.reset();

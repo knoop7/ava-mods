@@ -40,6 +40,10 @@ public final class CameraVisionManager {
     private volatile boolean openPalm = false;
     private volatile byte[] lastJpeg;
     private volatile String lastError = "";
+    private volatile int lastNotifiedFps = -1;
+    private volatile boolean qrEngineFailed;
+    private volatile boolean faceEngineFailed;
+    private volatile boolean gestureEngineFailed;
 
     private volatile long lastQrTime = 0;
     private volatile String lastQrContent = "";
@@ -101,6 +105,9 @@ public final class CameraVisionManager {
                 int next = clamp(parseInt(value, 5), 1, 30);
                 if (next == config.fps) return;
                 config.fps = next;
+                // The AE target range is chosen from this at session creation, so a
+                // new rate needs the session rebuilt to actually slow the hardware.
+                restartCamera = true;
                 break;
             }
             case "resolution": {
@@ -185,6 +192,7 @@ public final class CameraVisionManager {
 
     public void enableQr() {
         config.qrEnabled = true;
+        qrEngineFailed = false;
         notifyState("qr_scanning", true);
         executor.execute(this::ensureEngines);
         ensureCameraForDetection();
@@ -197,6 +205,7 @@ public final class CameraVisionManager {
 
     public void enableFace() {
         config.faceEnabled = true;
+        faceEngineFailed = false;
         notifyState("face_detection", true);
         executor.execute(this::ensureEngines);
         ensureCameraForDetection();
@@ -216,6 +225,7 @@ public final class CameraVisionManager {
 
     public void enableGesture() {
         config.gestureEnabled = true;
+        gestureEngineFailed = false;
         notifyState("gesture_detection", true);
         executor.execute(this::ensureEngines);
         ensureCameraForDetection();
@@ -342,6 +352,7 @@ public final class CameraVisionManager {
         resetFaceState();
         resetGestureState();
         notifyState("camera_switch", false);
+        lastNotifiedFps = 0;
         notifyState("fps", 0);
         Log.i(TAG, "Vision camera stopped");
     }
@@ -357,7 +368,14 @@ public final class CameraVisionManager {
     private void onFrame(byte[] jpegData) {
         if (jpegData == null || jpegData.length == 0) return;
         lastJpeg = jpegData;
-        notifyState("fps", getFps());
+
+        // Pushing an unchanged FPS reading per frame was a state update over the
+        // ESPHome link 8 times a second for nothing.
+        int fps = getFps();
+        if (fps != lastNotifiedFps) {
+            lastNotifiedFps = fps;
+            notifyState("fps", fps);
+        }
 
         boolean needsDetect = config.qrEnabled || config.faceEnabled || config.gestureEnabled;
         if (!needsDetect) return;
@@ -366,6 +384,9 @@ public final class CameraVisionManager {
         detectExecutor.execute(() -> {
             try {
                 runDetectors(jpegData);
+            } catch (Throwable t) {
+                Log.e(TAG, "Detector crash", t);
+                setLastError("Detector crash: " + t.getMessage());
             } finally {
                 detectBusy.set(false);
             }
@@ -468,22 +489,44 @@ public final class CameraVisionManager {
 
     /**
      * Build engines on the detect thread if a switch is on but the model never loaded.
-     * A failed engine is still kept so a broken model does not rebuild every frame;
-     * its reason is published to the Vision Error sensor instead.
+     *
+     * Construction is guarded against Throwable, not just Exception: a missing
+     * bundled class surfaces as NoClassDefFoundError, which an Exception catch lets
+     * straight through to kill the detect thread. Combined with the retry here that
+     * produced a crash loop on every frame, so a failed engine is marked and never
+     * rebuilt until its switch is toggled, with the reason on the Vision Error sensor.
      */
     private void ensureEngines() {
-        if (config.qrEnabled && qrScanner == null) {
-            qrScanner = new QrScanner();
+        if (config.qrEnabled && qrScanner == null && !qrEngineFailed) {
+            try {
+                qrScanner = new QrScanner();
+            } catch (Throwable t) {
+                qrEngineFailed = true;
+                setLastError("QR init failed: " + t.getMessage());
+                Log.e(TAG, "QR init failed", t);
+            }
         }
-        if (config.faceEnabled && faceEngine == null) {
-            FaceEngine engine = new FaceEngine(context, config.faceRange);
-            faceEngine = engine;
-            if (!engine.isReady()) setLastError(engine.getError());
+        if (config.faceEnabled && faceEngine == null && !faceEngineFailed) {
+            try {
+                FaceEngine engine = new FaceEngine(context, config.faceRange);
+                faceEngine = engine;
+                if (!engine.isReady()) setLastError(engine.getError());
+            } catch (Throwable t) {
+                faceEngineFailed = true;
+                setLastError("Face init failed: " + t.getMessage());
+                Log.e(TAG, "Face init failed", t);
+            }
         }
-        if (config.gestureEnabled && gestureEngine == null) {
-            GestureEngine engine = new GestureEngine(context);
-            gestureEngine = engine;
-            if (!engine.isReady()) setLastError(engine.getError());
+        if (config.gestureEnabled && gestureEngine == null && !gestureEngineFailed) {
+            try {
+                GestureEngine engine = new GestureEngine(context);
+                gestureEngine = engine;
+                if (!engine.isReady()) setLastError(engine.getError());
+            } catch (Throwable t) {
+                gestureEngineFailed = true;
+                setLastError("Gesture init failed: " + t.getMessage());
+                Log.e(TAG, "Gesture init failed", t);
+            }
         }
     }
 
