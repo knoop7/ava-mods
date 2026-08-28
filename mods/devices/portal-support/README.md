@@ -41,6 +41,7 @@ The mod can be **enabled without Shizuku**. Sensors, physical volume, and alert 
 | Screen timeout sleep | Accessibility preferred; `WRITE_SECURE_SETTINGS` helps auto-enable it |
 
 Presence tails Meta's `PresenceManager` logcat heartbeat (same as [portal-ha-bridge](https://github.com/RoadRunner-1024/portal-ha-bridge)).
+Log lines are classified by content: explicit negatives (`presence: false`, `pausing presence`) clear the sensor immediately and presence-engine lifecycle chatter is ignored, so camera-arbitration noise cannot hold the sensor at Detected ([#205](https://github.com/knoop7/Ava/issues/205)). Each matched beat line is echoed (rate-limited) to the `PortalSupport` log tag for diagnosis.
 Grant `READ_LOGS` to Ava via `./provision.sh`, Shizuku, or
 `adb shell am broadcast -a com.example.ava.ACTION_GRANT_READ_LOGS com.example.ava`,
 then **restart Ava** so the permission applies. Shizuku/root shell is a fallback when the app grant is pending.

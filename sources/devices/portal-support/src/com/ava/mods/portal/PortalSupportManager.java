@@ -401,15 +401,23 @@ public class PortalSupportManager implements PortalSensorBridge.Listener, Portal
         if (enableSoundLevel) {
             notifyStateListeners("sound_level", Integer.valueOf(level));
         }
-        if (enhancedPresenceEnabled && presenceDetectionEnabled && enablePresence
-                && level >= presenceSoundThreshold) {
-            lastSoundActivityMs = System.currentTimeMillis();
+        if (enhancedPresenceEnabled && presenceDetectionEnabled && enablePresence) {
+            if (level >= presenceSoundThreshold) {
+                lastSoundActivityMs = System.currentTimeMillis();
+            }
+            // Recompute on every sample (not just loud ones) so the 60s sound hold
+            // can actually expire — otherwise sound-presence stuck DETECTED forever.
             recomputePresence();
         }
     }
 
-    /** Match portal-ha-bridge reconcilePresence: persist switch, start monitor when logcat is available. */
-    private void reconcilePresence() {
+    /**
+     * Match portal-ha-bridge reconcilePresence: persist switch, start monitor when
+     * logcat is available. Synchronized — it is reached from HA switch commands,
+     * config refresh reads, and boot concurrently; unsynchronized it could leak an
+     * orphaned monitor that keeps feeding presence callbacks.
+     */
+    private synchronized void reconcilePresence() {
         if (!enablePresence || !presenceDetectionEnabled) {
             if (presenceMonitor != null) {
                 presenceMonitor.release();
@@ -456,7 +464,7 @@ public class PortalSupportManager implements PortalSensorBridge.Listener, Portal
         reconcilePresence();
     }
 
-    private void recomputePresence() {
+    private synchronized void recomputePresence() {
         if (!enablePresence || !presenceDetectionEnabled) {
             portalPresent = false;
             notifyStateListeners("portal_presence", Boolean.FALSE);
