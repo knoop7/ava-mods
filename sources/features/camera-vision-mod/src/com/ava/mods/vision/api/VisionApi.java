@@ -22,6 +22,12 @@ public interface VisionApi {
 
     boolean isQrEnabled();
 
+    void enableBarcode();
+
+    void disableBarcode();
+
+    boolean isBarcodeEnabled();
+
     void enableFace();
 
     void disableFace();
@@ -45,6 +51,10 @@ public interface VisionApi {
     String getLastTagId();
 
     int getQrScanCount();
+
+    String getLastBarcode();
+
+    int getBarcodeScanCount();
 
     boolean hasFace();
 

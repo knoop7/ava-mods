@@ -93,6 +93,18 @@ public final class CameraVisionManager {
         return core != null && core.isQrEnabled();
     }
 
+    public void enableBarcode() {
+        if (core != null) core.enableBarcode();
+    }
+
+    public void disableBarcode() {
+        if (core != null) core.disableBarcode();
+    }
+
+    public boolean isBarcodeEnabled() {
+        return core != null && core.isBarcodeEnabled();
+    }
+
     public void enableFace() {
         if (core != null) core.enableFace();
     }
@@ -139,6 +151,14 @@ public final class CameraVisionManager {
 
     public int getQrScanCount() {
         return core != null ? core.getQrScanCount() : 0;
+    }
+
+    public String getLastBarcode() {
+        return core != null ? core.getLastBarcode() : "";
+    }
+
+    public int getBarcodeScanCount() {
+        return core != null ? core.getBarcodeScanCount() : 0;
     }
 
     public boolean hasFace() {

@@ -51,6 +51,8 @@ public final class VisionCore implements VisionApi {
     private volatile String lastQr = "";
     private volatile String lastTagId = "";
     private volatile int qrScanCount = 0;
+    private volatile String lastBarcode = "";
+    private volatile int barcodeScanCount = 0;
     private volatile boolean facePresent = false;
     private volatile int faceCount = 0;
     private volatile String gesture = "";
@@ -68,6 +70,8 @@ public final class VisionCore implements VisionApi {
 
     private volatile long lastQrTime = 0;
     private volatile String lastQrContent = "";
+    private volatile long lastBarcodeTime = 0;
+    private volatile String lastBarcodeContent = "";
     private volatile long lastFaceFrameTime = 0;
     private volatile long lastGestureFrameTime = 0;
     private volatile long lastQrFrameTime = 0;
@@ -191,6 +195,9 @@ public final class VisionCore implements VisionApi {
             case "qr_enabled":
                 if ("true".equalsIgnoreCase(value)) enableQr(); else disableQr();
                 return;
+            case "barcode_enabled":
+                if ("true".equalsIgnoreCase(value)) enableBarcode(); else disableBarcode();
+                return;
             case "face_enabled":
                 if ("true".equalsIgnoreCase(value)) enableFace(); else disableFace();
                 return;
@@ -276,6 +283,19 @@ public final class VisionCore implements VisionApi {
         notifyState("qr_scanning", false);
     }
 
+    public void enableBarcode() {
+        config.barcodeEnabled = true;
+        qrEngineFailed = false;
+        notifyState("barcode_scanning", true);
+        runOnExecutor(this::ensureEngines);
+        ensureCameraForDetection();
+    }
+
+    public void disableBarcode() {
+        config.barcodeEnabled = false;
+        notifyState("barcode_scanning", false);
+    }
+
     public void enableFace() {
         config.faceEnabled = true;
         faceEngineFailed = false;
@@ -317,11 +337,14 @@ public final class VisionCore implements VisionApi {
     }
 
     public boolean isQrEnabled() { return config.qrEnabled; }
+    public boolean isBarcodeEnabled() { return config.barcodeEnabled; }
     public boolean isFaceEnabled() { return config.faceEnabled; }
     public boolean isGestureEnabled() { return config.gestureEnabled; }
     public String getLastQr() { return lastQr; }
     public String getLastTagId() { return lastTagId; }
     public int getQrScanCount() { return qrScanCount; }
+    public String getLastBarcode() { return lastBarcode; }
+    public int getBarcodeScanCount() { return barcodeScanCount; }
     public boolean hasFace() { return facePresent; }
     public int getFaceCount() { return faceCount; }
     public String getGesture() { return gesture; }
@@ -381,6 +404,7 @@ public final class VisionCore implements VisionApi {
         switch (entityId) {
             case "camera_switch": invokeState(callback, isCameraEnabled()); break;
             case "qr_scanning": invokeState(callback, config.qrEnabled); break;
+            case "barcode_scanning": invokeState(callback, config.barcodeEnabled); break;
             case "face_detection": invokeState(callback, config.faceEnabled); break;
             case "gesture_detection": invokeState(callback, config.gestureEnabled); break;
             case "fps": invokeState(callback, getFps()); break;
@@ -471,7 +495,8 @@ public final class VisionCore implements VisionApi {
 
         sampleAdaptiveQuality(fps);
 
-        boolean needsDetect = config.qrEnabled || config.faceEnabled || config.gestureEnabled;
+        boolean needsDetect = config.qrEnabled || config.barcodeEnabled
+                || config.faceEnabled || config.gestureEnabled;
         if (!needsDetect) return;
         if (!detectBusy.compareAndSet(false, true)) return;
 
@@ -556,7 +581,8 @@ public final class VisionCore implements VisionApi {
 
     private void runDetectors(byte[] jpegData) {
         long now = System.currentTimeMillis();
-        boolean doQr = config.qrEnabled && now - lastQrFrameTime >= QR_INTERVAL_MS;
+        boolean doQr = (config.qrEnabled || config.barcodeEnabled)
+                && now - lastQrFrameTime >= QR_INTERVAL_MS;
         boolean doFace = config.faceEnabled && now - lastFaceFrameTime >= FACE_INTERVAL_MS;
         boolean doGesture = config.gestureEnabled && now - lastGestureFrameTime >= GESTURE_INTERVAL_MS;
         if (!doQr && !doFace && !doGesture) return;
@@ -589,9 +615,16 @@ public final class VisionCore implements VisionApi {
     private void processQr(Bitmap bmp) {
         QrScanner scanner = qrScanner;
         if (scanner == null) return;
-        String result = scanner.decode(bmp);
-        if (result == null || result.isEmpty()) return;
+        QrScanner.Scan scan = scanner.decode(bmp, config.qrEnabled, config.barcodeEnabled);
+        if (scan == null) return;
+        if (scan.isQr) {
+            handleQr(scan.text);
+        } else {
+            handleBarcode(scan.text);
+        }
+    }
 
+    private void handleQr(String result) {
         long now = System.currentTimeMillis();
         if (result.equals(lastQrContent) && now - lastQrTime < config.qrCooldownSec * 1000L) {
             return;
@@ -610,6 +643,22 @@ public final class VisionCore implements VisionApi {
                 notifyState("ha_tag_id", lastTagId);
             }
         }
+    }
+
+    /** EAN/UPC product codes land on their own entity so shopping automations
+     *  never race the QR/HA-tag pipeline. Same per-content cooldown as QR. */
+    private void handleBarcode(String result) {
+        long now = System.currentTimeMillis();
+        if (result.equals(lastBarcodeContent)
+                && now - lastBarcodeTime < config.qrCooldownSec * 1000L) {
+            return;
+        }
+        lastBarcodeContent = result;
+        lastBarcodeTime = now;
+        lastBarcode = result;
+        barcodeScanCount++;
+        notifyState("last_barcode", lastBarcode);
+        notifyState("barcode_scan_count", barcodeScanCount);
     }
 
     private void processFace(Bitmap bmp) {
@@ -658,7 +707,7 @@ public final class VisionCore implements VisionApi {
      * rebuilt until its switch is toggled, with the reason on the Vision Error sensor.
      */
     private void ensureEngines() {
-        if (config.qrEnabled && qrScanner == null && !qrEngineFailed) {
+        if ((config.qrEnabled || config.barcodeEnabled) && qrScanner == null && !qrEngineFailed) {
             try {
                 qrScanner = new QrScanner();
             } catch (Throwable t) {
@@ -783,6 +832,7 @@ public final class VisionCore implements VisionApi {
     public void onDestroy() {
         if (!destroyed.compareAndSet(false, true)) return;
         config.qrEnabled = false;
+        config.barcodeEnabled = false;
         config.faceEnabled = false;
         config.gestureEnabled = false;
         config.cameraEnabled = false;

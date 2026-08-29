@@ -12,6 +12,7 @@ public final class VisionConfig {
     public volatile int frameRotation = -1;
 
     public volatile boolean qrEnabled = true;
+    public volatile boolean barcodeEnabled = true;
     public volatile boolean faceEnabled = true;
     public volatile boolean gestureEnabled = true;
 

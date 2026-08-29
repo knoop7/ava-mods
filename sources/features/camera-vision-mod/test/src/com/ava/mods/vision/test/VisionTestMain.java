@@ -22,6 +22,7 @@ import com.ava.mods.vision.core.YuNetEngine;
 
 import com.google.zxing.BarcodeFormat;
 import com.google.zxing.common.BitMatrix;
+import com.google.zxing.oned.EAN13Writer;
 import com.google.zxing.qrcode.QRCodeWriter;
 
 import java.io.File;
@@ -54,6 +55,7 @@ public final class VisionTestMain {
         testGenerationFence();
         testQrRoundTrip();
         testSmallQr();
+        testBarcode();
         testFace("yunet");
         testFace("sparse");
         testFace("short");
@@ -227,21 +229,51 @@ public final class VisionTestMain {
             QrScanner scanner = new QrScanner();
             String payload = "https://www.home-assistant.io/tag/test-1234-abcd";
 
+            // Both format families active: the production default configuration.
             Bitmap frame = frameWithQr(payload);
             long t0 = System.currentTimeMillis();
-            String decoded = scanner.decode(frame);
+            QrScanner.Scan decoded = scanner.decode(frame, true, true);
             long ms = System.currentTimeMillis() - t0;
             frame.recycle();
 
-            check("qr: decode own encoding (" + ms + " ms)", payload.equals(decoded),
-                    "decoded=" + decoded);
+            check("qr: decode own encoding (" + ms + " ms)",
+                    decoded != null && payload.equals(decoded.text) && decoded.isQr,
+                    "decoded=" + (decoded != null ? decoded.text + " isQr=" + decoded.isQr : "null"));
 
             Bitmap blank = solid(640, 480, Color.DKGRAY);
-            String none = scanner.decode(blank);
+            QrScanner.Scan none = scanner.decode(blank, true, true);
             blank.recycle();
-            check("qr: no false positive on blank", none == null, "decoded=" + none);
+            check("qr: no false positive on blank", none == null,
+                    "decoded=" + (none != null ? none.text : "null"));
         } catch (Throwable t) {
             fail("qr: crashed", t);
+        }
+    }
+
+    /** EAN-13 lands as a barcode scan, and each format family only fires when enabled. */
+    private static void testBarcode() {
+        try {
+            QrScanner scanner = new QrScanner();
+            String ean = "5901234123457";
+
+            Bitmap frame = frameWithEan(ean);
+            QrScanner.Scan scan = scanner.decode(frame, true, true);
+            check("barcode: EAN-13 decodes as barcode",
+                    scan != null && ean.equals(scan.text) && !scan.isQr,
+                    "scan=" + (scan != null ? scan.text + " isQr=" + scan.isQr : "null"));
+
+            QrScanner.Scan qrOnly = scanner.decode(frame, true, false);
+            check("barcode: ignored while barcode switch off", qrOnly == null,
+                    "scan=" + (qrOnly != null ? qrOnly.text : "null"));
+            frame.recycle();
+
+            Bitmap qrFrame = frameWithQr("https://example.com/x");
+            QrScanner.Scan barcodeOnly = scanner.decode(qrFrame, false, true);
+            check("barcode: QR ignored while QR switch off", barcodeOnly == null,
+                    "scan=" + (barcodeOnly != null ? barcodeOnly.text : "null"));
+            qrFrame.recycle();
+        } catch (Throwable t) {
+            fail("barcode: crashed", t);
         }
     }
 
@@ -465,9 +497,26 @@ public final class VisionTestMain {
         float top = (480 - sizePx) / 2f;
         new Canvas(frame).drawBitmap(qr, left, top, null);
         qr.recycle();
-        String decoded = scanner.decode(frame);
+        QrScanner.Scan decoded = scanner.decode(frame, true, false);
         frame.recycle();
-        return decoded;
+        return decoded != null ? decoded.text : null;
+    }
+
+    /** White 640x480 frame with an EAN-13 centered, as if held up to the camera. */
+    private static Bitmap frameWithEan(String code) throws Exception {
+        int w = 400;
+        int h = 160;
+        BitMatrix matrix = new EAN13Writer().encode(code, BarcodeFormat.EAN_13, w, h);
+        Bitmap barcode = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                barcode.setPixel(x, y, matrix.get(x, y) ? Color.BLACK : Color.WHITE);
+            }
+        }
+        Bitmap frame = solid(640, 480, Color.WHITE);
+        new Canvas(frame).drawBitmap(barcode, (640 - w) / 2f, (480 - h) / 2f, null);
+        barcode.recycle();
+        return frame;
     }
 
     /** White 640x480 frame with the QR centered, roughly what the camera would hand over. */

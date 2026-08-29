@@ -11,10 +11,18 @@ import com.google.zxing.RGBLuminanceSource;
 import com.google.zxing.Result;
 import com.google.zxing.common.HybridBinarizer;
 
-import java.util.Collections;
+import java.util.ArrayList;
 import java.util.EnumMap;
+import java.util.List;
 import java.util.Map;
 
+/**
+ * QR plus retail product barcodes (EAN-13/EAN-8/UPC-A/UPC-E), each behind its
+ * own switch. The format list stays this tight deliberately: face, gesture and
+ * scanning share one detection thread, and running TRY_HARDER across Data
+ * Matrix, Aztec and the industrial 1D symbologies cost more than the whole
+ * face pass while decoding nothing anyone points at a wall panel.
+ */
 public final class QrScanner {
 
     /**
@@ -24,24 +32,47 @@ public final class QrScanner {
      */
     private static final int MAX_DECODE_WIDTH = 1280;
 
-    private final MultiFormatReader reader;
-    private int[] pixelScratch = new int[0];
+    public static final class Scan {
+        public final String text;
+        public final boolean isQr;
 
-    /**
-     * QR only. Face, gesture and QR all share one detection thread, and running
-     * TRY_HARDER across Data Matrix and Aztec as well cost more than the whole
-     * face pass while decoding nothing Home Assistant tags actually use.
-     */
-    public QrScanner() {
-        reader = new MultiFormatReader();
-        Map<DecodeHintType, Object> hints = new EnumMap<>(DecodeHintType.class);
-        hints.put(DecodeHintType.POSSIBLE_FORMATS,
-                Collections.singletonList(BarcodeFormat.QR_CODE));
-        hints.put(DecodeHintType.TRY_HARDER, Boolean.TRUE);
-        reader.setHints(hints);
+        Scan(String text, boolean isQr) {
+            this.text = text;
+            this.isQr = isQr;
+        }
     }
 
-    public String decode(Bitmap bitmap) {
+    private final MultiFormatReader reader = new MultiFormatReader();
+    private int[] pixelScratch = new int[0];
+    private boolean hintsQr;
+    private boolean hintsBarcode;
+    private boolean hintsSet;
+
+    private void applyFormats(boolean qr, boolean barcode) {
+        if (hintsSet && qr == hintsQr && barcode == hintsBarcode) return;
+        List<BarcodeFormat> formats = new ArrayList<>();
+        if (qr) {
+            formats.add(BarcodeFormat.QR_CODE);
+        }
+        if (barcode) {
+            formats.add(BarcodeFormat.EAN_13);
+            formats.add(BarcodeFormat.EAN_8);
+            formats.add(BarcodeFormat.UPC_A);
+            formats.add(BarcodeFormat.UPC_E);
+        }
+        Map<DecodeHintType, Object> hints = new EnumMap<>(DecodeHintType.class);
+        hints.put(DecodeHintType.POSSIBLE_FORMATS, formats);
+        hints.put(DecodeHintType.TRY_HARDER, Boolean.TRUE);
+        reader.setHints(hints);
+        hintsQr = qr;
+        hintsBarcode = barcode;
+        hintsSet = true;
+    }
+
+    public Scan decode(Bitmap bitmap, boolean qr, boolean barcode) {
+        if (!qr && !barcode) return null;
+        applyFormats(qr, barcode);
+
         int width = bitmap.getWidth();
         int height = bitmap.getHeight();
 
@@ -67,7 +98,10 @@ public final class QrScanner {
 
         try {
             Result result = reader.decodeWithState(binary);
-            return result != null ? result.getText() : null;
+            if (result == null || result.getText() == null || result.getText().isEmpty()) {
+                return null;
+            }
+            return new Scan(result.getText(), result.getBarcodeFormat() == BarcodeFormat.QR_CODE);
         } catch (NotFoundException e) {
             return null;
         } finally {
