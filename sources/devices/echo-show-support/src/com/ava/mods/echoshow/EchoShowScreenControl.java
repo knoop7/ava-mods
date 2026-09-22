@@ -1,6 +1,8 @@
 package com.ava.mods.echoshow;
 
+import android.app.admin.DevicePolicyManager;
 import android.content.BroadcastReceiver;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
@@ -37,6 +39,9 @@ final class EchoShowScreenControl {
     private static final long WAKELOCK_CHUNK_MS = 25L * 60L * 1000L;
     private static final long WAKELOCK_RENEW_MS = 20L * 60L * 1000L;
     private static final long PANEL_ON_DETECT_SETTLE_MS = 5_000L;
+
+    /** Host Ava admin. Active only after the user accepts screen-power permission. */
+    private static final String HOST_DEVICE_ADMIN = "com.example.ava.receiver.DeviceAdminReceiver";
 
     private static final int MODE_IDLE = 0;
     private static final int MODE_WAIT_LIGHT = 1;
@@ -162,6 +167,30 @@ final class EchoShowScreenControl {
 
         startWatch(appContext, MODE_WAIT_LIGHT);
         return true;
+    }
+
+    /**
+     * HA screen switch only. Does not start the ambient watch: that watch reads lux through
+     * a privileged sysfs node, which is absent on the unprivileged path this call serves.
+     * With the keyguard disabled, the next host wake returns straight to Ava.
+     */
+    static boolean lockNow(Context context) {
+        try {
+            DevicePolicyManager dpm = (DevicePolicyManager) context.getSystemService(Context.DEVICE_POLICY_SERVICE);
+            if (dpm == null) {
+                return false;
+            }
+            ComponentName admin = new ComponentName(context, HOST_DEVICE_ADMIN);
+            if (!dpm.isAdminActive(admin)) {
+                Log.d(TAG, "lockNow skipped: device admin inactive");
+                return false;
+            }
+            dpm.lockNow();
+            return true;
+        } catch (Exception ex) {
+            Log.w(TAG, "lockNow failed: " + ex.getMessage());
+            return false;
+        }
     }
 
     static boolean wakeFromDark(Context context) {

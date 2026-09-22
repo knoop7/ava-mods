@@ -54,6 +54,7 @@ public class EchoShowSupportManager {
         return revision.isEmpty() ? "unknown" : revision;
     }
 
+    /** Lowest on-brightness. Ava treats slider 0 as screen off and will not write below this. */
     public int getMinBrightness() {
         return compatibility.getMinimumBacklight();
     }
@@ -158,7 +159,10 @@ public class EchoShowSupportManager {
         try {
             Process process = Runtime.getRuntime().exec("su");
             try (DataOutputStream os = new DataOutputStream(process.getOutputStream())) {
-                os.writeBytes("appops set " + context.getPackageName() + " SYSTEM_ALERT_WINDOW allow\n");
+                // cmd appops is what works on the Lineage 18.1 crown build (Ava issue #208);
+                // keep the appops script as a fallback for older shells.
+                os.writeBytes("cmd appops set " + context.getPackageName() + " SYSTEM_ALERT_WINDOW allow"
+                        + " || appops set " + context.getPackageName() + " SYSTEM_ALERT_WINDOW allow\n");
                 os.writeBytes("exit\n");
             }
             return process.waitFor() == 0;
@@ -174,6 +178,18 @@ public class EchoShowSupportManager {
     /** Read-only status shown in the mod diagnostics panel. */
     public String getBluetoothLeFeatureStatus() {
         return EchoShowBleFeatureRepair.getStatus(context);
+    }
+
+    /**
+     * HA screen switch, after Ava's own shell could not drive the panel.
+     * Off sleeps the display with device-admin {@code lockNow()} and does not arm the ambient watch.
+     * On returns false so Ava's own wake lock brings the panel back.
+     */
+    public boolean setScreenPower(Context context, boolean screenOn) {
+        if (!isSupported() || screenOn) {
+            return false;
+        }
+        return EchoShowScreenControl.lockNow(context.getApplicationContext());
     }
 
     /**

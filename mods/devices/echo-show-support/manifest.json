@@ -9,7 +9,7 @@
     "libs/echo-show-support.jar"
   ],
   "manager": "com.ava.mods.echoshow.EchoShowSupportManager",
-  "jar_hash": "a693a65680933a95ca58875ae54f6e8b",
+  "jar_hash": "b69a1f88cab1264c7e4ca7d4258710ce",
   "status_panel": [
     {
       "type": "text",
@@ -25,5 +25,5 @@
     }
   ],
   "entities": [],
-  "version": "1.1.8"
+  "version": "1.1.9"
 }

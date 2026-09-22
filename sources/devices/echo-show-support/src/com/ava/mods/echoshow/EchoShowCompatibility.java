@@ -136,8 +136,13 @@ final class EchoShowCompatibility {
         }
     }
 
+    /**
+     * Lowest brightness Ava may write while the panel is on.
+     * HA brightness 0 means screen off and is not a backlight value. The ROM still
+     * clamps the sysfs node (crown is 10); that write stays in {@code EchoShowScreenControl}.
+     */
     int getMinimumBacklight() {
-        return product == Product.ROOK ? 1 : 10;
+        return 1;
     }
 
     int getBleProxyHandoverDelayMs() {

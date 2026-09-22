@@ -1,4 +1,4 @@
-# Echo Show Support v1.1.8
+# Echo Show Support v1.1.9
 
 Device compatibility mod for supported Amazon Echo displays (crown, checkers, cronos, rook).
 
@@ -12,7 +12,8 @@ This mod does not expose Home Assistant entities. It provides optional manager h
 | `getHardwareProfileStatus()` | Detected codename, board revision, and evidence |
 | `getDeviceCodename()` | Stable product key for future per-device behavior |
 | `getBoardRevision()` | Device-tree hardware revision, or `unknown` |
-| `getMinBrightness()` | Product-aware minimum backlight |
+| `getMinBrightness()` | Lowest on-brightness Ava will write (1). Slider 0 means screen off, not backlight 0 |
+| `setScreenPower(Context, boolean)` | HA screen switch after Ava's shell fails. Off calls device-admin `lockNow()` only; on returns false so Ava wakes |
 | `isLowEndBleChip()` | MT76x8-only BLE scan tuning |
 | `suppressHostBleAdvertisingDuringProxy()` | Pause Ava's own BLE service advertisement while proxy scanning |
 | `getBleProxyHandoverDelayMs()` | Allow the controller to settle before proxy scan start |

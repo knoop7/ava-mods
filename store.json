@@ -55,12 +55,12 @@
     {
       "id": "echo-show-support",
       "name": "Echo Show Support",
-      "version": "1.1.8",
+      "version": "1.1.9",
       "author": "Ava",
       "description": "Hardware compatibility for supported Amazon Echo Show and Echo Spot displays.",
       "detail_description": "Per-device Echo display hooks for brightness, Bluetooth, overlays, and guarded ROM capability repair.",
       "path": "mods/devices/echo-show-support/",
-      "jar_hash": "a693a65680933a95ca58875ae54f6e8b"
+      "jar_hash": "b69a1f88cab1264c7e4ca7d4258710ce"
     },
     {
       "id": "connectivity-keepalive",
