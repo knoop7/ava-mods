@@ -1,0 +1,276 @@
+{
+  "id": "respeaker-xvf3800-support",
+  "name": "reSpeaker XVF3800 Support",
+  "version": "1.0.0",
+  "author": "scenix222",
+  "description": "Use the reSpeaker XVF3800 USB mic array with Ava: its LED ring shows Ava's voice session, and an optional beam lock holds the mic on the person speaking.",
+  "detail_description": "For the Seeed reSpeaker XVF3800 4-mic array on USB firmware, plugged into the Android device. LED ring: dark while idle, a comet at the wake word, a breathing cone pointing at the speaker while listening, a colour swirl while thinking, waves while answering, red on errors. Brightness and speed are adjustable, or leave the ring to the firmware. Beam lock (off by default): when the wake word is heard, the beamformer is pinned to the direction it came from and both USB channels are switched to that beam until the command is recognised. Stationary sources such as a TV are learned as interference zones and skipped. Honest note: in our tests the chip's echo cancellation did the heavy lifting against audio played through the reSpeaker itself; the beam lock helps most against an external source at a distance and cannot separate a source that is louder than you or in the same direction.",
+  "icon": "mdi:microphone-variant",
+  "voice_pipeline": true,
+  "libs": [
+    "libs/respeaker-xvf3800-support.jar"
+  ],
+  "manager": "com.ava.mods.respeaker.ReSpeakerManager",
+  "jar_hash": "52f6e70df269afc8cd93e68c19b3d75c",
+  "entities": [
+    {
+      "type": "select",
+      "id": "led_mode",
+      "name": "LED ring",
+      "icon": "mdi:led-strip-variant",
+      "options": [
+        "Voice status",
+        "Voice status and direction",
+        "Do not control"
+      ],
+      "set": "setLedMode",
+      "read": "getLedMode"
+    },
+    {
+      "type": "select",
+      "id": "led_brightness",
+      "name": "LED brightness",
+      "icon": "mdi:brightness-6",
+      "options": [
+        "10 %",
+        "25 %",
+        "50 %",
+        "100 %"
+      ],
+      "set": "setLedBrightness",
+      "read": "getLedBrightness"
+    },
+    {
+      "type": "select",
+      "id": "led_speed",
+      "name": "LED speed",
+      "icon": "mdi:speedometer-slow",
+      "options": [
+        "Slow",
+        "Medium",
+        "Fast"
+      ],
+      "set": "setLedSpeed",
+      "read": "getLedSpeed"
+    },
+    {
+      "type": "switch",
+      "id": "beam_lock",
+      "name": "Beam lock",
+      "icon": "mdi:target-variant",
+      "on": "setBeamLockEnabled:true",
+      "off": "setBeamLockEnabled:false",
+      "read": "isBeamLockEnabled"
+    },
+    {
+      "type": "sensor",
+      "id": "locked_azimuth",
+      "name": "Locked direction",
+      "icon": "mdi:compass-outline",
+      "unit": "°",
+      "read": "getLockedAzimuth"
+    },
+    {
+      "type": "button",
+      "id": "release_now",
+      "name": "Release beam",
+      "icon": "mdi:lock-open-variant-outline",
+      "press": "releaseNow"
+    },
+    {
+      "type": "select",
+      "id": "idle_route",
+      "name": "Wake word channels",
+      "icon": "mdi:ear-hearing",
+      "options": [
+        "Factory default",
+        "Both ASR",
+        "Both conference"
+      ],
+      "set": "setIdleRoute",
+      "read": "getIdleRoute"
+    },
+    {
+      "type": "number",
+      "id": "interferer_1",
+      "name": "Interferer direction 1",
+      "icon": "mdi:speaker",
+      "min": -1,
+      "max": 359,
+      "step": 1,
+      "set": "setInterferer1",
+      "read": "getInterferer1"
+    },
+    {
+      "type": "number",
+      "id": "interferer_2",
+      "name": "Interferer direction 2",
+      "icon": "mdi:speaker",
+      "min": -1,
+      "max": 359,
+      "step": 1,
+      "set": "setInterferer2",
+      "read": "getInterferer2"
+    },
+    {
+      "type": "number",
+      "id": "interferer_3",
+      "name": "Interferer direction 3",
+      "icon": "mdi:television",
+      "min": -1,
+      "max": 359,
+      "step": 1,
+      "set": "setInterferer3",
+      "read": "getInterferer3"
+    },
+    {
+      "type": "button",
+      "id": "reset_maps",
+      "name": "Reset learned maps",
+      "icon": "mdi:map-marker-off-outline",
+      "press": "resetMaps"
+    },
+    {
+      "type": "text_sensor",
+      "id": "link_state",
+      "name": "Control channel",
+      "icon": "mdi:usb-port",
+      "category": "diagnostic",
+      "read": "getLinkState"
+    },
+    {
+      "type": "text_sensor",
+      "id": "last_event",
+      "name": "Last event",
+      "icon": "mdi:script-text-outline",
+      "category": "diagnostic",
+      "read": "getLastEvent"
+    },
+    {
+      "type": "text_sensor",
+      "id": "learned_zones",
+      "name": "Learned interference zones",
+      "icon": "mdi:radar",
+      "category": "diagnostic",
+      "read": "getLearnedZones"
+    },
+    {
+      "type": "text_sensor",
+      "id": "speaker_map",
+      "name": "Speaker map",
+      "icon": "mdi:account-voice",
+      "category": "diagnostic",
+      "read": "getSpeakerMap"
+    }
+  ],
+  "config": [
+    {
+      "type": "switch",
+      "key": "enable_zone_learning",
+      "label": "Learn interference zones",
+      "description": "Beam lock: block directions that carry speech steadily from one place (TV, radio, speakers). People who move or pause in conversation are not learned; where commands came from before, learning is slowed down. A source that goes quiet frees its zone after about ten minutes.",
+      "defaultValue": "true"
+    },
+    {
+      "type": "switch",
+      "key": "enable_lookback",
+      "label": "Lookback lock",
+      "description": "Beam lock: keep measuring while idle and, at the wake word, take the direction from the seconds before it - the moment the wake word was spoken. Off means fast lock and energy search only.",
+      "defaultValue": "true"
+    },
+    {
+      "type": "switch",
+      "key": "release_after_stt",
+      "label": "Release after speech recognition",
+      "description": "Beam lock: release as soon as the command is recognised instead of at the end of the session. During the reply the wake word hears the whole room again; follow-up questions get their lock from the last direction.",
+      "defaultValue": "true"
+    },
+    {
+      "type": "switch",
+      "key": "correct_on_speech",
+      "label": "Correct at speech start",
+      "description": "Beam lock: when speech starts, move to the strongest direction outside the interference zones if it is far from the lock. Close to a loudspeaker that is often the speaker or its reflection, hence off; then it is only logged.",
+      "defaultValue": "false"
+    },
+    {
+      "type": "switch",
+      "key": "enable_fast_lock",
+      "label": "Fast lock",
+      "description": "Beam lock fallback: take the direction of the chip's auto-select beam at the wake word instead of waiting for speech energy. Interference zones still apply.",
+      "defaultValue": "true"
+    },
+    {
+      "type": "switch",
+      "key": "enable_channel_switch",
+      "label": "Switch channels",
+      "description": "Beam lock: route both USB channels to the locked beam during a command. Off means the beams are held but what Ava hears stays unchanged.",
+      "defaultValue": "true"
+    },
+    {
+      "type": "switch",
+      "key": "enable_tracking",
+      "label": "Track the speaker",
+      "description": "Beam lock: follow the fixed beam during the command. Off means set once at the wake word and hold.",
+      "defaultValue": "true"
+    },
+    {
+      "type": "switch",
+      "key": "enable_gating",
+      "label": "Gating",
+      "description": "Beam lock: mute beams outside the active direction. Measured without effect against a nearby source - the open beam still carries the whole room. For experiments only.",
+      "defaultValue": "false"
+    },
+    {
+      "type": "select",
+      "key": "track_window_deg",
+      "label": "Tracking window (degrees)",
+      "description": "How far a new reading may be from the wake word direction and still count as the same speaker.",
+      "options": [
+        "20",
+        "35",
+        "50",
+        "90"
+      ],
+      "defaultValue": "35"
+    },
+    {
+      "type": "select",
+      "key": "energy_threshold",
+      "label": "Minimum speech energy",
+      "description": "Readings below are ignored. Measured: silence reads exactly 0, speech 50,000 to over 800,000.",
+      "options": [
+        "250",
+        "500",
+        "1000",
+        "2500",
+        "5000"
+      ],
+      "defaultValue": "1000"
+    },
+    {
+      "type": "select",
+      "key": "search_seconds",
+      "label": "Search time (seconds)",
+      "description": "How long to look for the speaker after the wake word before giving up. Until a speaker is found, what Ava hears stays unchanged.",
+      "options": [
+        "4",
+        "8",
+        "15"
+      ],
+      "defaultValue": "8"
+    },
+    {
+      "type": "select",
+      "key": "max_lock_seconds",
+      "label": "Watchdog (seconds)",
+      "description": "Release and restore the channels after this time at the latest, even without a session end.",
+      "options": [
+        "15",
+        "30",
+        "60",
+        "120"
+      ],
+      "defaultValue": "30"
+    }
+  ]
+}
