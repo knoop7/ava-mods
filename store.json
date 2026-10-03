@@ -211,6 +211,16 @@
       "detail_description": "Drive the YX M5612 LED output and read its motion sensor from Home Assistant — handy for status lights, night cues, or occupancy-triggered scenes."
     },
     {
+      "id": "respeaker-xvf3800-support",
+      "name": "reSpeaker XVF3800 Support",
+      "version": "1.0.0",
+      "author": "scenix222",
+      "description": "Use the reSpeaker XVF3800 USB mic array with Ava: its LED ring shows Ava's voice session, and an optional beam lock holds the mic on the person speaking.",
+      "detail_description": "For the Seeed reSpeaker XVF3800 4-mic array on USB firmware, plugged into the Android device. LED ring: dark while idle, a comet at the wake word, a breathing cone pointing at the speaker while listening, a colour swirl while thinking, waves while answering, red on errors. Brightness and speed are adjustable, or leave the ring to the firmware. Beam lock (off by default): when the wake word is heard, the beamformer is pinned to the direction it came from and both USB channels are switched to that beam until the command is recognised. Stationary sources such as a TV are learned as interference zones and skipped. Honest note: in our tests the chip's echo cancellation did the heavy lifting against audio played through the reSpeaker itself; the beam lock helps most against an external source at a distance and cannot separate a source that is louder than you or in the same direction.",
+      "path": "mods/devices/respeaker-xvf3800-support/",
+      "jar_hash": "52f6e70df269afc8cd93e68c19b3d75c"
+    },
+    {
       "id": "screen-color-filter",
       "name": "Screen Color Filter",
       "version": "1.0.1",
